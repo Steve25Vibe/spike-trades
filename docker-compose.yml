@@ -75,7 +75,7 @@ services:
   cron:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.cron
     container_name: spike-trades-cron
     restart: unless-stopped
     depends_on:
@@ -84,7 +84,8 @@ services:
       NEXT_PUBLIC_APP_URL: http://app:3000
       SESSION_SECRET: ${SESSION_SECRET}
       CRON_TIMEZONE: America/Halifax
-    command: ["node", "-e", "require('tsx/cjs'); require('./scripts/start-cron.ts')"]
+      ANALYSIS_CRON_HOUR: ${ANALYSIS_CRON_HOUR:-10}
+      ANALYSIS_CRON_MINUTE: ${ANALYSIS_CRON_MINUTE:-45}
 
   # Nginx Reverse Proxy + SSL
   nginx:
