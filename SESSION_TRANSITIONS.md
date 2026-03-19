@@ -643,3 +643,66 @@ When ending a session, Claude Code should append an entry like this:
 ### Context window status:
 - Estimated usage: heavy (live production testing with long-running pipeline, multiple SSH sessions, iterative fixes)
 - Reason for stopping: completed Session 8 scope — first live run verified, bugs fixed, dashboard showing real data
+
+---
+
+## Session 8b Checkpoint — 2026-03-19
+
+### What was built:
+- **Directional scoring overhaul**: Scoring system now prioritizes upside potential instead of raw technical activity
+- **Market status indicator**: Dynamic green/red dot based on TSX market hours (9am-4pm ET weekdays)
+- **Data label corrections**: Gold converted to CAD, USO and XIU proxy labels corrected
+- **Bearish filter**: All DOWN-predicted stocks filtered from Top 20
+
+### What was changed:
+
+**Scoring for upside (canadian_llm_council_brain.py):**
+- Added `DIRECTIONAL_MANDATE` to all 4 LLM stage prompts — instructs scoring for short-term UPSIDE, not just technical activity
+- Updated `RUBRIC_TEXT` — bullish signals score high, bearish/overbought score low
+- `_build_consensus()` now multiplies consensus score by directional signal from Stage 4 forecasts (UP boosted, DOWN penalized)
+- `_is_bearish()` filter removes ALL DOWN-predicted stocks from final picks (not just >65% probability)
+
+**Market indicator (Sidebar.tsx + globals.css):**
+- Sidebar uses `isMarketOpen()` from utils (already existed, just wasn't wired up)
+- useState + useEffect with 60s interval to check market status
+- `.live-dot-closed` CSS class: red (#FF4444), slower 3s pulse, red glow
+
+**Data corrections (canadian_llm_council_brain.py + MarketHeader.tsx):**
+- Gold price converted from USD to CAD: `gold_usd / cad_usd` in `fetch_macro_context()`
+- Gold regime thresholds updated from USD ($4800/$4000) to CAD ($6600/$5500)
+- "WTI Oil" label → "USO Oil" (USO ETF proxy, not actual WTI crude)
+- "TSX" label → "TSX (XIU)" (XIU.TO ETF proxy, not TSX Composite index)
+
+### What was tested:
+- 5-ticker run with new scoring: SHOP.TO (UP +2.5%) ranked #1, CNQ.TO (DOWN) dropped to #4 → PASS
+- Strict bearish filter: only 1 of 5 test tickers survived (ABX.TO UP +4.5%) → PASS
+- Market indicator: red dot + "Closed — TSX Closed" displayed after hours → PASS
+- Gold shows ~$6,392 CAD (was $4,666 USD) → PASS
+- Dashboard labels corrected: "USO Oil", "TSX (XIU)" → PASS
+
+### Key decisions made:
+- **Filter ALL DOWN predictions**: Even mild DOWN predictions (40% probability) are excluded. A stock analyst product should only show buying opportunities.
+- **Gold in CAD**: Since this is a Canadian stock platform, gold should be in CAD. Converted at fetch time using live CAD/USD rate.
+- **Proxy labels**: Honest labeling — USO and XIU are proxies, not the real WTI/TSX values. FMP plan doesn't support CLUSD or ^GSPTSE.
+
+### Files modified:
+- `canadian_llm_council_brain.py` — directional mandate, rubric update, consensus adjustment, bearish filter, gold CAD conversion, regime thresholds
+- `src/components/layout/Sidebar.tsx` — dynamic market status indicator
+- `src/styles/globals.css` — .live-dot-closed red variant
+- `src/components/layout/MarketHeader.tsx` — USO Oil and TSX (XIU) labels
+
+### Checkpoint artifacts:
+- GitHub: `Steve25Vibe/spike-trades` commit `ad32091` — all changes pushed
+- Server: all containers rebuilt and running with latest code
+- Dashboard: showing 1 spike (ABX.TO UP) with corrected labels and gold in CAD
+
+### What the next session should do first:
+1. Run a full 297-ticker production council run to get a proper Top 20 of UP-only picks
+2. Save to Prisma and verify dashboard displays a full set of bullish spikes
+3. Confirm tomorrow's 10:45 AM AST cron fires with the new scoring
+4. Consider whether the 5-ticker test universe is too small (only 1/5 predicted UP) — production scale with 297 tickers should yield 15-20+ UP picks
+5. Update SESSION_TRANSITIONS.md with production run results
+
+### Context window status:
+- Estimated usage: heavy (multiple deploy cycles, council runs, iterative fixes)
+- Reason for stopping: context getting long, good breakpoint after scoring + UI fixes
