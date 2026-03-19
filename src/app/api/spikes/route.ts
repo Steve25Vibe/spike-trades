@@ -44,6 +44,7 @@ export async function GET(request: NextRequest) {
           tsxChange: report.tsxChange,
           oilPrice: report.oilPrice,
           goldPrice: report.goldPrice,
+          btcPrice: report.btcPrice,
           cadUsd: report.cadUsd,
           csvUrl: report.csvUrl,
         },

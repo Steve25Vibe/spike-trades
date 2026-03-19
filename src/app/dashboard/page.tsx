@@ -43,6 +43,7 @@ interface ReportData {
     tsxChange: number;
     oilPrice: number;
     goldPrice: number;
+    btcPrice: number;
     cadUsd: number;
     csvUrl: string;
   };
@@ -222,6 +223,7 @@ export default function DashboardPage() {
               tsxChange={data.report.tsxChange || 0}
               oilPrice={data.report.oilPrice || 0}
               goldPrice={data.report.goldPrice || 0}
+              btcPrice={data.report.btcPrice || 0}
               cadUsd={data.report.cadUsd || 0}
             />
 

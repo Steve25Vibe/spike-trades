@@ -102,6 +102,7 @@ export interface MarketRegime {
   tsxChange: number;
   oilPrice: number;
   goldPrice: number;
+  btcPrice: number;
   cadUsd: number;
   vix?: number;
   sectorLeader?: string;

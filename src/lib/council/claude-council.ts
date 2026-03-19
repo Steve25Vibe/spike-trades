@@ -81,7 +81,8 @@ function formatMarketContext(regime: MarketRegime, date: string): string {
 MARKET REGIME: ${regime.regime.toUpperCase()}
 TSX COMPOSITE: ${regime.tsxLevel.toFixed(0)} (${regime.tsxChange >= 0 ? '+' : ''}${regime.tsxChange.toFixed(2)}%)
 WTI CRUDE OIL: $${regime.oilPrice.toFixed(2)} USD/barrel
-GOLD: $${regime.goldPrice.toFixed(0)} USD/oz
+GOLD: $${regime.goldPrice.toFixed(0)} CAD
+BTC: $${regime.btcPrice?.toLocaleString('en-CA', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) || 'N/A'} CAD
 CAD/USD: ${regime.cadUsd?.toFixed(4) || 'N/A'}`;
 }
 

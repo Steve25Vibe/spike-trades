@@ -252,6 +252,7 @@ def _map_to_prisma(council_output: dict) -> dict:
             "tsxChange": macro.get("tsx_change_pct", 0),
             "oilPrice": macro.get("oil_wti", 0),
             "goldPrice": macro.get("gold_price", 0),
+            "btcPrice": macro.get("btc_price", 0),
             "cadUsd": macro.get("cad_usd", 0),
             "councilLog": council_log,
         },

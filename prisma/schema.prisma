@@ -20,6 +20,7 @@ model DailyReport {
   tsxChange     Float?
   oilPrice      Float?
   goldPrice     Float?
+  btcPrice      Float?
   cadUsd        Float?
   councilLog    Json?    // Full LLM council conversation
   csvUrl        String?  // Path to downloadable CSV

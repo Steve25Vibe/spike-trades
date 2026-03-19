@@ -9,10 +9,11 @@ interface Props {
   tsxChange: number;
   oilPrice: number;
   goldPrice: number;
+  btcPrice: number;
   cadUsd: number;
 }
 
-export default function MarketHeader({ date, regime, tsxLevel, tsxChange, oilPrice, goldPrice, cadUsd }: Props) {
+export default function MarketHeader({ date, regime, tsxLevel, tsxChange, oilPrice, goldPrice, btcPrice, cadUsd }: Props) {
   const regimeColors: Record<string, string> = {
     bull: 'text-spike-green bg-spike-green/10 border-spike-green/30',
     bear: 'text-spike-red bg-spike-red/10 border-spike-red/30',
@@ -58,6 +59,10 @@ export default function MarketHeader({ date, regime, tsxLevel, tsxChange, oilPri
           <div className="text-center">
             <p className="text-[10px] text-spike-text-muted uppercase tracking-wider">Gold</p>
             <p className="font-bold mono">${goldPrice.toFixed(0)}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-[10px] text-spike-text-muted uppercase tracking-wider">BTC</p>
+            <p className="font-bold mono">${btcPrice.toLocaleString('en-CA', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
           </div>
           <div className="text-center">
             <p className="text-[10px] text-spike-text-muted uppercase tracking-wider">CAD/USD</p>

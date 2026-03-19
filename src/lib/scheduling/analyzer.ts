@@ -17,6 +17,7 @@ interface CouncilMappedResponse {
     tsxChange: number;
     oilPrice: number;
     goldPrice: number;
+    btcPrice: number;
     cadUsd: number;
     councilLog: Record<string, unknown>;
   };
@@ -130,6 +131,7 @@ export async function runDailyAnalysis(useCached = false): Promise<{
         tsxChange: reportData.tsxChange,
         oilPrice: reportData.oilPrice,
         goldPrice: reportData.goldPrice,
+        btcPrice: reportData.btcPrice,
         cadUsd: reportData.cadUsd,
         councilLog: reportData.councilLog as any,
         spikes: {

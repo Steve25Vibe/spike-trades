@@ -78,6 +78,7 @@ class MacroContext(BaseModel):
     oil_wti: Optional[float] = Field(None, description="WTI crude price USD")
     oil_brent: Optional[float] = Field(None, description="Brent crude price USD")
     gold_price: Optional[float] = Field(None, description="Gold spot price USD")
+    btc_price: Optional[float] = Field(None, description="Bitcoin price CAD")
     tsx_composite: Optional[float] = Field(None, description="S&P/TSX Composite level")
     tsx_change_pct: Optional[float] = Field(None, description="TSX daily change %")
     cad_usd: Optional[float] = Field(None, description="CAD/USD exchange rate")
@@ -644,6 +645,7 @@ class LiveDataFetcher:
             _quote("XIU.TO"),   # TSX proxy (iShares S&P/TSX 60)
             _quote("^VIX"),     # VIX
             _quote("BZUSD"),    # Brent crude
+            _quote("BTCUSD"),   # Bitcoin
             return_exceptions=True,
         )
 
@@ -662,9 +664,14 @@ class LiveDataFetcher:
         cad_usd = safe_price(results[2])
         gold_cad = round(gold_usd / cad_usd, 2) if gold_usd and cad_usd else gold_usd
 
+        # Convert BTC from USD to CAD
+        btc_usd = safe_price(results[6])
+        btc_cad = round(btc_usd / cad_usd, 2) if btc_usd and cad_usd else btc_usd
+
         return MacroContext(
             oil_wti=safe_price(results[0]),      # USO proxy
             gold_price=gold_cad,                 # Gold in CAD
+            btc_price=btc_cad,                   # Bitcoin in CAD
             cad_usd=cad_usd,
             tsx_composite=safe_price(results[3]),  # XIU.TO proxy
             tsx_change_pct=safe_change(results[3]),

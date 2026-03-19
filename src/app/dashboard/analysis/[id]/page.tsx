@@ -420,11 +420,12 @@ export default function AnalysisPage() {
               'text-spike-amber'
             )}>{marketContext.regime?.toUpperCase()}</span> regime.
           </p>
-          <div className="grid grid-cols-5 gap-4">
+          <div className="grid grid-cols-6 gap-4">
             {[
               { label: 'TSX Composite', value: marketContext.tsxLevel?.toFixed(0), sub: `${marketContext.tsxChange >= 0 ? '+' : ''}${marketContext.tsxChange?.toFixed(2)}%`, color: marketContext.tsxChange >= 0 ? 'text-spike-green' : 'text-spike-red' },
               { label: 'WTI Crude Oil', value: `$${marketContext.oilPrice?.toFixed(2)}`, sub: 'USD/barrel', color: 'text-spike-text' },
-              { label: 'Gold', value: `$${marketContext.goldPrice?.toFixed(0)}`, sub: 'USD/oz', color: 'text-spike-text' },
+              { label: 'Gold', value: `$${marketContext.goldPrice?.toFixed(0)}`, sub: 'CAD', color: 'text-spike-text' },
+              { label: 'BTC', value: `$${marketContext.btcPrice?.toLocaleString('en-CA', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`, sub: 'CAD', color: 'text-spike-text' },
               { label: 'CAD/USD', value: marketContext.cadUsd?.toFixed(4), sub: 'Exchange rate', color: 'text-spike-text' },
               { label: 'Volume', value: formatVolume(spike.volume), sub: `Avg: ${formatVolume(spike.avgVolume || 0)}`, color: spike.volume > (spike.avgVolume || 0) ? 'text-spike-green' : 'text-spike-text' },
             ].map((m) => (

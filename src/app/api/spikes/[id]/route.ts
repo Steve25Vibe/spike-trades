@@ -25,6 +25,7 @@ export async function GET(
             tsxChange: true,
             oilPrice: true,
             goldPrice: true,
+            btcPrice: true,
             cadUsd: true,
             councilLog: true,
           },
@@ -139,6 +140,7 @@ export async function GET(
           tsxChange: spike.report.tsxChange,
           oilPrice: spike.report.oilPrice,
           goldPrice: spike.report.goldPrice,
+          btcPrice: spike.report.btcPrice,
           cadUsd: spike.report.cadUsd,
         },
 
