@@ -190,6 +190,25 @@ body {
   box-shadow: 0 0 8px rgba(255, 68, 68, 0.6);
 }
 
+/* Regime glow pulse animations */
+@keyframes glowPulseGreen {
+  0%, 100% { box-shadow: 0 0 8px rgba(0, 255, 136, 0.6), 0 0 20px rgba(0, 255, 136, 0.3); }
+  50% { box-shadow: 0 0 2px rgba(0, 255, 136, 0.2), 0 0 6px rgba(0, 255, 136, 0.1); }
+}
+
+@keyframes glowPulseRed {
+  0%, 100% { box-shadow: 0 0 8px rgba(255, 51, 102, 0.6), 0 0 20px rgba(255, 51, 102, 0.3); }
+  50% { box-shadow: 0 0 2px rgba(255, 51, 102, 0.2), 0 0 6px rgba(255, 51, 102, 0.1); }
+}
+
+.regime-glow-bull {
+  animation: glowPulseGreen 2s ease-in-out infinite;
+}
+
+.regime-glow-bear {
+  animation: glowPulseRed 2s ease-in-out infinite;
+}
+
 /* Table styles */
 .spike-table th {
   position: sticky;
