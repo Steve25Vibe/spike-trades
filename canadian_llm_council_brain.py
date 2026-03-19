@@ -301,11 +301,11 @@ class LiveDataFetcher:
         params = params or {}
         params["apikey"] = self.fmp_key
         url = f"{FMP_BASE}{path}"
-        for attempt in range(3):
+        for attempt in range(5):
             async with session.get(url, params=params) as resp:
                 if resp.status == 429:
-                    wait = 2 ** attempt  # 1s, 2s, 4s
-                    logger.warning(f"FMP {path} rate limited, retrying in {wait}s")
+                    wait = 5 * (2 ** attempt)  # 5s, 10s, 20s, 40s, 80s
+                    logger.warning(f"FMP {path} rate limited, retrying in {wait}s (attempt {attempt + 1}/5)")
                     await asyncio.sleep(wait)
                     continue
                 if resp.status != 200:
@@ -313,7 +313,7 @@ class LiveDataFetcher:
                     logger.error(f"FMP {path} returned {resp.status}: {text[:200]}")
                     return None
                 return await resp.json()
-        logger.error(f"FMP {path} failed after 3 retries (429)")
+        logger.error(f"FMP {path} failed after 5 retries (429)")
         return None
 
     async def _finnhub_get(self, path: str, params: dict | None = None) -> Any:
@@ -358,22 +358,22 @@ class LiveDataFetcher:
         return {}
 
     async def fetch_profiles_batch(self, tickers: list[str]) -> dict[str, dict]:
-        """Fetch profiles for multiple tickers (rate-limited, 5 at a time with delay)."""
+        """Fetch profiles for multiple tickers (rate-limited, 3 at a time with delay)."""
         result = {}
-        sem = asyncio.Semaphore(5)
+        sem = asyncio.Semaphore(3)
         async def _fetch(t: str):
             async with sem:
                 p = await self.fetch_profile(t)
                 if p:
                     result[t] = p
-                await asyncio.sleep(0.1)  # Rate limit: ~50 req/sec max
-        # Process in batches of 50 to avoid overwhelming FMP
-        for i in range(0, len(tickers), 50):
-            batch = tickers[i:i + 50]
+                await asyncio.sleep(0.3)  # Rate limit: ~10 req/sec max
+        # Process in batches of 20 to avoid overwhelming FMP
+        for i in range(0, len(tickers), 20):
+            batch = tickers[i:i + 20]
             await asyncio.gather(*[_fetch(t) for t in batch])
-            if i + 50 < len(tickers):
-                logger.info(f"Profiles: {min(i + 50, len(tickers))}/{len(tickers)} fetched")
-                await asyncio.sleep(1)  # Pause between batches
+            if i + 20 < len(tickers):
+                logger.info(f"Profiles: {min(i + 20, len(tickers))}/{len(tickers)} fetched")
+                await asyncio.sleep(3)  # Longer pause between batches
         return result
 
     # ── Quotes ────────────────────────────────────────────────────────
@@ -951,7 +951,7 @@ async def _call_anthropic(
                     chunks.append(text)
             return "".join(chunks)
         except anthropic.RateLimitError as e:
-            wait = 30 * (attempt + 1)  # 30s, 60s, 90s, 120s
+            wait = 60 * (attempt + 1)  # 60s, 120s, 180s, 240s
             logger.warning(f"Anthropic {model} rate limited, waiting {wait}s (attempt {attempt + 1}/4)")
             await asyncio.sleep(wait)
         except Exception as e:
@@ -2566,10 +2566,14 @@ class CanadianStockCouncilBrain:
             # Full liquidity filter: ADV >= $5M using avgVolume from profile
             liquid_tickers = []
             for ticker in price_filtered:
-                q = quotes[ticker]
-                price = q["price"]
+                q = quotes.get(ticker)
+                if not q:
+                    continue
+                price = q.get("price")
+                if price is None:
+                    continue
                 profile = profiles.get(ticker, {})
-                avg_vol = float(profile.get("averageVolume", 0))
+                avg_vol = float(profile.get("averageVolume", 0) or 0)
                 # Fallback: use today's volume if no profile
                 if avg_vol == 0:
                     avg_vol = float(q.get("volume", 0) or 0)
@@ -2623,9 +2627,9 @@ class CanadianStockCouncilBrain:
 
             # ── Step 5: Stage 1 — Sonnet ──
             logger.info(f"Step 5: Stage 1 (Sonnet) — {len(payloads_list)} tickers")
-            # Batch size 30 to stay under Anthropic rate limits (~30K tokens/min)
-            BATCH_SIZE = 30
-            INTER_BATCH_DELAY = 5  # seconds between batches
+            # Batch size 15 to stay under Anthropic rate limits (~30K tokens/min)
+            BATCH_SIZE = 15
+            INTER_BATCH_DELAY = 15  # seconds between batches to avoid 429s
             if len(payloads_list) > BATCH_SIZE:
                 stage1_all = []
                 n_batches = (len(payloads_list) + BATCH_SIZE - 1) // BATCH_SIZE
