@@ -51,7 +51,7 @@ if [ -d ".git" ]; then
 else
     echo ""
     echo "  Repository not found. Clone it first:"
-    echo "  git clone git@github.com:YOUR_USERNAME/spike-trades.git $PROJECT_DIR"
+    echo "  git clone https://github.com/Steve25Vibe/spike-trades.git $PROJECT_DIR"
     echo ""
     exit 1
 fi
