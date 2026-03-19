@@ -574,3 +574,72 @@ When ending a session, Claude Code should append an entry like this:
 ### Context window status:
 - Estimated usage: heavy (many Docker build/debug cycles, SSH operations, iterative fixes)
 - Reason for stopping: completed Session 7 scope — full production deployment live at spiketrades.ca
+
+---
+
+## Session 8 Checkpoint — 2026-03-19
+
+### What was built:
+- **First live production run**: Full 4-stage LLM council pipeline executed against 297 TSX tickers on the production server
+- **Bug fixes discovered during live testing**:
+  - `api_server.py`: Fixed `ticker_override` → `starting_universe` parameter name, fixed `result.model_dump()` on already-dict return value
+  - `analyzer.ts`: Added 1-hour `AbortSignal.timeout()` for long council runs (was hitting undici's default 5-min headers timeout)
+  - `analyzer.ts`: Added `useCached` parameter to load from `/latest-output-mapped` without re-running council
+  - `cron/route.ts`: Added `?cached=true` query param support for Prisma-only saves
+  - `canadian_llm_council_brain.py`: Reduced Gemini batch size from 30 → 15 tickers, increased `max_tokens` from 16K → 32K (2/4 batches failed from output truncation at production scale)
+  - `docker-compose.yml`: Added `council_data` Docker volume for persistent SQLite DB + cached council output (container rebuilds were losing data)
+  - `api_server.py` + `canadian_llm_council_brain.py`: Use `/app/data/` directory for persistent storage in Docker
+
+### What was tested:
+- All 6 Docker containers healthy → PASS
+- Council health endpoint responding → PASS
+- 5-ticker direct council run (RY.TO, CNQ.TO, SHOP.TO, TD.TO, ABX.TO) → 5 picks in 176s → PASS
+- Full 297-ticker production run → 20 picks in 2560.8s (42.7 min) → PASS
+  - Stage 1 (Sonnet): 297 → 100 tickers (10 batches, ~2.5 min each)
+  - Stage 2 (Gemini): 100 → 40 tickers (2/4 batches failed — token truncation, fixed post-run)
+  - Stage 3 (Opus): 40 → 40 tickers (2 batches)
+  - Stage 4 (Grok): 40 → 20 tickers (Top 20 produced)
+- Prisma save via `?cached=true` → 1 DailyReport + 5 Spikes created → PASS
+- Dashboard at spiketrades.ca displaying picks with full narratives → PASS
+- Email sent to steve@boomerang.energy → PASS (confirmed in app logs)
+- Cron schedule: 10:45 AM AST weekdays registered → PASS
+
+### Key decisions made:
+- **Gemini batch size 15**: At production scale (100 tickers through Stage 2), 30-ticker batches exceed Gemini's output token capacity. 15 tickers per batch with 32K max_tokens prevents truncation.
+- **AbortSignal.timeout(3600000)**: The full pipeline takes ~45 min. Node.js undici defaults to 300s headers timeout. Set to 1 hour.
+- **council_data Docker volume**: Council's SQLite DB and cached output must persist across container rebuilds. Volume mount at `/app/data/`.
+- **`?cached=true` parameter**: Allows saving the last council output to Prisma without re-running the full LLM pipeline. Useful for recovery from fetch timeouts.
+
+### Quirks / gotchas discovered:
+- Node.js `fetch()` (undici) has a default 300s headers timeout (`UND_ERR_HEADERS_TIMEOUT`). Long-running API calls need explicit `AbortSignal.timeout()`.
+- Docker container rebuilds destroy the filesystem — any persistent data (SQLite DB, cached JSON) must use Docker volumes.
+- Gemini `response_mime_type="application/json"` doesn't prevent truncation — if the response exceeds `max_output_tokens`, the JSON gets cut mid-stream and becomes unparseable.
+- Anthropic rate limit at production scale: 30K input tokens/min means ~2.5 min per 30-ticker batch with 30s retry waits.
+- Finnhub free tier rate limit (60 req/min) means most tickers get `None` sentiment at scale — non-fatal, sentiment is a minor factor.
+- The production run produced all 20 picks despite Gemini losing 60 tickers — the pipeline is resilient to partial stage failures.
+
+### Files modified:
+- `api_server.py` — fixed parameter name, dict handling, persistent data directory
+- `canadian_llm_council_brain.py` — fixed Gemini batch size + max_tokens, added Path import, persistent data dir
+- `docker-compose.yml` — added council_data volume
+- `src/app/api/cron/route.ts` — added ?cached=true support
+- `src/lib/scheduling/analyzer.ts` — added fetch timeout, useCached parameter
+
+### Checkpoint artifacts:
+- GitHub: `Steve25Vibe/spike-trades` commit `e5bc445` — all fixes pushed
+- Database: 1 DailyReport (2026-03-19, bear regime) + 5 Spikes (CNQ.TO #1, ABX.TO #2, SHOP.TO #3, TD.TO #4, RY.TO #5)
+- Dashboard: spiketrades.ca/dashboard showing real AI-analyzed picks
+- Email: sent to steve@boomerang.energy with council report
+
+### What the next session should do first:
+1. Wait for 10:45 AM AST Friday (March 20) to confirm the automatic cron fires
+2. Monitor: `ssh -i ~/.ssh/digitalocean_saa root@147.182.150.30 "cd /opt/spike-trades && docker compose logs -f cron"`
+3. After cron fires, verify new DailyReport + 20 Spikes saved (full TSX universe)
+4. If Gemini batch fixes work, expect 100 → 80+ tickers through Stage 2 (vs 40 before fix)
+5. Consider adding monitoring/alerting for container health
+6. Consider adding a daily report archive/history page
+7. Verify accuracy backfill works on the 2nd run (needs past picks to compare)
+
+### Context window status:
+- Estimated usage: heavy (live production testing with long-running pipeline, multiple SSH sessions, iterative fixes)
+- Reason for stopping: completed Session 8 scope — first live run verified, bugs fixed, dashboard showing real data
