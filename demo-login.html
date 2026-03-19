@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spike Trades — Login (Demo)</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Orbitron:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0A1428; color: #E2E8F0; font-family: 'Inter', system-ui, sans-serif;
+  min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  overflow: hidden; position: relative;
+}
+
+/* Background effects */
+.bg-effects {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 0;
+  background:
+    radial-gradient(ellipse at center, rgba(0,240,255,0.05) 0%, transparent 70%),
+    radial-gradient(ellipse at 80% 20%, rgba(168,85,247,0.05) 0%, transparent 50%);
+}
+.grid-overlay {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; opacity: 0.03;
+  background-image:
+    linear-gradient(rgba(0,240,255,0.3) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,240,255,0.3) 1px, transparent 1px);
+  background-size: 60px 60px;
+}
+
+/* Animated orbs */
+.orb {
+  position: fixed; border-radius: 50%; filter: blur(80px); opacity: 0.15;
+  animation: orbFloat 8s ease-in-out infinite alternate;
+}
+.orb-1 { width: 400px; height: 400px; background: #00F0FF; top: -100px; left: -100px; }
+.orb-2 { width: 300px; height: 300px; background: #A855F7; bottom: -50px; right: -50px; animation-delay: -4s; }
+@keyframes orbFloat {
+  0% { transform: translate(0, 0) scale(1); }
+  100% { transform: translate(30px, -30px) scale(1.1); }
+}
+
+.container { position: relative; z-index: 10; width: 100%; max-width: 440px; padding: 20px; }
+
+/* Logo area */
+.logo-area { text-align: center; margin-bottom: 48px; }
+.logo-icon-wrapper {
+  display: inline-flex; align-items: center; gap: 12px; margin-bottom: 16px;
+}
+.logo-icon {
+  width: 56px; height: 56px; border-radius: 14px;
+  background: linear-gradient(135deg, #00F0FF, #A855F7);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 0 40px rgba(0,240,255,0.3);
+}
+.title {
+  font-family: 'Orbitron', sans-serif; font-size: 40px; font-weight: 800;
+  letter-spacing: 4px; color: #00F0FF;
+  text-shadow: 0 0 20px rgba(0,240,255,0.5), 0 0 60px rgba(0,240,255,0.2);
+}
+.tagline {
+  color: #64748B; font-size: 13px; letter-spacing: 3px; text-transform: uppercase; margin-top: 4px;
+}
+
+/* Card */
+.login-card {
+  background: linear-gradient(145deg, rgba(17,30,51,0.85) 0%, rgba(15,29,53,0.5) 100%);
+  backdrop-filter: blur(30px); border: 1px solid rgba(30,58,95,0.6);
+  border-radius: 20px; padding: 36px; position: relative; overflow: hidden;
+}
+.login-card::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, #00F0FF, #A855F7, transparent);
+}
+
+.label {
+  display: block; font-size: 11px; font-weight: 600; color: #64748B;
+  text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 8px;
+}
+.input {
+  width: 100%; background: #0A1428; border: 1px solid #1E3A5F; border-radius: 12px;
+  padding: 14px 16px; color: #E2E8F0; font-family: 'JetBrains Mono', monospace;
+  font-size: 15px; outline: none; transition: all 0.3s;
+}
+.input::placeholder { color: #475569; }
+.input:focus { border-color: #00F0FF; box-shadow: 0 0 0 3px rgba(0,240,255,0.1); }
+
+.btn {
+  width: 100%; margin-top: 24px; padding: 16px; border: none; border-radius: 12px; cursor: pointer;
+  background: linear-gradient(135deg, #00F0FF, #A855F7); color: #0A1428;
+  font-weight: 700; font-size: 16px; letter-spacing: 1px; transition: all 0.3s;
+  position: relative; overflow: hidden;
+}
+.btn:hover { transform: translateY(-1px); box-shadow: 0 0 40px rgba(0,240,255,0.4); }
+.btn::before {
+  content: ''; position: absolute; top: 0; left: -100%; width: 200%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+  transition: left 0.5s;
+}
+.btn:hover::before { left: 100%; }
+
+.session-note { text-align: center; margin-top: 20px; font-size: 11px; color: #475569; }
+
+.legal {
+  text-align: center; font-size: 10px; color: #475569; margin-top: 32px; line-height: 1.6;
+}
+
+/* Scanline effect */
+.scanlines {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1;
+  background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+  pointer-events: none;
+}
+</style>
+</head>
+<body>
+
+<div class="bg-effects"></div>
+<div class="grid-overlay"></div>
+<div class="orb orb-1"></div>
+<div class="orb orb-2"></div>
+<div class="scanlines"></div>
+
+<div class="container">
+  <div class="logo-area">
+    <div class="logo-icon-wrapper">
+      <div class="logo-icon">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#0A1428" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/>
+          <polyline points="16 7 22 7 22 13"/>
+        </svg>
+      </div>
+    </div>
+    <div class="title">SPIKE TRADES</div>
+    <div class="tagline">Today's Spikes</div>
+  </div>
+
+  <div class="login-card">
+    <form onsubmit="handleLogin(event)">
+      <label class="label">Access Code</label>
+      <input type="password" class="input" id="pw" placeholder="Enter access code" autofocus required>
+      <div id="error" style="color:#FF3366;font-size:13px;text-align:center;margin-top:12px;padding:8px;border-radius:8px;background:rgba(255,51,102,0.08);display:none;border:1px solid rgba(255,51,102,0.15)"></div>
+      <button type="submit" class="btn" id="btn">Enter Terminal</button>
+    </form>
+    <div class="session-note">Authorized access only. All sessions are logged.</div>
+  </div>
+
+  <div class="legal">
+    For educational and informational purposes only. Not financial advice.<br>
+    Past performance is no guarantee of future results.
+  </div>
+</div>
+
+<script>
+function handleLogin(e) {
+  e.preventDefault();
+  const pw = document.getElementById('pw').value;
+  const btn = document.getElementById('btn');
+  const err = document.getElementById('error');
+
+  btn.textContent = 'Authenticating...';
+  btn.disabled = true;
+
+  setTimeout(() => {
+    if (pw === 'godmode') {
+      btn.textContent = 'Access Granted ✓';
+      btn.style.background = 'linear-gradient(135deg, #00FF88, #00B868)';
+      setTimeout(() => window.location.href = 'demo-dashboard.html', 800);
+    } else {
+      err.textContent = 'Access denied.';
+      err.style.display = 'block';
+      btn.textContent = 'Enter Terminal';
+      btn.disabled = false;
+      document.getElementById('pw').value = '';
+      document.getElementById('pw').focus();
+    }
+  }, 1000);
+}
+</script>
+</body>
+</html>

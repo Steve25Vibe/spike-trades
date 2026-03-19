@@ -1,0 +1,208 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// SPIKE TRADES — Database Schema
+// ============================================
+
+model DailyReport {
+  id            String   @id @default(cuid())
+  date          DateTime @db.Date
+  generatedAt   DateTime @default(now())
+  marketRegime  String?  // bull, bear, neutral, volatile
+  tsxLevel      Float?
+  tsxChange     Float?
+  oilPrice      Float?
+  goldPrice     Float?
+  cadUsd        Float?
+  councilLog    Json?    // Full LLM council conversation
+  csvUrl        String?  // Path to downloadable CSV
+  spikes        Spike[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([date])
+  @@index([date])
+}
+
+model Spike {
+  id              String   @id @default(cuid())
+  reportId        String
+  report          DailyReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  rank            Int
+  ticker          String   // e.g. "RY.TO"
+  name            String
+  sector          String?
+  exchange        String   // TSX or TSXV
+
+  // Current data
+  price           Float
+  volume          Int
+  avgVolume       Int?
+  marketCap       Float?
+
+  // Spike Score breakdown
+  spikeScore      Float    // 0-100 composite
+  momentumScore   Float?
+  volumeScore     Float?
+  technicalScore  Float?
+  macroScore      Float?
+  sentimentScore  Float?
+  shortInterest   Float?
+  volatilityAdj   Float?
+  sectorRotation  Float?
+  patternMatch    Float?
+  liquidityDepth  Float?   // Creative factor 1
+  insiderSignal   Float?   // Creative factor 2
+  gapPotential    Float?   // Creative factor 3
+
+  // Predictions
+  predicted3Day   Float    // % return
+  predicted5Day   Float
+  predicted8Day   Float
+  confidence      Float    // 0-100%
+
+  // Actuals (filled after market close)
+  actual3Day      Float?
+  actual5Day      Float?
+  actual8Day      Float?
+
+  // Narrative
+  narrative       String?  @db.Text // LLM-generated analysis
+
+  // Technical indicators snapshot
+  rsi             Float?
+  macd            Float?
+  macdSignal      Float?
+  adx             Float?
+  bollingerUpper  Float?
+  bollingerLower  Float?
+  ema3            Float?
+  ema8            Float?
+  atr             Float?
+
+  // Portfolio locks
+  portfolioEntries PortfolioEntry[]
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([reportId])
+  @@index([ticker, createdAt])
+  @@index([spikeScore])
+}
+
+model PortfolioEntry {
+  id              String   @id @default(cuid())
+  spikeId         String
+  spike           Spike    @relation(fields: [spikeId], references: [id])
+  ticker          String
+  name            String
+
+  // Entry
+  entryPrice      Float
+  entryDate       DateTime
+  shares          Int
+  positionSize    Float    // Dollar amount
+  positionPct     Float    // % of portfolio
+
+  // Targets
+  target3Day      Float?
+  target5Day      Float?
+  target8Day      Float?
+  stopLoss        Float?
+
+  // Exit
+  exitPrice       Float?
+  exitDate        DateTime?
+  exitReason      String?  // target_hit, stop_loss, manual, deviation_alert
+
+  // P&L
+  realizedPnl     Float?
+  realizedPnlPct  Float?
+
+  // Alerts
+  alertSent3Day   Boolean  @default(false)
+  alertSent5Day   Boolean  @default(false)
+  alertSent8Day   Boolean  @default(false)
+  deviationAlert  Boolean  @default(false)
+
+  status          String   @default("active") // active, closed, stopped
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([status])
+  @@index([ticker])
+  @@index([entryDate])
+}
+
+model AccuracyRecord {
+  id              String   @id @default(cuid())
+  date            DateTime @db.Date
+  horizon         Int      // 3, 5, or 8 days
+
+  // Aggregate metrics
+  totalPredictions Int
+  correctDirection Int     // Predicted direction matches actual
+  meanAbsError    Float    // MAE
+  meanError       Float    // Bias
+  hitRate         Float    // % correct direction
+  avgPredicted    Float
+  avgActual       Float
+  correlation     Float?   // Pred vs actual correlation
+
+  createdAt       DateTime @default(now())
+
+  @@unique([date, horizon])
+  @@index([date])
+}
+
+model MarketRegime {
+  id              String   @id @default(cuid())
+  date            DateTime @db.Date
+  regime          String   // bull, bear, neutral, volatile
+  vixLevel        Float?
+  tsxTrend        String?  // up, down, sideways
+  sectorLeader    String?
+  oilTrend        String?
+  goldTrend       String?
+  cadStrength     Float?
+  notes           String?  @db.Text
+
+  createdAt       DateTime @default(now())
+
+  @@unique([date])
+}
+
+model ApiLog {
+  id              String   @id @default(cuid())
+  source          String   // fmp, polygon, finnhub, yfinance
+  endpoint        String
+  status          Int      // HTTP status
+  responseTimeMs  Int
+  error           String?  @db.Text
+  createdAt       DateTime @default(now())
+
+  @@index([source, createdAt])
+}
+
+model CouncilLog {
+  id              String   @id @default(cuid())
+  date            DateTime @db.Date
+  claudeAnalysis  Json?
+  grokAnalysis    Json?
+  finalVerdict    Json?
+  consensusScore  Float?   // How much models agreed
+  processingTime  Int?     // ms
+
+  createdAt       DateTime @default(now())
+
+  @@unique([date])
+}

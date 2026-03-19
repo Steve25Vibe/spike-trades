@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spike Trades — Portfolio (Demo)</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Orbitron:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0A1428;--bg-light:#0F1D35;--bg-card:#111E33;--bg-hover:#162847;--cyan:#00F0FF;--violet:#A855F7;--green:#00FF88;--red:#FF3366;--amber:#FFB800;--gold:#FFD700;--border:#1E3A5F;--text:#E2E8F0;--text-dim:#94A3B8;--text-muted:#64748B}
+body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-serif;min-height:100vh;overflow-x:hidden}
+.mono{font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums}
+.display{font-family:'Orbitron',sans-serif}
+.bg-grid{position:fixed;top:0;left:0;right:0;bottom:0;z-index:0;background-image:radial-gradient(ellipse at 20% 50%,rgba(0,240,255,0.04) 0%,transparent 50%),radial-gradient(ellipse at 80% 20%,rgba(168,85,247,0.04) 0%,transparent 50%),linear-gradient(rgba(0,240,255,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,240,255,0.03) 1px,transparent 1px);background-size:100% 100%,100% 100%,60px 60px,60px 60px}
+.sidebar{position:fixed;left:0;top:0;height:100%;width:240px;background:var(--bg-light);border-right:1px solid var(--border);z-index:40;display:flex;flex-direction:column}
+.sidebar-logo{padding:24px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;text-decoration:none}
+.logo-icon{width:40px;height:40px;border-radius:10px;background:linear-gradient(135deg,var(--cyan),var(--violet));display:flex;align-items:center;justify-content:center}
+.sidebar nav{flex:1;padding:16px}
+.nav-item{display:flex;align-items:center;gap:12px;padding:12px 16px;border-radius:10px;color:var(--text-dim);text-decoration:none;font-size:14px;font-weight:500;transition:all 0.2s;margin-bottom:4px}
+.nav-item:hover{color:var(--text);background:var(--bg-hover)}
+.nav-item.active{color:var(--cyan);background:rgba(0,240,255,0.08);border:1px solid rgba(0,240,255,0.15)}
+.sidebar-footer{padding:16px;border-top:1px solid var(--border)}
+.live-dot{width:8px;height:8px;border-radius:50%;background:var(--green);animation:pulse 1.5s ease-in-out infinite;box-shadow:0 0 8px rgba(0,255,136,0.6)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+.main{margin-left:240px;padding:32px;position:relative;z-index:10}
+.glass{background:linear-gradient(145deg,rgba(17,30,51,0.8) 0%,rgba(15,29,53,0.4) 100%);backdrop-filter:blur(20px);border:1px solid rgba(30,58,95,0.6);border-radius:16px;transition:all 0.3s}
+.stats-row{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:24px}
+.stat{padding:16px;text-align:center}
+.stat-label{font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}
+.stat-val{font-size:18px;font-weight:700}
+.highlight-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px}
+.highlight{padding:16px;display:flex;align-items:center;gap:16px}
+.highlight-icon{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px}
+.tabs{display:flex;gap:8px;margin-bottom:16px}
+.tab{padding:8px 16px;border-radius:10px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;background:transparent;color:var(--text-dim)}
+.tab:hover{color:var(--text);background:var(--bg-hover)}
+.tab.active{background:rgba(0,240,255,0.08);color:var(--cyan);border:1px solid rgba(0,240,255,0.15)}
+.pos-card{padding:20px;margin-bottom:12px}
+.pos-header{display:flex;align-items:flex-start;justify-content:space-between;gap:24px}
+.pos-ticker{font-size:20px;font-weight:700}
+.pos-name{font-size:13px;color:var(--text-dim)}
+.pos-meta{font-size:11px;color:var(--text-muted);margin-top:2px}
+.pos-pnl{text-align:center;flex-shrink:0}
+.pos-actions{display:flex;gap:8px;align-items:center;flex-shrink:0}
+.btn-view{padding:8px 14px;border-radius:8px;font-size:12px;font-weight:500;color:var(--cyan);background:rgba(0,240,255,0.04);border:1px solid rgba(0,240,255,0.12);text-decoration:none;transition:all 0.2s;cursor:pointer}
+.btn-view:hover{background:rgba(0,240,255,0.08);border-color:rgba(0,240,255,0.3)}
+.btn-sell{padding:8px 14px;border-radius:8px;font-size:12px;font-weight:500;color:var(--text-dim);background:var(--bg);border:1px solid var(--border);cursor:pointer;transition:all 0.2s}
+.btn-sell:hover{border-color:rgba(255,51,102,0.3);color:var(--red)}
+.price-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:12px;margin-top:16px;padding-top:12px;border-top:1px solid rgba(30,58,95,0.2)}
+.price-cell{text-align:center}
+.price-cell .lbl{font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px}
+.price-cell .val{font-size:13px;font-weight:700;margin-top:2px}
+.progress-bar{margin-top:12px}
+.progress-bar .header{display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted);margin-bottom:4px}
+.progress-track{height:6px;border-radius:3px;background:rgba(10,20,40,0.5);overflow:hidden}
+.progress-fill{height:100%;border-radius:3px;transition:width 1s ease-out}
+.status-badge{font-size:11px;padding:3px 10px;border-radius:12px;font-weight:600}
+.status-on_track{color:var(--green);background:rgba(0,255,136,0.08)}
+.status-caution{color:var(--amber);background:rgba(255,184,0,0.08)}
+.status-target_hit{color:var(--gold);background:rgba(255,215,0,0.08)}
+.closed-row{padding:14px 20px;margin-bottom:8px;opacity:0.65;display:flex;align-items:center;justify-content:space-between}
+.legal{color:var(--text-muted);font-size:11px;text-align:center;padding:32px;border-top:1px solid var(--border);margin-top:64px;line-height:1.6}
+</style>
+</head>
+<body>
+<div class="bg-grid"></div>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <a href="demo-dashboard.html" class="sidebar-logo"><div class="logo-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0A1428" stroke-width="2.5"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg></div><div><div class="display" style="font-size:16px;font-weight:700;letter-spacing:2px;color:var(--cyan)">SPIKE TRADES</div><div style="font-size:9px;color:var(--text-muted);letter-spacing:2px;text-transform:uppercase;margin-top:-2px">Today's Spikes</div></div></a>
+  <nav>
+    <a href="demo-dashboard.html" class="nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg> Today's Spikes</a>
+    <a href="demo-portfolio.html" class="nav-item active"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg> Portfolio</a>
+    <a href="demo-accuracy.html" class="nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg> Accuracy</a>
+    <a href="demo-archives.html" class="nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Archives</a>
+  </nav>
+  <div class="sidebar-footer"><div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim)"><div class="live-dot"></div> Live — TSX Open</div></div>
+</aside>
+
+<main class="main">
+  <h2 class="display" style="font-size:22px;font-weight:700;color:var(--cyan);letter-spacing:2px;margin-bottom:24px">PORTFOLIO</h2>
+
+  <!-- Summary -->
+  <div class="stats-row">
+    <div class="glass stat"><div class="stat-label">Active Positions</div><div class="stat-val mono" style="color:var(--cyan)">4</div></div>
+    <div class="glass stat"><div class="stat-label">Total Invested</div><div class="stat-val mono">$7,842</div></div>
+    <div class="glass stat"><div class="stat-label">Current Value</div><div class="stat-val mono">$8,296</div></div>
+    <div class="glass stat"><div class="stat-label">Unrealized P&L</div><div class="stat-val mono" style="color:var(--green)">+$454</div><div class="mono" style="font-size:12px;color:var(--green)">+5.79%</div></div>
+    <div class="glass stat"><div class="stat-label">Realized P&L</div><div class="stat-val mono" style="color:var(--green)">+$312</div></div>
+    <div class="glass stat"><div class="stat-label">Win Rate</div><div class="stat-val mono" style="color:var(--green)">71%</div><div style="font-size:11px;color:var(--text-muted)">7 trades</div></div>
+  </div>
+
+  <!-- Best / Worst -->
+  <div class="highlight-row">
+    <div class="glass highlight" style="border-color:rgba(0,255,136,0.15)">
+      <div class="highlight-icon" style="background:rgba(0,255,136,0.08);color:var(--green)">↑</div>
+      <div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px">Best Position</div><div style="font-weight:700">CNQ.TO <span class="mono" style="color:var(--green);font-size:13px">+8.21%</span></div></div>
+    </div>
+    <div class="glass highlight" style="border-color:rgba(255,51,102,0.15)">
+      <div class="highlight-icon" style="background:rgba(255,51,102,0.08);color:var(--red)">↓</div>
+      <div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px">Worst Position</div><div style="font-weight:700">TD.TO <span class="mono" style="color:var(--red);font-size:13px">-1.34%</span></div></div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" onclick="showTab('active')">Active</button>
+    <button class="tab" onclick="showTab('closed')">Closed</button>
+    <button class="tab" onclick="showTab('all')">All</button>
+  </div>
+
+  <!-- Active Positions -->
+  <div id="activePositions">
+    <!-- CNQ -->
+    <div class="glass pos-card">
+      <div class="pos-header">
+        <div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="pos-ticker">CNQ.TO</span>
+            <span class="status-badge status-on_track">On Track</span>
+          </div>
+          <div class="pos-name">Canadian Natural Resources</div>
+          <div class="pos-meta">Entered Mar 12, 2026 &middot; 6 days held &middot; Score: 91</div>
+        </div>
+        <div class="pos-pnl">
+          <div class="mono" style="font-size:24px;font-weight:700;color:var(--green)">+$162.40</div>
+          <div class="mono" style="font-size:14px;color:var(--green)">+8.21%</div>
+        </div>
+        <div class="pos-actions">
+          <button class="btn-view" onclick="alert('Opens full analyst deep-dive for CNQ.TO')">View Analysis</button>
+          <button class="btn-sell" onclick="this.textContent='Confirm Sell';this.style.color='var(--red)';this.style.borderColor='var(--red)'">Sell / Close</button>
+        </div>
+      </div>
+      <div class="price-grid">
+        <div class="price-cell"><div class="lbl">Entry</div><div class="val mono">$89.42</div></div>
+        <div class="price-cell"><div class="lbl">Current</div><div class="val mono" style="color:var(--green)">$96.76</div></div>
+        <div class="price-cell"><div class="lbl">Shares</div><div class="val mono">22</div></div>
+        <div class="price-cell"><div class="lbl">Target 3D</div><div class="val mono" style="color:var(--green)">$92.82</div></div>
+        <div class="price-cell"><div class="lbl">Target 5D</div><div class="val mono" style="color:var(--cyan)">$94.07</div></div>
+        <div class="price-cell"><div class="lbl">Target 8D</div><div class="val mono" style="color:var(--violet)">$95.77</div></div>
+        <div class="price-cell"><div class="lbl">Stop Loss</div><div class="val mono" style="color:var(--red)">$85.96</div></div>
+      </div>
+      <div class="progress-bar"><div class="header"><span>Progress to 3-Day Target</span><span class="mono">100%</span></div><div class="progress-track"><div class="progress-fill" style="width:100%;background:var(--gold)"></div></div></div>
+    </div>
+
+    <!-- RY -->
+    <div class="glass pos-card">
+      <div class="pos-header">
+        <div>
+          <div style="display:flex;align-items:center;gap:8px"><span class="pos-ticker">RY.TO</span><span class="status-badge status-on_track">On Track</span></div>
+          <div class="pos-name">Royal Bank of Canada</div>
+          <div class="pos-meta">Entered Mar 14, 2026 &middot; 4 days held &middot; Score: 87</div>
+        </div>
+        <div class="pos-pnl"><div class="mono" style="font-size:24px;font-weight:700;color:var(--green)">+$203.28</div><div class="mono" style="font-size:14px;color:var(--green)">+3.42%</div></div>
+        <div class="pos-actions"><button class="btn-view">View Analysis</button><button class="btn-sell">Sell / Close</button></div>
+      </div>
+      <div class="price-grid">
+        <div class="price-cell"><div class="lbl">Entry</div><div class="val mono">$172.88</div></div>
+        <div class="price-cell"><div class="lbl">Current</div><div class="val mono" style="color:var(--green)">$178.80</div></div>
+        <div class="price-cell"><div class="lbl">Shares</div><div class="val mono">11</div></div>
+        <div class="price-cell"><div class="lbl">Target 3D</div><div class="val mono" style="color:var(--green)">$177.03</div></div>
+        <div class="price-cell"><div class="lbl">Target 5D</div><div class="val mono" style="color:var(--cyan)">$179.10</div></div>
+        <div class="price-cell"><div class="lbl">Target 8D</div><div class="val mono" style="color:var(--violet)">$181.52</div></div>
+        <div class="price-cell"><div class="lbl">Stop Loss</div><div class="val mono" style="color:var(--red)">$166.72</div></div>
+      </div>
+      <div class="progress-bar"><div class="header"><span>Progress to 3-Day Target</span><span class="mono">100%</span></div><div class="progress-track"><div class="progress-fill" style="width:100%;background:var(--gold)"></div></div></div>
+    </div>
+
+    <!-- SHOP (caution) -->
+    <div class="glass pos-card" style="border-color:rgba(255,184,0,0.2)">
+      <div class="pos-header">
+        <div>
+          <div style="display:flex;align-items:center;gap:8px"><span class="pos-ticker">SHOP.TO</span><span class="status-badge status-caution">Caution</span></div>
+          <div class="pos-name">Shopify Inc</div>
+          <div class="pos-meta">Entered Mar 17, 2026 &middot; 1 day held &middot; Score: 80</div>
+        </div>
+        <div class="pos-pnl"><div class="mono" style="font-size:24px;font-weight:700;color:var(--green)">+$197.10</div><div class="mono" style="font-size:14px;color:var(--green)">+1.82%</div></div>
+        <div class="pos-actions"><button class="btn-view">View Analysis</button><button class="btn-sell">Sell / Close</button></div>
+      </div>
+      <div class="price-grid">
+        <div class="price-cell"><div class="lbl">Entry</div><div class="val mono">$108.35</div></div>
+        <div class="price-cell"><div class="lbl">Current</div><div class="val mono" style="color:var(--green)">$110.32</div></div>
+        <div class="price-cell"><div class="lbl">Shares</div><div class="val mono">18</div></div>
+        <div class="price-cell"><div class="lbl">Target 3D</div><div class="val mono" style="color:var(--green)">$111.82</div></div>
+        <div class="price-cell"><div class="lbl">Target 5D</div><div class="val mono" style="color:var(--cyan)">$113.55</div></div>
+        <div class="price-cell"><div class="lbl">Target 8D</div><div class="val mono" style="color:var(--violet)">$115.61</div></div>
+        <div class="price-cell"><div class="lbl">Stop Loss</div><div class="val mono" style="color:var(--red)">$104.28</div></div>
+      </div>
+      <div class="progress-bar"><div class="header"><span>Progress to 3-Day Target</span><span class="mono">57%</span></div><div class="progress-track"><div class="progress-fill" style="width:57%;background:linear-gradient(90deg,var(--cyan),var(--green))"></div></div></div>
+    </div>
+
+    <!-- TD (slight loss) -->
+    <div class="glass pos-card">
+      <div class="pos-header">
+        <div>
+          <div style="display:flex;align-items:center;gap:8px"><span class="pos-ticker">TD.TO</span><span class="status-badge status-caution">Caution</span></div>
+          <div class="pos-name">Toronto-Dominion Bank</div>
+          <div class="pos-meta">Entered Mar 18, 2026 &middot; 0 days held &middot; Score: 75</div>
+        </div>
+        <div class="pos-pnl"><div class="mono" style="font-size:24px;font-weight:700;color:var(--red)">-$108.50</div><div class="mono" style="font-size:14px;color:var(--red)">-1.34%</div></div>
+        <div class="pos-actions"><button class="btn-view">View Analysis</button><button class="btn-sell">Sell / Close</button></div>
+      </div>
+      <div class="price-grid">
+        <div class="price-cell"><div class="lbl">Entry</div><div class="val mono">$84.23</div></div>
+        <div class="price-cell"><div class="lbl">Current</div><div class="val mono" style="color:var(--red)">$83.10</div></div>
+        <div class="price-cell"><div class="lbl">Shares</div><div class="val mono">23</div></div>
+        <div class="price-cell"><div class="lbl">Target 3D</div><div class="val mono" style="color:var(--green)">$85.75</div></div>
+        <div class="price-cell"><div class="lbl">Target 5D</div><div class="val mono" style="color:var(--cyan)">$86.67</div></div>
+        <div class="price-cell"><div class="lbl">Target 8D</div><div class="val mono" style="color:var(--violet)">$87.77</div></div>
+        <div class="price-cell"><div class="lbl">Stop Loss</div><div class="val mono" style="color:var(--red)">$80.86</div></div>
+      </div>
+      <div class="progress-bar"><div class="header"><span>Progress to 3-Day Target</span><span class="mono">0%</span></div><div class="progress-track"><div class="progress-fill" style="width:0%;background:var(--red)"></div></div></div>
+    </div>
+  </div>
+
+  <!-- Closed Positions (hidden by default) -->
+  <div id="closedPositions" style="display:none">
+    <div class="glass closed-row"><div style="display:flex;align-items:center;gap:12px"><span style="font-weight:700;color:var(--text-dim)">SU.TO</span><span style="font-size:12px;color:var(--text-muted)">Suncor Energy</span><span style="font-size:11px;color:var(--text-muted)">Closed Mar 15</span><span style="font-size:11px;color:var(--text-muted);font-style:italic">manual</span></div><div style="display:flex;align-items:center;gap:16px"><span class="mono" style="font-size:13px;color:var(--text-muted)">$52.14 → $54.28</span><span class="mono" style="font-size:13px;font-weight:700;color:var(--green)">+4.11%</span><span class="mono" style="font-size:13px;color:var(--green)">+$42.80</span></div></div>
+    <div class="glass closed-row"><div style="display:flex;align-items:center;gap:12px"><span style="font-weight:700;color:var(--text-dim)">ABX.TO</span><span style="font-size:12px;color:var(--text-muted)">Barrick Gold</span><span style="font-size:11px;color:var(--text-muted)">Closed Mar 14</span><span style="font-size:11px;color:var(--text-muted);font-style:italic">target_hit</span></div><div style="display:flex;align-items:center;gap:16px"><span class="mono" style="font-size:13px;color:var(--text-muted)">$24.67 → $25.89</span><span class="mono" style="font-size:13px;font-weight:700;color:var(--green)">+4.95%</span><span class="mono" style="font-size:13px;color:var(--green)">+$97.60</span></div></div>
+    <div class="glass closed-row"><div style="display:flex;align-items:center;gap:12px"><span style="font-weight:700;color:var(--text-dim)">ENB.TO</span><span style="font-size:12px;color:var(--text-muted)">Enbridge Inc</span><span style="font-size:11px;color:var(--text-muted)">Closed Mar 12</span><span style="font-size:11px;color:var(--text-muted);font-style:italic">stop_loss</span></div><div style="display:flex;align-items:center;gap:16px"><span class="mono" style="font-size:13px;color:var(--text-muted)">$56.30 → $54.12</span><span class="mono" style="font-size:13px;font-weight:700;color:var(--red)">-3.87%</span><span class="mono" style="font-size:13px;color:var(--red)">-$43.60</span></div></div>
+  </div>
+
+  <div class="legal">For educational and informational purposes only. Not financial advice. Past performance is no guarantee of future results.<br>&copy; 2026 Spike Trades — spiketrades.ca</div>
+</main>
+<script>
+function showTab(t) {
+  document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('activePositions').style.display = (t==='active'||t==='all') ? '' : 'none';
+  document.getElementById('closedPositions').style.display = (t==='closed'||t==='all') ? '' : 'none';
+}
+</script>
+</body>
+</html>

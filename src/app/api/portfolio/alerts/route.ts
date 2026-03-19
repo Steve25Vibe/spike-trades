@@ -1,0 +1,185 @@
+import { NextRequest, NextResponse } from 'next/server';
+import prisma from '@/lib/db/prisma';
+import { getBatchQuotes } from '@/lib/api/fmp';
+import { sendSellReminder, sendDeviationAlert } from '@/lib/email/resend';
+
+// POST /api/portfolio/alerts — Polled every 15 min during market hours
+// Checks every active position for target hits, sell-reminder windows, and deviations
+export async function POST(request: NextRequest) {
+  const authHeader = request.headers.get('authorization');
+  if (authHeader !== `Bearer ${process.env.SESSION_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  try {
+    const activePositions = await prisma.portfolioEntry.findMany({
+      where: { status: 'active' },
+      include: { spike: true },
+    });
+
+    if (activePositions.length === 0) {
+      return NextResponse.json({ success: true, checked: 0, alerts: 0 });
+    }
+
+    // Fetch live prices for all active tickers
+    const tickers = [...new Set(activePositions.map((p) => p.ticker))];
+    const quotes = await getBatchQuotes(tickers);
+    const priceMap = new Map(quotes.map((q) => [q.ticker, q.price]));
+
+    let alertsSent = 0;
+    const now = Date.now();
+
+    for (const position of activePositions) {
+      const currentPrice = priceMap.get(position.ticker);
+      if (!currentPrice) continue;
+
+      const daysSinceEntry = Math.floor(
+        (now - new Date(position.entryDate).getTime()) / 86_400_000
+      );
+      const pricePct = ((currentPrice - position.entryPrice) / position.entryPrice) * 100;
+
+      // ---- 1. Sell Reminders (time-based + price-hit) ----
+
+      // 3-Day sell reminder
+      if (!position.alertSent3Day && position.target3Day) {
+        const shouldAlert =
+          daysSinceEntry >= 3 || // Window has arrived
+          currentPrice >= position.target3Day; // Hit target early
+
+        if (shouldAlert) {
+          await sendSellReminder({
+            ticker: position.ticker,
+            name: position.name,
+            targetDate: new Date(
+              new Date(position.entryDate).getTime() + 3 * 86_400_000
+            ),
+            targetPrice: position.target3Day,
+            entryPrice: position.entryPrice,
+            currentPrice,
+            horizon: '3-day',
+          });
+          await prisma.portfolioEntry.update({
+            where: { id: position.id },
+            data: { alertSent3Day: true },
+          });
+          alertsSent++;
+        }
+      }
+
+      // 5-Day sell reminder
+      if (!position.alertSent5Day && position.target5Day) {
+        const shouldAlert =
+          daysSinceEntry >= 5 || currentPrice >= position.target5Day;
+
+        if (shouldAlert) {
+          await sendSellReminder({
+            ticker: position.ticker,
+            name: position.name,
+            targetDate: new Date(
+              new Date(position.entryDate).getTime() + 5 * 86_400_000
+            ),
+            targetPrice: position.target5Day,
+            entryPrice: position.entryPrice,
+            currentPrice,
+            horizon: '5-day',
+          });
+          await prisma.portfolioEntry.update({
+            where: { id: position.id },
+            data: { alertSent5Day: true },
+          });
+          alertsSent++;
+        }
+      }
+
+      // 8-Day sell reminder
+      if (!position.alertSent8Day && position.target8Day) {
+        const shouldAlert =
+          daysSinceEntry >= 8 || currentPrice >= position.target8Day;
+
+        if (shouldAlert) {
+          await sendSellReminder({
+            ticker: position.ticker,
+            name: position.name,
+            targetDate: new Date(
+              new Date(position.entryDate).getTime() + 8 * 86_400_000
+            ),
+            targetPrice: position.target8Day,
+            entryPrice: position.entryPrice,
+            currentPrice,
+            horizon: '8-day',
+          });
+          await prisma.portfolioEntry.update({
+            where: { id: position.id },
+            data: { alertSent8Day: true },
+          });
+          alertsSent++;
+        }
+      }
+
+      // ---- 2. Deviation Alerts (escalating) ----
+      // Caution at -5%, Danger at -8%
+      if (!position.deviationAlert && pricePct <= -5) {
+        await sendDeviationAlert({
+          ticker: position.ticker,
+          name: position.name,
+          entryPrice: position.entryPrice,
+          currentPrice,
+          deviationPct: pricePct,
+        });
+        await prisma.portfolioEntry.update({
+          where: { id: position.id },
+          data: { deviationAlert: true },
+        });
+        alertsSent++;
+      }
+
+      // ---- 3. Auto-close if stop-loss breached ----
+      if (position.stopLoss && currentPrice <= position.stopLoss) {
+        const realizedPnl =
+          (currentPrice - position.entryPrice) * position.shares;
+        const realizedPnlPct =
+          ((currentPrice - position.entryPrice) / position.entryPrice) * 100;
+
+        await prisma.portfolioEntry.update({
+          where: { id: position.id },
+          data: {
+            status: 'stopped',
+            exitPrice: currentPrice,
+            exitDate: new Date(),
+            exitReason: 'stop_loss',
+            realizedPnl,
+            realizedPnlPct,
+          },
+        });
+
+        // Also send a deviation alert for the stop-out
+        if (!position.deviationAlert) {
+          await sendDeviationAlert({
+            ticker: position.ticker,
+            name: position.name,
+            entryPrice: position.entryPrice,
+            currentPrice,
+            deviationPct: realizedPnlPct,
+          });
+        }
+        alertsSent++;
+      }
+    }
+
+    console.log(
+      `[Alerts] Checked ${activePositions.length} positions, sent ${alertsSent} alerts`
+    );
+
+    return NextResponse.json({
+      success: true,
+      checked: activePositions.length,
+      alerts: alertsSent,
+    });
+  } catch (error) {
+    console.error('[Alerts] Error:', error);
+    return NextResponse.json(
+      { success: false, error: String(error) },
+      { status: 500 }
+    );
+  }
+}

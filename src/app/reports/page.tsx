@@ -1,0 +1,149 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import Link from 'next/link';
+import Sidebar from '@/components/layout/Sidebar';
+import ParticleBackground from '@/components/layout/ParticleBackground';
+import { cn } from '@/lib/utils';
+
+interface Report {
+  id: string;
+  date: string;
+  marketRegime: string;
+  tsxLevel: number;
+  tsxChange: number;
+  csvUrl: string;
+  topSpikes: { ticker: string; spikeScore: number; predicted3Day: number; actual3Day: number | null }[];
+}
+
+export default function ReportsPage() {
+  const [reports, setReports] = useState<Report[]>([]);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchReports();
+  }, [page]);
+
+  const fetchReports = async () => {
+    try {
+      const res = await fetch(`/api/reports?page=${page}&pageSize=20`);
+      if (res.status === 401) { window.location.href = '/login'; return; }
+      const json = await res.json();
+      if (json.success) {
+        setReports(json.data);
+        setTotal(json.total);
+      }
+    } catch {
+      // handle
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const regimeColors: Record<string, string> = {
+    bull: 'text-spike-green bg-spike-green/10',
+    bear: 'text-spike-red bg-spike-red/10',
+    neutral: 'text-spike-amber bg-spike-amber/10',
+    volatile: 'text-spike-violet bg-spike-violet/10',
+  };
+
+  return (
+    <div className="min-h-screen bg-spike-bg">
+      <ParticleBackground />
+      <Sidebar />
+
+      <main className="ml-64 p-8 relative z-10">
+        <h2 className="text-2xl font-display font-bold text-spike-cyan tracking-wide mb-6">
+          REPORT ARCHIVES
+        </h2>
+
+        <div className="space-y-3">
+          {reports.map((report) => (
+            <Link
+              key={report.id}
+              href={`/dashboard?date=${report.date}`}
+              className="glass-card p-4 flex items-center justify-between gap-4 block hover:border-spike-cyan/30"
+            >
+              <div className="flex items-center gap-4">
+                <div>
+                  <p className="font-bold text-spike-text">
+                    {new Date(report.date).toLocaleDateString('en-CA', {
+                      weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
+                    })}
+                  </p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className={cn(
+                      'px-2 py-0.5 rounded-full text-[10px] font-bold uppercase',
+                      regimeColors[report.marketRegime] || regimeColors.neutral
+                    )}>
+                      {report.marketRegime}
+                    </span>
+                    <span className="text-xs text-spike-text-dim mono">
+                      TSX {report.tsxLevel?.toFixed(0)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Top 3 preview */}
+              <div className="flex gap-3">
+                {report.topSpikes.map((spike, i) => (
+                  <div key={i} className="text-center">
+                    <p className="text-xs font-bold text-spike-cyan">{spike.ticker}</p>
+                    <p className="text-[10px] mono text-spike-text-dim">{spike.spikeScore.toFixed(0)}</p>
+                  </div>
+                ))}
+              </div>
+
+              {report.csvUrl && (
+                <span className="text-xs text-spike-text-muted flex items-center gap-1">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                  </svg>
+                  CSV
+                </span>
+              )}
+            </Link>
+          ))}
+
+          {reports.length === 0 && !loading && (
+            <div className="glass-card p-12 text-center text-spike-text-dim">
+              No reports yet. The first analysis runs at 10:45 AM AST.
+            </div>
+          )}
+        </div>
+
+        {/* Pagination */}
+        {total > 20 && (
+          <div className="flex justify-center gap-2 mt-6">
+            <button
+              onClick={() => setPage(Math.max(1, page - 1))}
+              disabled={page === 1}
+              className="px-4 py-2 rounded-lg text-sm text-spike-text-dim hover:text-spike-text disabled:opacity-30"
+            >
+              ← Previous
+            </button>
+            <span className="px-4 py-2 text-sm text-spike-text-dim">
+              Page {page} of {Math.ceil(total / 20)}
+            </span>
+            <button
+              onClick={() => setPage(page + 1)}
+              disabled={page >= Math.ceil(total / 20)}
+              className="px-4 py-2 rounded-lg text-sm text-spike-text-dim hover:text-spike-text disabled:opacity-30"
+            >
+              Next →
+            </button>
+          </div>
+        )}
+
+        <div className="legal-footer">
+          <p>For educational and informational purposes only. Not financial advice. Past performance is no guarantee of future results.</p>
+        </div>
+      </main>
+    </div>
+  );
+}

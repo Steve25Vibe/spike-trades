@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spike Trades — Accuracy Engine (Demo)</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Orbitron:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.7/chart.umd.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0A1428;--bg-light:#0F1D35;--bg-card:#111E33;--bg-hover:#162847;--cyan:#00F0FF;--violet:#A855F7;--green:#00FF88;--red:#FF3366;--amber:#FFB800;--gold:#FFD700;--border:#1E3A5F;--text:#E2E8F0;--text-dim:#94A3B8;--text-muted:#64748B}
+body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-serif;min-height:100vh}
+.mono{font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums}.display{font-family:'Orbitron',sans-serif}
+.bg-grid{position:fixed;top:0;left:0;right:0;bottom:0;z-index:0;background-image:radial-gradient(ellipse at 20% 50%,rgba(0,240,255,0.04) 0%,transparent 50%),radial-gradient(ellipse at 80% 20%,rgba(168,85,247,0.04) 0%,transparent 50%),linear-gradient(rgba(0,240,255,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,240,255,0.03) 1px,transparent 1px);background-size:100% 100%,100% 100%,60px 60px,60px 60px}
+.sidebar{position:fixed;left:0;top:0;height:100%;width:240px;background:var(--bg-light);border-right:1px solid var(--border);z-index:40;display:flex;flex-direction:column}
+.sidebar-logo{padding:24px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;text-decoration:none}
+.logo-icon{width:40px;height:40px;border-radius:10px;background:linear-gradient(135deg,var(--cyan),var(--violet));display:flex;align-items:center;justify-content:center}
+.sidebar nav{flex:1;padding:16px}.nav-item{display:flex;align-items:center;gap:12px;padding:12px 16px;border-radius:10px;color:var(--text-dim);text-decoration:none;font-size:14px;font-weight:500;transition:all 0.2s;margin-bottom:4px}.nav-item:hover{color:var(--text);background:var(--bg-hover)}.nav-item.active{color:var(--cyan);background:rgba(0,240,255,0.08);border:1px solid rgba(0,240,255,0.15)}
+.sidebar-footer{padding:16px;border-top:1px solid var(--border)}.live-dot{width:8px;height:8px;border-radius:50%;background:var(--green);animation:pulse 1.5s ease-in-out infinite;box-shadow:0 0 8px rgba(0,255,136,0.6)}@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+.main{margin-left:240px;padding:32px;position:relative;z-index:10}
+.glass{background:linear-gradient(145deg,rgba(17,30,51,0.8) 0%,rgba(15,29,53,0.4) 100%);backdrop-filter:blur(20px);border:1px solid rgba(30,58,95,0.6);border-radius:16px}
+.stats-row{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:24px}
+.stat{padding:16px;text-align:center}.stat-label{font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}.stat-val{font-size:20px;font-weight:700}
+.tabs{display:flex;gap:8px}.tab{padding:8px 16px;border-radius:10px;font-size:13px;font-weight:500;border:none;cursor:pointer;transition:all 0.2s;background:transparent;color:var(--text-dim)}.tab:hover{color:var(--text);background:var(--bg-hover)}.tab.active{background:rgba(0,240,255,0.08);color:var(--cyan);border:1px solid rgba(0,240,255,0.15)}
+.chart-card{padding:24px;margin-bottom:24px}.chart-title{font-size:16px;font-weight:700;color:var(--text);margin-bottom:4px}.chart-sub{font-size:13px;color:var(--text-dim);margin-bottom:16px}
+.chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:24px}
+@media(max-width:1200px){.chart-grid{grid-template-columns:1fr}}
+.outperform-badge{padding:8px 16px;border-radius:12px;font-size:13px;font-weight:700}
+.legal{color:var(--text-muted);font-size:11px;text-align:center;padding:32px;border-top:1px solid var(--border);margin-top:64px;line-height:1.6}
+</style>
+</head>
+<body>
+<div class="bg-grid"></div>
+
+<aside class="sidebar">
+  <a href="demo-dashboard.html" class="sidebar-logo"><div class="logo-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0A1428" stroke-width="2.5"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg></div><div><div class="display" style="font-size:16px;font-weight:700;letter-spacing:2px;color:var(--cyan)">SPIKE TRADES</div><div style="font-size:9px;color:var(--text-muted);letter-spacing:2px;text-transform:uppercase;margin-top:-2px">Today's Spikes</div></div></a>
+  <nav>
+    <a href="demo-dashboard.html" class="nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg> Today's Spikes</a>
+    <a href="demo-portfolio.html" class="nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg> Portfolio</a>
+    <a href="demo-accuracy.html" class="nav-item active"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg> Accuracy</a>
+    <a href="demo-archives.html" class="nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Archives</a>
+  </nav>
+  <div class="sidebar-footer"><div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim)"><div class="live-dot"></div> Live — TSX Open</div></div>
+</aside>
+
+<main class="main">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px">
+    <h2 class="display" style="font-size:22px;font-weight:700;color:var(--cyan);letter-spacing:2px">ACCURACY ENGINE</h2>
+    <div class="tabs"><button class="tab active">3-Day</button><button class="tab">5-Day</button><button class="tab">8-Day</button></div>
+  </div>
+
+  <!-- Summary stats -->
+  <div class="stats-row">
+    <div class="glass stat"><div class="stat-label">Hit Rate</div><div class="stat-val mono" style="color:var(--green)">68.4%</div></div>
+    <div class="glass stat"><div class="stat-label">MAE</div><div class="stat-val mono" style="color:var(--cyan)">1.42%</div></div>
+    <div class="glass stat"><div class="stat-label">Bias</div><div class="stat-val mono" style="color:var(--green)">+0.31%</div></div>
+    <div class="glass stat"><div class="stat-label">Correlation</div><div class="stat-val mono" style="color:var(--green)">0.412</div></div>
+    <div class="glass stat"><div class="stat-label">Predictions</div><div class="stat-val mono" style="color:var(--violet)">1,240</div></div>
+    <div class="glass stat"><div class="stat-label">vs TSX</div><div class="stat-val mono" style="color:var(--green)">+4.8%</div></div>
+  </div>
+
+  <!-- HERO: Spike Picks vs TSX -->
+  <div class="glass chart-card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+      <div><div class="chart-title">Spike Picks vs TSX Composite</div><div class="chart-sub">Cumulative 3-day returns — our picks vs the overall Canadian market</div></div>
+      <div class="outperform-badge mono" style="background:rgba(0,255,136,0.08);color:var(--green)">+4.83% vs TSX</div>
+    </div>
+    <canvas id="heroChart" height="160"></canvas>
+  </div>
+
+  <!-- Predicted vs Actual -->
+  <div class="glass chart-card">
+    <div class="chart-title">Daily Predicted vs Actual Returns</div>
+    <div class="chart-sub">Average 3-day predicted return vs what actually happened each day</div>
+    <canvas id="predActualChart" height="130"></canvas>
+  </div>
+
+  <!-- Row: Portfolio + Hit Rate -->
+  <div class="chart-grid">
+    <div class="glass chart-card">
+      <div class="chart-title" style="font-size:13px">Your Portfolio — Closed Trades</div>
+      <div class="chart-sub">Cumulative realized returns from your locked-in positions</div>
+      <canvas id="portfolioChart" height="140"></canvas>
+    </div>
+    <div class="glass chart-card">
+      <div class="chart-title" style="font-size:13px">Rolling Directional Accuracy</div>
+      <div class="chart-sub">What % of predictions correctly predicted the move direction</div>
+      <canvas id="hitRateChart" height="140"></canvas>
+    </div>
+  </div>
+
+  <!-- Row: MAE -->
+  <div class="chart-grid">
+    <div class="glass chart-card">
+      <div class="chart-title" style="font-size:13px">Prediction Error Over Time</div>
+      <div class="chart-sub">Mean Absolute Error — lower is better</div>
+      <canvas id="maeChart" height="140"></canvas>
+    </div>
+    <div class="glass chart-card">
+      <div class="chart-title" style="font-size:13px">Model Confidence vs Outcome</div>
+      <div class="chart-sub">Do higher-confidence picks actually perform better?</div>
+      <canvas id="confChart" height="140"></canvas>
+    </div>
+  </div>
+
+  <div class="legal">For educational and informational purposes only. Not financial advice. Past performance is no guarantee of future results.<br>&copy; 2026 Spike Trades — spiketrades.ca</div>
+</main>
+
+<script>
+Chart.defaults.color = '#94A3B8';
+Chart.defaults.borderColor = '#1E3A5F';
+Chart.defaults.font.family = "'Inter', system-ui, sans-serif";
+Chart.defaults.font.size = 11;
+
+const labels = ['Feb 17','Feb 19','Feb 21','Feb 25','Feb 27','Mar 3','Mar 5','Mar 7','Mar 10','Mar 12','Mar 14','Mar 18'];
+
+// Hero: Picks vs TSX
+new Chart(document.getElementById('heroChart'), {
+  type: 'line',
+  data: {
+    labels,
+    datasets: [
+      { label: 'TSX Composite', data: [0,0.4,0.8,1.1,0.9,1.5,1.8,2.1,2.4,2.8,3.2,3.6], borderColor: '#64748B', borderDash: [6,3], borderWidth: 2, pointRadius: 0, tension: 0.3 },
+      { label: 'All 20 Spike Picks', data: [0,0.8,1.5,2.1,1.9,3.2,4.1,4.8,5.5,6.2,7.1,8.4], borderColor: '#00F0FF', borderWidth: 2.5, pointRadius: 0, tension: 0.3, fill: { target: 'origin', above: 'rgba(0,240,255,0.06)' } },
+      { label: 'Top 5 Picks', data: [0,1.2,2.3,3.1,2.8,4.5,5.8,6.9,7.8,8.9,10.2,12.1], borderColor: '#00FF88', borderWidth: 2.5, pointRadius: 0, tension: 0.3 },
+    ]
+  },
+  options: { responsive: true, plugins: { legend: { labels: { usePointStyle: true, padding: 20 } } }, scales: { y: { ticks: { callback: v => (v>0?'+':'')+v+'%' }, grid: { color: '#1E3A5F33' } }, x: { grid: { display: false } } } }
+});
+
+// Predicted vs Actual
+new Chart(document.getElementById('predActualChart'), {
+  type: 'line',
+  data: {
+    labels,
+    datasets: [
+      { label: 'Predicted Return', data: [2.1,2.4,1.8,2.6,2.2,2.9,3.1,2.7,2.5,3.0,2.8,3.2], borderColor: '#A855F7', borderWidth: 2, pointRadius: 2, pointBackgroundColor: '#A855F7', tension: 0.3 },
+      { label: 'Actual Return', data: [1.8,2.9,1.2,3.1,1.5,3.4,2.8,3.2,2.1,3.5,2.4,null], borderColor: '#00FF88', borderWidth: 2, pointRadius: 2, pointBackgroundColor: '#00FF88', tension: 0.3 },
+    ]
+  },
+  options: { responsive: true, plugins: { legend: { labels: { usePointStyle: true, padding: 20 } } }, scales: { y: { ticks: { callback: v => v+'%' }, grid: { color: '#1E3A5F33' } }, x: { grid: { display: false } } } }
+});
+
+// Portfolio cumulative
+new Chart(document.getElementById('portfolioChart'), {
+  type: 'line',
+  data: {
+    labels: ['Mar 3','Mar 5','Mar 7','Mar 10','Mar 12','Mar 14','Mar 15'],
+    datasets: [{
+      label: 'Cumulative Return',
+      data: [0,2.1,3.8,4.2,5.9,10.8,14.9],
+      borderColor: '#00FF88', borderWidth: 2.5, pointRadius: 4, pointBackgroundColor: '#00FF88', pointBorderColor: '#0A1428', pointBorderWidth: 2,
+      fill: { target: 'origin', above: 'rgba(0,255,136,0.08)' }, tension: 0.3,
+    }]
+  },
+  options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: v => (v>0?'+':'')+v+'%' }, grid: { color: '#1E3A5F33' } }, x: { grid: { display: false } } } }
+});
+
+// Hit rate
+new Chart(document.getElementById('hitRateChart'), {
+  type: 'line',
+  data: {
+    labels,
+    datasets: [
+      { label: 'Hit Rate', data: [62,65,58,70,64,72,68,71,66,74,69,73], borderColor: '#00F0FF', borderWidth: 2, pointRadius: 0, tension: 0.3, fill: { target: 'origin', above: 'rgba(0,240,255,0.08)' } },
+      { label: '50% Random', data: Array(12).fill(50), borderColor: '#FF3366', borderDash: [5,5], borderWidth: 1, pointRadius: 0 },
+    ]
+  },
+  options: { responsive: true, plugins: { legend: { labels: { usePointStyle: true, padding: 20 } } }, scales: { y: { min: 0, max: 100, ticks: { callback: v => v+'%' }, grid: { color: '#1E3A5F33' } }, x: { grid: { display: false } } } }
+});
+
+// MAE
+new Chart(document.getElementById('maeChart'), {
+  type: 'line',
+  data: {
+    labels,
+    datasets: [{ label: 'MAE', data: [2.1,1.9,2.3,1.7,1.8,1.5,1.6,1.4,1.5,1.3,1.4,1.2], borderColor: '#A855F7', borderWidth: 2, pointRadius: 0, tension: 0.3 }]
+  },
+  options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: v => v+'%' }, grid: { color: '#1E3A5F33' } }, x: { grid: { display: false } } } }
+});
+
+// Confidence vs outcome
+new Chart(document.getElementById('confChart'), {
+  type: 'line',
+  data: {
+    labels: ['50-55%','55-60%','60-65%','65-70%','70-75%','75-80%','80-85%','85-90%','90%+'],
+    datasets: [
+      { label: 'Avg Actual Return', data: [0.4,0.8,1.2,1.6,2.1,2.5,3.0,3.4,4.1], borderColor: '#00FF88', borderWidth: 2, pointRadius: 3, pointBackgroundColor: '#00FF88', tension: 0.3 },
+      { label: 'Avg Predicted Return', data: [1.2,1.5,1.8,2.2,2.6,2.8,3.2,3.5,4.0], borderColor: '#00F0FF', borderWidth: 2, pointRadius: 3, pointBackgroundColor: '#00F0FF', borderDash: [4,2], tension: 0.3 },
+    ]
+  },
+  options: { responsive: true, plugins: { legend: { labels: { usePointStyle: true, padding: 20 } } }, scales: { y: { ticks: { callback: v => v+'%' }, grid: { color: '#1E3A5F33' } }, x: { title: { display: true, text: 'Confidence Level', color: '#64748B' }, grid: { display: false } } } }
+});
+</script>
+</body>
+</html>

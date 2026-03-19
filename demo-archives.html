@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spike Trades — Report Archives (Demo)</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Orbitron:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0A1428;--bg-light:#0F1D35;--bg-card:#111E33;--bg-hover:#162847;--cyan:#00F0FF;--violet:#A855F7;--green:#00FF88;--red:#FF3366;--amber:#FFB800;--gold:#FFD700;--border:#1E3A5F;--text:#E2E8F0;--text-dim:#94A3B8;--text-muted:#64748B}
+body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-serif;min-height:100vh}
+.mono{font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums}.display{font-family:'Orbitron',sans-serif}
+.bg-grid{position:fixed;top:0;left:0;right:0;bottom:0;z-index:0;background-image:radial-gradient(ellipse at 20% 50%,rgba(0,240,255,0.04) 0%,transparent 50%),radial-gradient(ellipse at 80% 20%,rgba(168,85,247,0.04) 0%,transparent 50%),linear-gradient(rgba(0,240,255,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,240,255,0.03) 1px,transparent 1px);background-size:100% 100%,100% 100%,60px 60px,60px 60px}
+.sidebar{position:fixed;left:0;top:0;height:100%;width:240px;background:var(--bg-light);border-right:1px solid var(--border);z-index:40;display:flex;flex-direction:column}
+.sidebar-logo{padding:24px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;text-decoration:none}
+.logo-icon{width:40px;height:40px;border-radius:10px;background:linear-gradient(135deg,var(--cyan),var(--violet));display:flex;align-items:center;justify-content:center}
+.sidebar nav{flex:1;padding:16px}.nav-item{display:flex;align-items:center;gap:12px;padding:12px 16px;border-radius:10px;color:var(--text-dim);text-decoration:none;font-size:14px;font-weight:500;transition:all 0.2s;margin-bottom:4px}.nav-item:hover{color:var(--text);background:var(--bg-hover)}.nav-item.active{color:var(--cyan);background:rgba(0,240,255,0.08);border:1px solid rgba(0,240,255,0.15)}
+.sidebar-footer{padding:16px;border-top:1px solid var(--border)}.live-dot{width:8px;height:8px;border-radius:50%;background:var(--green);animation:pulse 1.5s ease-in-out infinite;box-shadow:0 0 8px rgba(0,255,136,0.6)}@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+.main{margin-left:240px;padding:32px;position:relative;z-index:10}
+.glass{background:linear-gradient(145deg,rgba(17,30,51,0.8) 0%,rgba(15,29,53,0.4) 100%);backdrop-filter:blur(20px);border:1px solid rgba(30,58,95,0.6);border-radius:16px;transition:all 0.3s}
+.glass:hover{border-color:rgba(0,240,255,0.25);box-shadow:0 0 20px rgba(0,240,255,0.06);transform:translateY(-1px)}
+.report-row{padding:16px 20px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;text-decoration:none;color:inherit}
+.report-date{font-weight:700;font-size:15px}
+.report-meta{display:flex;align-items:center;gap:8px;margin-top:4px}
+.regime-badge{padding:2px 10px;border-radius:10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px}
+.regime-bull{background:rgba(0,255,136,0.08);color:var(--green)}
+.regime-bear{background:rgba(255,51,102,0.08);color:var(--red)}
+.regime-neutral{background:rgba(255,184,0,0.08);color:var(--amber)}
+.regime-volatile{background:rgba(168,85,247,0.08);color:var(--violet)}
+.top-spikes{display:flex;gap:16px}
+.top-spike{text-align:center;min-width:56px}
+.top-spike .tk{font-size:12px;font-weight:700;color:var(--cyan)}
+.top-spike .sc{font-size:11px;color:var(--text-dim)}
+.top-spike .actual{font-size:10px;margin-top:2px}
+.csv-link{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text-muted);flex-shrink:0;padding:6px 12px;border-radius:8px;border:1px solid var(--border);transition:all 0.2s;text-decoration:none}
+.csv-link:hover{border-color:var(--cyan);color:var(--cyan)}
+.pagination{display:flex;justify-content:center;gap:8px;margin-top:24px}
+.page-btn{padding:8px 16px;border-radius:8px;font-size:13px;color:var(--text-dim);background:transparent;border:none;cursor:pointer;transition:all 0.2s}
+.page-btn:hover{color:var(--text)}
+.page-btn.active{color:var(--cyan)}
+.page-btn:disabled{opacity:0.3;cursor:default}
+.search-bar{display:flex;gap:12px;margin-bottom:20px}
+.search-input{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:10px 16px;color:var(--text);font-size:13px;outline:none;transition:border-color 0.2s}
+.search-input:focus{border-color:var(--cyan)}
+.search-input::placeholder{color:var(--text-muted)}
+.filter-btn{padding:8px 16px;border-radius:10px;font-size:12px;font-weight:500;border:1px solid var(--border);background:transparent;color:var(--text-dim);cursor:pointer;transition:all 0.2s}
+.filter-btn:hover{border-color:var(--cyan);color:var(--text)}
+.legal{color:var(--text-muted);font-size:11px;text-align:center;padding:32px;border-top:1px solid var(--border);margin-top:64px;line-height:1.6}
+</style>
+</head>
+<body>
+<div class="bg-grid"></div>
+
+<aside class="sidebar">
+  <a href="demo-dashboard.html" class="sidebar-logo"><div class="logo-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0A1428" stroke-width="2.5"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg></div><div><div class="display" style="font-size:16px;font-weight:700;letter-spacing:2px;color:var(--cyan)">SPIKE TRADES</div><div style="font-size:9px;color:var(--text-muted);letter-spacing:2px;text-transform:uppercase;margin-top:-2px">Today's Spikes</div></div></a>
+  <nav>
+    <a href="demo-dashboard.html" class="nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg> Today's Spikes</a>
+    <a href="demo-portfolio.html" class="nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg> Portfolio</a>
+    <a href="demo-accuracy.html" class="nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg> Accuracy</a>
+    <a href="demo-archives.html" class="nav-item active"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Archives</a>
+  </nav>
+  <div class="sidebar-footer"><div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim)"><div class="live-dot"></div> Live — TSX Open</div></div>
+</aside>
+
+<main class="main">
+  <h2 class="display" style="font-size:22px;font-weight:700;color:var(--cyan);letter-spacing:2px;margin-bottom:24px">REPORT ARCHIVES</h2>
+
+  <!-- Search & Filter -->
+  <div class="search-bar">
+    <input type="text" class="search-input" placeholder="Search by date, ticker, or regime...">
+    <button class="filter-btn">All Regimes ▾</button>
+    <button class="filter-btn">Date Range ▾</button>
+  </div>
+
+  <!-- Report List -->
+  <div id="reportList"></div>
+
+  <!-- Pagination -->
+  <div class="pagination">
+    <button class="page-btn" disabled>← Previous</button>
+    <button class="page-btn active">Page 1 of 12</button>
+    <button class="page-btn">Next →</button>
+  </div>
+
+  <div class="legal">For educational and informational purposes only. Not financial advice. Past performance is no guarantee of future results.<br>&copy; 2026 Spike Trades — spiketrades.ca</div>
+</main>
+
+<script>
+const reports = [
+  { date: 'Tue, March 18, 2026', regime: 'bull', tsx: '22,847', tsxChg: '+0.84%', top: [{tk:'CNQ.TO',sc:91,ret:'+3.8%',color:'var(--green)'},{tk:'RY.TO',sc:87,ret:'+2.4%',color:'var(--green)'},{tk:'ABX.TO',sc:83,ret:'+2.9%',color:'var(--green)'}] },
+  { date: 'Mon, March 17, 2026', regime: 'bull', tsx: '22,656', tsxChg: '+0.52%', top: [{tk:'SHOP.TO',sc:84,ret:'+4.1%',color:'var(--green)'},{tk:'SU.TO',sc:79,ret:'+1.8%',color:'var(--green)'},{tk:'ENB.TO',sc:76,ret:'-0.4%',color:'var(--red)'}] },
+  { date: 'Fri, March 14, 2026', regime: 'neutral', tsx: '22,539', tsxChg: '-0.12%', top: [{tk:'ABX.TO',sc:88,ret:'+4.9%',color:'var(--green)'},{tk:'BMO.TO',sc:81,ret:'+1.2%',color:'var(--green)'},{tk:'NTR.TO',sc:78,ret:'+2.1%',color:'var(--green)'}] },
+  { date: 'Thu, March 13, 2026', regime: 'bull', tsx: '22,566', tsxChg: '+1.21%', top: [{tk:'CNQ.TO',sc:92,ret:'+5.2%',color:'var(--green)'},{tk:'CP.TO',sc:85,ret:'+3.1%',color:'var(--green)'},{tk:'TD.TO',sc:80,ret:'+1.9%',color:'var(--green)'}] },
+  { date: 'Wed, March 12, 2026', regime: 'neutral', tsx: '22,297', tsxChg: '+0.08%', top: [{tk:'RY.TO',sc:86,ret:'+2.8%',color:'var(--green)'},{tk:'SU.TO',sc:82,ret:'+3.4%',color:'var(--green)'},{tk:'SHOP.TO',sc:79,ret:'-1.2%',color:'var(--red)'}] },
+  { date: 'Tue, March 11, 2026', regime: 'bear', tsx: '22,279', tsxChg: '-1.34%', top: [{tk:'ABX.TO',sc:90,ret:'+6.1%',color:'var(--green)'},{tk:'AEM.TO',sc:84,ret:'+4.3%',color:'var(--green)'},{tk:'FNV.TO',sc:81,ret:'+3.7%',color:'var(--green)'}] },
+  { date: 'Mon, March 10, 2026', regime: 'volatile', tsx: '22,582', tsxChg: '-0.67%', top: [{tk:'BCE.TO',sc:77,ret:'+0.8%',color:'var(--green)'},{tk:'TRP.TO',sc:75,ret:'+1.4%',color:'var(--green)'},{tk:'MFC.TO',sc:73,ret:'-2.1%',color:'var(--red)'}] },
+  { date: 'Fri, March 7, 2026', regime: 'bull', tsx: '22,734', tsxChg: '+0.91%', top: [{tk:'CNQ.TO',sc:89,ret:'+3.2%',color:'var(--green)'},{tk:'RY.TO',sc:85,ret:'+2.0%',color:'var(--green)'},{tk:'SU.TO',sc:83,ret:'+2.7%',color:'var(--green)'}] },
+  { date: 'Thu, March 6, 2026', regime: 'neutral', tsx: '22,528', tsxChg: '+0.24%', top: [{tk:'SHOP.TO',sc:82,ret:'+3.8%',color:'var(--green)'},{tk:'CSU.TO',sc:79,ret:'+1.5%',color:'var(--green)'},{tk:'L.TO',sc:76,ret:'+0.9%',color:'var(--green)'}] },
+  { date: 'Wed, March 5, 2026', regime: 'bull', tsx: '22,474', tsxChg: '+0.63%', top: [{tk:'TD.TO',sc:84,ret:'+2.3%',color:'var(--green)'},{tk:'BMO.TO',sc:80,ret:'+1.8%',color:'var(--green)'},{tk:'NA.TO',sc:77,ret:'+1.1%',color:'var(--green)'}] },
+];
+
+const list = document.getElementById('reportList');
+reports.forEach(r => {
+  const regimeClass = `regime-${r.regime}`;
+  list.innerHTML += `
+    <a href="demo-dashboard.html" class="glass report-row">
+      <div>
+        <div class="report-date">${r.date}</div>
+        <div class="report-meta">
+          <span class="regime-badge ${regimeClass}">${r.regime}</span>
+          <span style="font-size:12px;color:var(--text-dim)" class="mono">TSX ${r.tsx} <span style="color:${r.tsxChg.startsWith('+') ? 'var(--green)' : 'var(--red)'}">${r.tsxChg}</span></span>
+        </div>
+      </div>
+      <div class="top-spikes">
+        ${r.top.map((s,i) => `<div class="top-spike"><div class="tk">${i===0?'🥇 ':''}${s.tk}</div><div class="sc mono">${s.sc}</div><div class="actual mono" style="color:${s.color}">${s.ret}</div></div>`).join('')}
+      </div>
+      <div class="csv-link">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        CSV
+      </div>
+    </a>`;
+});
+</script>
+</body>
+</html>

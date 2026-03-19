@@ -1,0 +1,117 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:16-alpine
+    container_name: spike-trades-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: spiketrades
+      POSTGRES_USER: spiketrades
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-spike_trades_secure_pw_2024}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spiketrades"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Python Council Brain (FastAPI)
+  council:
+    build:
+      context: .
+      dockerfile: Dockerfile.council
+    container_name: spike-trades-council
+    restart: unless-stopped
+    environment:
+      FMP_API_KEY: ${FMP_API_KEY}
+      FINNHUB_API_KEY: ${FINNHUB_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      XAI_API_KEY: ${XAI_API_KEY}
+    ports:
+      - "8100:8100"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Next.js Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: spike-trades-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      council:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://spiketrades:${DB_PASSWORD:-spike_trades_secure_pw_2024}@db:5432/spiketrades?schema=public
+      NODE_ENV: production
+      NEXT_PUBLIC_APP_URL: https://spiketrades.ca
+      COUNCIL_API_URL: http://council:8100
+      FMP_API_KEY: ${FMP_API_KEY}
+      FINNHUB_API_KEY: ${FINNHUB_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      XAI_API_KEY: ${XAI_API_KEY}
+      RESEND_API_KEY: ${RESEND_API_KEY}
+      EMAIL_FROM: ${EMAIL_FROM:-alerts@spiketrades.ca}
+      EMAIL_TO: ${EMAIL_TO:-steve@boomerang.energy}
+      SESSION_SECRET: ${SESSION_SECRET}
+      CRON_TIMEZONE: America/Halifax
+    ports:
+      - "3000:3000"
+
+  # Cron Scheduler (separate process)
+  cron:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: spike-trades-cron
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      NEXT_PUBLIC_APP_URL: http://app:3000
+      SESSION_SECRET: ${SESSION_SECRET}
+      CRON_TIMEZONE: America/Halifax
+    command: ["node", "-e", "require('tsx/cjs'); require('./scripts/start-cron.ts')"]
+
+  # Nginx Reverse Proxy + SSL
+  nginx:
+    image: nginx:alpine
+    container_name: spike-trades-nginx
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf
+      - ./docker/ssl:/etc/nginx/ssl
+      - certbot_data:/var/www/certbot
+    command: "/bin/sh -c 'while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g \"daemon off;\"'"
+
+  # Let's Encrypt Certbot
+  certbot:
+    image: certbot/certbot
+    container_name: spike-trades-certbot
+    restart: unless-stopped
+    volumes:
+      - ./docker/ssl:/etc/letsencrypt
+      - certbot_data:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+
+volumes:
+  postgres_data:
+  certbot_data:
