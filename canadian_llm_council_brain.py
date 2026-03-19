@@ -1751,16 +1751,16 @@ def _build_consensus(
         scored_tickers.append((ticker, consensus_score, len(stages), data))
 
     # Filter out strong bearish predictions (>65% probability of DOWN)
-    def _is_strong_bearish(entry: tuple) -> bool:
+    def _is_bearish(entry: tuple) -> bool:
         data = entry[3]
         forecasts = data.get("forecasts", [])
         f3 = next((f for f in forecasts if f.get("horizon_days") == 3), None)
-        if f3 and f3.get("predicted_direction") == "DOWN" and f3.get("direction_probability", 0) > 0.65:
-            logger.info(f"Filtering {entry[0]}: strong bearish (DOWN {f3['direction_probability']:.0%})")
+        if f3 and f3.get("predicted_direction") == "DOWN":
+            logger.info(f"Filtering {entry[0]}: predicted DOWN ({f3.get('direction_probability', 0):.0%})")
             return True
         return False
 
-    scored_tickers = [t for t in scored_tickers if not _is_strong_bearish(t)]
+    scored_tickers = [t for t in scored_tickers if not _is_bearish(t)]
 
     # Sort by consensus score descending, take top 20
     scored_tickers.sort(key=lambda x: (-x[1], -x[2]))
