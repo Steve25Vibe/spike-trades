@@ -207,7 +207,7 @@ export default function AnalysisPage() {
               </div>
               <div>
                 <div className="flex items-center gap-3 mb-1">
-                  <h1 className="text-3xl font-bold text-spike-text">{spike.ticker}</h1>
+                  <a href={`https://finance.yahoo.com/quote/${spike.ticker}`} target="_blank" rel="noopener noreferrer" className="text-3xl font-bold text-spike-text hover:text-spike-cyan transition-colors">{spike.ticker}</a>
                   <span className="text-sm font-medium px-3 py-1 rounded-full bg-spike-border/50 text-spike-text-dim">#{spike.rank}</span>
                   <span className="text-sm px-3 py-1 rounded-full bg-spike-violet/10 text-spike-violet">{spike.sector}</span>
                 </div>
