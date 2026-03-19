@@ -496,3 +496,81 @@ When ending a session, Claude Code should append an entry like this:
 ### Context window status:
 - Estimated usage: moderate
 - Reason for stopping: completed Session 6 scope — full local stack integrated
+
+---
+
+## Session 7 Checkpoint — 2026-03-19
+
+### What was built:
+- **Production deployment on DigitalOcean** — all 6 Docker containers running at spiketrades.ca:
+  - `spike-trades-db` (PostgreSQL 16 Alpine) — healthy, 7 tables created via Prisma
+  - `spike-trades-council` (Python FastAPI) — healthy, `/health` endpoint responding
+  - `spike-trades-app` (Next.js standalone) — serving at port 3000
+  - `spike-trades-cron` (Node.js + tsx) — 3 cron schedules registered (10:45am analysis, 4:30pm accuracy, 15min alerts)
+  - `spike-trades-nginx` (Alpine) — SSL termination, reverse proxy
+  - `spike-trades-certbot` — Let's Encrypt renewal daemon
+
+- **GitHub repo**: `Steve25Vibe/spike-trades` (private) — all code pushed to main
+- **Git repo initialized** with comprehensive `.gitignore` (node_modules, .env, .next, __pycache__, *.db, checkpoint JSONs)
+
+### What was tested:
+- `https://spiketrades.ca` → 307 redirect to `/login` → full HTML rendered with dark theme → PASS
+- `curl -sI https://spiketrades.ca` → HTTP/2 307, Next.js headers, SSL valid → PASS
+- Council health: `{"status":"ok","council_running":false}` → PASS
+- Cron scheduler: all 3 schedules registered (daily analysis, accuracy check, portfolio alerts) → PASS
+- Database: 7 Prisma tables created (AccuracyRecord, ApiLog, CouncilLog, DailyReport, MarketRegime, PortfolioEntry, Spike) → PASS
+- All 6 containers stable, no crash loops → PASS
+
+### Key decisions made:
+- **Prisma pinned to ~6.2.0**: Prisma 7.x removed `datasource url` from schema files (breaking change). Pinned with tilde to stay on 6.x.
+- **Separate Dockerfile.cron**: The main Dockerfile produces a Next.js standalone build (no node_modules). Cron needs `tsx` + `node-cron` so it gets its own Dockerfile with full `npm ci`.
+- **Python health check for council**: `python:3.12-slim` doesn't include `curl`. Changed healthcheck to `python -c "import urllib.request; ..."`.
+- **SSL certs copied (not symlinked)**: Symlinks from host `/etc/letsencrypt` broke inside Docker volume mounts. Copied actual cert files to `docker/ssl/` with relative symlinks in `live/` pointing to `../../archive/`.
+- **Prisma CLI included in app image**: Added `COPY --from=builder /app/node_modules/prisma` and `@prisma` to the runner stage so `prisma db push` works inside the container.
+- **tsconfig target es2020**: Required for Set iteration (`[...new Set()]`) — default es5 doesn't support it.
+- **Array.from() for Set iteration**: Even with es2020 target, some TypeScript configurations still flagged Set spreads. Converted to `Array.from(set)` for reliability.
+- **SpikeCard exchange type assertion**: `spike.exchange as 'TSX' | 'TSXV'` — the Prisma string type needed narrowing to the component's union type.
+- **ScoringResult intersection type fix**: `(ScoringResult & { ... })[]` vs `ScoringResult & { ... }[]` — parentheses required for correct array-of-intersection type.
+
+### Quirks / gotchas discovered:
+- `docker compose` v5 warns about `version: '3.8'` being obsolete — harmless but noisy
+- Next.js standalone build strips all `node_modules` except `.next/standalone/node_modules` — any custom scripts needing npm packages must use a separate Dockerfile
+- `prisma db push` in standalone container: the CLI binary isn't in PATH, must invoke via `node node_modules/prisma/build/index.js db push`
+- `prisma generate` permission error in production container (runs as `nextjs` user, node_modules owned by root) — harmless since client was pre-generated during build
+- Let's Encrypt `live/` directory uses symlinks to `../../archive/` — when copying into Docker volumes, must recreate relative symlinks, not absolute ones
+- FMP + LLM API keys are all in server `.env` — not committed to git
+
+### Files modified:
+- `.gitignore` — created
+- `tsconfig.json` — added `target: "es2020"`
+- `package.json` — pinned `prisma` and `@prisma/client` to `~6.2.0`
+- `package-lock.json` — updated for pinned versions
+- `Dockerfile` — added Prisma CLI + @prisma to runner stage
+- `Dockerfile.cron` — created (separate build with full node_modules for tsx)
+- `docker-compose.yml` — updated council healthcheck (python), cron dockerfile reference, cron env vars
+- `requirements-council.txt` — added `pandas>=2.0.0`, `plotly>=5.0.0`
+- `src/app/dashboard/page.tsx` — added exchange type assertion in buildSpikeCardData
+- `src/lib/scoring/spike-score.ts` — fixed intersection type parentheses
+- `src/app/api/accuracy/check/route.ts` — Array.from(new Set(...))
+- `src/app/api/portfolio/alerts/route.ts` — Array.from(new Set(...))
+- `src/app/api/portfolio/route.ts` — Array.from(new Set(...))
+- `src/lib/council/claude-council.ts` — Array.from(grokPicks)
+
+### Checkpoint artifacts:
+- GitHub repo: `Steve25Vibe/spike-trades` (main branch, all commits)
+- Server: 147.182.150.30 at `/opt/spike-trades` with `.env` containing all secrets
+- SSL certs: `docker/ssl/` with Let's Encrypt certs for spiketrades.ca
+- Database: PostgreSQL with 7 empty tables ready for first council run
+
+### What the next session should do first:
+1. Trigger a manual council run: `curl -X POST https://spiketrades.ca/api/cron -H "Authorization: Bearer <SESSION_SECRET>"` (get SESSION_SECRET from server .env)
+2. Monitor council logs: `docker compose logs -f council` on the server
+3. Verify Prisma records created after run (DailyReport, Spike rows)
+4. Log into the dashboard at spiketrades.ca with password 'godmode' and verify picks display
+5. Verify email delivery to steve@boomerang.energy
+6. Wait for next trading day 10:45 AM AST to confirm automatic cron fires
+7. If time permits: add monitoring/alerting for container health
+
+### Context window status:
+- Estimated usage: heavy (many Docker build/debug cycles, SSH operations, iterative fixes)
+- Reason for stopping: completed Session 7 scope — full production deployment live at spiketrades.ca
