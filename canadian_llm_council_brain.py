@@ -657,10 +657,15 @@ class LiveDataFetcher:
                 return None
             return r.get("changePercentage")
 
+        # Convert gold from USD to CAD
+        gold_usd = safe_price(results[1])
+        cad_usd = safe_price(results[2])
+        gold_cad = round(gold_usd / cad_usd, 2) if gold_usd and cad_usd else gold_usd
+
         return MacroContext(
             oil_wti=safe_price(results[0]),      # USO proxy
-            gold_price=safe_price(results[1]),
-            cad_usd=safe_price(results[2]),
+            gold_price=gold_cad,                 # Gold in CAD
+            cad_usd=cad_usd,
             tsx_composite=safe_price(results[3]),  # XIU.TO proxy
             tsx_change_pct=safe_change(results[3]),
             vix=safe_price(results[4]),
@@ -806,11 +811,11 @@ class MacroRegimeFilter:
                 signals[REGIME_COMMODITY_BUST] += 1
 
         # Gold signal (risk-off indicator)
-        # Gold at ~$4600 in March 2026
+        # Gold in CAD — ~$6400 CAD in March 2026
         if macro.gold_price is not None:
-            if macro.gold_price > 4800:
+            if macro.gold_price > 6600:
                 signals[REGIME_RISK_OFF] += 1
-            elif macro.gold_price < 4000:
+            elif macro.gold_price < 5500:
                 signals[REGIME_RISK_ON] += 1
 
         # CAD strength (strong CAD = commodity tailwind)
