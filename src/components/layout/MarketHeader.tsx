@@ -52,7 +52,7 @@ export default function MarketHeader({ date, regime, tsxLevel, tsxChange, oilPri
           </div>
           <div className="w-px h-8 bg-spike-border" />
           <div className="text-center">
-            <p className="text-[10px] text-spike-text-muted uppercase tracking-wider">WTI Oil</p>
+            <p className="text-[10px] text-spike-text-muted uppercase tracking-wider">USO Oil</p>
             <p className="font-bold mono">${oilPrice.toFixed(2)}</p>
           </div>
           <div className="text-center">
