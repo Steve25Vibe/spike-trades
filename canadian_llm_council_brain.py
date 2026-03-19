@@ -1021,13 +1021,24 @@ After producing your analysis, you MUST perform a self-verification step:
 4. If you catch an error, correct it before finalizing.
 """
 
+DIRECTIONAL_MANDATE = """
+DIRECTIONAL MANDATE (CRITICAL):
+You are scoring stocks for SHORT-TERM UPSIDE potential — likelihood of PRICE INCREASE over 3-8 trading days.
+- High scores = strong likelihood of price INCREASE. Bullish setups only.
+- Low scores = weak upside, likely decline, or excessive risk of pullback.
+- A stock with strong BEARISH momentum (falling price, bearish MACD crossover, breaking support) should score LOW.
+- Overbought stocks (RSI > 75) should score LOW unless there is a specific catalyst for continued upside.
+- Mean-reversion candidates from oversold levels with bullish signals should score HIGH.
+Do NOT confuse "interesting technically" with "good to buy". We want BUYERS' opportunities.
+"""
+
 RUBRIC_TEXT = """
-100-POINT SCORING RUBRIC (apply to EACH ticker):
-- Technical Momentum & Confluence (0-30 pts): RSI trend, MACD crossover status, ADX strength, Bollinger Band position, volume confirmation, SMA alignment
-- Sentiment & Catalysts (0-25 pts): Recent news sentiment, catalyst quality, news recency, Finnhub sentiment score
-- Options IV / Volatility Edge (0-20 pts): ATR relative to price, implied move potential, volatility regime fit. Use ATR as proxy if options data is thin.
-- Risk/Reward Clarity + Edge Decay (0-15 pts): Clear entry/stop/target levels, risk:reward ratio, how quickly the edge decays
-- Overall Short-Term Conviction (0-10 pts): Holistic assessment of 3-8 day trade viability
+100-POINT SCORING RUBRIC (apply to EACH ticker — score for UPSIDE potential):
+- Technical Momentum & Confluence (0-30 pts): Score HIGH for BULLISH signals (RSI rising from oversold, bullish MACD crossover, price above rising SMA, breakout above resistance). Score LOW for bearish signals (overbought RSI>75, bearish crossover, price below falling SMA, breakdown below support). Strong upward trend with volume confirmation = highest scores.
+- Sentiment & Catalysts (0-25 pts): Recent positive news sentiment, upcoming bullish catalysts, positive earnings surprise, analyst upgrades. Negative sentiment or bearish catalysts = low scores.
+- Options IV / Volatility Edge (0-20 pts): ATR relative to price showing expanding upside moves, volatility regime supporting upside. Use ATR as proxy if options data is thin.
+- Risk/Reward Clarity + Edge Decay (0-15 pts): Asymmetric UPSIDE potential vs downside risk. Clear support level for stop loss, wide upside target. High risk:reward ratio favoring the long side.
+- Overall Short-Term UPSIDE Conviction (0-10 pts): How confident are you this stock RISES in 3-8 days? Factor in all evidence. Zero if you expect decline.
 
 Total MUST equal the sum of all 5 components. Scores MUST be honest — do not inflate.
 """
@@ -1041,6 +1052,8 @@ You are Stage 1 of a 4-stage LLM Council analyzing TSX/TSXV stocks.
 YOUR TASK: Score each ticker on a 100-point rubric and select the Top 100 highest-scoring tickers.
 
 {GROUNDING_MANDATE}
+
+{DIRECTIONAL_MANDATE}
 
 {RUBRIC_TEXT}
 
@@ -1134,6 +1147,8 @@ CRITICAL: You are an INDEPENDENT analyst. Do NOT simply copy Stage 1's scores. R
 If you agree with Stage 1, that's fine — but your reasoning must show independent analysis.
 
 {GROUNDING_MANDATE}
+
+{DIRECTIONAL_MANDATE}
 
 {RUBRIC_TEXT}
 
@@ -1231,6 +1246,8 @@ YOUR TASK: Challenge every pick. For each ticker:
 4. Be skeptical. If a pick doesn't survive your scrutiny, score it low.
 
 {GROUNDING_MANDATE}
+
+{DIRECTIONAL_MANDATE}
 
 {RUBRIC_TEXT}
 
@@ -1342,6 +1359,8 @@ Each forecast MUST include:
   (e.g., "3-day forecast: ~1.73x base uncertainty; 8-day: ~2.83x base uncertainty")
 
 {GROUNDING_MANDATE}
+
+{DIRECTIONAL_MANDATE}
 
 {RUBRIC_TEXT}
 
@@ -1707,7 +1726,36 @@ def _build_consensus(
                 consensus_score, payload.sector, regime
             )
 
+        # Apply directional adjustment from Stage 4 forecasts
+        # Boost UP-predicted stocks, penalize DOWN-predicted stocks
+        forecasts = data.get("forecasts", [])
+        if forecasts:
+            f3 = next((f for f in forecasts if f.get("horizon_days") == 3), None)
+            if f3:
+                direction = f3.get("predicted_direction", "UP")
+                prob = f3.get("direction_probability", 0.5)
+                move = abs(f3.get("most_likely_move_pct", 0))
+                if direction == "UP":
+                    # Boost: e.g. prob=0.75, move=4.5% → multiplier ~1.34
+                    directional_multiplier = 1.0 + (prob - 0.5) * move / 10
+                else:
+                    # Penalize DOWN: e.g. prob=0.6, move=3% → multiplier ~0.70
+                    directional_multiplier = 1.0 - (prob - 0.5) * move / 5
+                consensus_score *= max(directional_multiplier, 0.1)
+
         scored_tickers.append((ticker, consensus_score, len(stages), data))
+
+    # Filter out strong bearish predictions (>65% probability of DOWN)
+    def _is_strong_bearish(entry: tuple) -> bool:
+        data = entry[3]
+        forecasts = data.get("forecasts", [])
+        f3 = next((f for f in forecasts if f.get("horizon_days") == 3), None)
+        if f3 and f3.get("predicted_direction") == "DOWN" and f3.get("direction_probability", 0) > 0.65:
+            logger.info(f"Filtering {entry[0]}: strong bearish (DOWN {f3['direction_probability']:.0%})")
+            return True
+        return False
+
+    scored_tickers = [t for t in scored_tickers if not _is_strong_bearish(t)]
 
     # Sort by consensus score descending, take top 20
     scored_tickers.sort(key=lambda x: (-x[1], -x[2]))

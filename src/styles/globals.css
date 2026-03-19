@@ -181,6 +181,15 @@ body {
   box-shadow: 0 0 8px rgba(0, 255, 136, 0.6);
 }
 
+.live-dot-closed {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #FF4444;
+  animation: livePulse 3s ease-in-out infinite;
+  box-shadow: 0 0 8px rgba(255, 68, 68, 0.6);
+}
+
 /* Table styles */
 .spike-table th {
   position: sticky;

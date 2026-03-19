@@ -1,8 +1,9 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { cn } from '@/lib/utils';
+import { cn, isMarketOpen } from '@/lib/utils';
 
 const navItems = [
   {
@@ -52,6 +53,13 @@ const navItems = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const [marketOpen, setMarketOpen] = useState(false);
+
+  useEffect(() => {
+    setMarketOpen(isMarketOpen());
+    const interval = setInterval(() => setMarketOpen(isMarketOpen()), 60_000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <aside className="fixed left-0 top-0 h-full w-64 bg-spike-bg-light border-r border-spike-border z-40 flex flex-col">
@@ -99,11 +107,11 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {/* Live status */}
+      {/* Market status */}
       <div className="p-4 border-t border-spike-border">
         <div className="flex items-center gap-2 text-xs text-spike-text-dim">
-          <div className="live-dot" />
-          <span>Live — TSX Open</span>
+          <div className={marketOpen ? 'live-dot' : 'live-dot-closed'} />
+          <span>{marketOpen ? 'Live — TSX Open' : 'Closed — TSX Closed'}</span>
         </div>
         <p className="text-[10px] text-spike-text-muted mt-2">
           Next analysis: 10:45 AST
