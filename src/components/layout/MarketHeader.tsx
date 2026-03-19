@@ -44,7 +44,7 @@ export default function MarketHeader({ date, regime, tsxLevel, tsxChange, oilPri
           <div className="text-center">
             <p className="text-[10px] text-spike-text-muted uppercase tracking-wider">TSX (XIU)</p>
             <p className="font-bold mono">
-              {tsxLevel.toFixed(0)}
+              ${tsxLevel.toFixed(2)}
               <span className={cn('ml-1 text-xs', tsxChange >= 0 ? 'text-spike-green' : 'text-spike-red')}>
                 {tsxChange >= 0 ? '+' : ''}{tsxChange.toFixed(2)}%
               </span>
