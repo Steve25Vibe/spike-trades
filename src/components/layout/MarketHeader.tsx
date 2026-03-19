@@ -15,8 +15,8 @@ interface Props {
 
 export default function MarketHeader({ date, regime, tsxLevel, tsxChange, oilPrice, goldPrice, btcPrice, cadUsd }: Props) {
   const regimeColors: Record<string, string> = {
-    bull: 'text-spike-green bg-spike-green/10 border-spike-green/30',
-    bear: 'text-spike-red bg-spike-red/10 border-spike-red/30',
+    bull: 'text-spike-green bg-spike-green/10 border-spike-green/30 shadow-[0_0_12px_rgba(34,197,94,0.5),0_0_24px_rgba(34,197,94,0.25)]',
+    bear: 'text-spike-red bg-spike-red/10 border-spike-red/30 shadow-[0_0_12px_rgba(239,68,68,0.5),0_0_24px_rgba(239,68,68,0.25)]',
     neutral: 'text-spike-amber bg-spike-amber/10 border-spike-amber/30',
     volatile: 'text-spike-violet bg-spike-violet/10 border-spike-violet/30',
   };
