@@ -33,6 +33,8 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY}
       XAI_API_KEY: ${XAI_API_KEY}
+    volumes:
+      - council_data:/app/data
     ports:
       - "8100:8100"
     healthcheck:
@@ -115,4 +117,5 @@ services:
 
 volumes:
   postgres_data:
+  council_data:
   certbot_data:

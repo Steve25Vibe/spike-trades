@@ -39,6 +39,7 @@ import statistics
 import time
 from datetime import datetime, timezone, timedelta, date
 from enum import Enum
+from pathlib import Path
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -1195,7 +1196,7 @@ async def run_stage2_gemini(
         model="gemini-3.1-pro-preview",
         system_prompt=GEMINI_SYSTEM_PROMPT,
         user_prompt=user_prompt,
-        max_tokens=16384,
+        max_tokens=32768,
     )
 
     parsed = _extract_json(raw)
@@ -1784,7 +1785,9 @@ def _build_consensus(
 # HISTORICAL PERFORMANCE ANALYZER (Session 4)
 # ═══════════════════════════════════════════════════════════════════════════
 
-DB_PATH = "spike_trades_council.db"
+_data_dir = Path("/app/data") if Path("/app/data").exists() else Path(".")
+_data_dir.mkdir(parents=True, exist_ok=True)
+DB_PATH = str(_data_dir / "spike_trades_council.db")
 
 
 class HistoricalPerformanceAnalyzer:
@@ -2594,12 +2597,13 @@ class CanadianStockCouncilBrain:
                 raise RuntimeError("Stage 1 produced no results")
 
             # ── Step 6: Stage 2 — Gemini ──
+            GEMINI_BATCH_SIZE = 15  # Smaller batches for Gemini to avoid token limit truncation
             logger.info(f"Step 6: Stage 2 (Gemini) — {len(stage1_results)} tickers")
-            if len(stage1_results) > BATCH_SIZE:
+            if len(stage1_results) > GEMINI_BATCH_SIZE:
                 stage2_all = []
                 s1_tickers_batched = [
-                    stage1_results[i:i + BATCH_SIZE]
-                    for i in range(0, len(stage1_results), BATCH_SIZE)
+                    stage1_results[i:i + GEMINI_BATCH_SIZE]
+                    for i in range(0, len(stage1_results), GEMINI_BATCH_SIZE)
                 ]
                 for batch_idx, s1_batch in enumerate(s1_tickers_batched):
                     batch_tickers = {r["ticker"] for r in s1_batch}

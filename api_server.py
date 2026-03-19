@@ -62,7 +62,8 @@ app.add_middleware(
 
 # ── State ────────────────────────────────────────────────────────────────
 
-OUTPUT_DIR = Path(__file__).parent
+OUTPUT_DIR = Path("/app/data") if Path("/app/data").exists() else Path(__file__).parent
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 LATEST_OUTPUT_FILE = OUTPUT_DIR / "latest_council_output.json"
 
 # Track running state
@@ -303,12 +304,12 @@ async def run_council(request: RunCouncilRequest | None = None):
         tickers = request.tickers if request else None
 
         if tickers:
-            result = await brain.run_council(ticker_override=tickers)
+            result = await brain.run_council(starting_universe=tickers)
         else:
             result = await brain.run_council()
 
-        # Serialize — CouncilResult is a Pydantic model
-        result_dict = result.model_dump(mode="json")
+        # result is already a dict (run_council does model_dump internally)
+        result_dict = result
 
         # Save to disk
         LATEST_OUTPUT_FILE.write_text(

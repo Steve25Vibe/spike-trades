@@ -81,7 +81,7 @@ interface CouncilMappedResponse {
   rawCouncilOutput: Record<string, unknown>;
 }
 
-export async function runDailyAnalysis(): Promise<{
+export async function runDailyAnalysis(useCached = false): Promise<{
   success: boolean;
   spikesGenerated: number;
   error?: string;
@@ -93,12 +93,22 @@ export async function runDailyAnalysis(): Promise<{
   try {
     // Step 1: Call the Python Council Brain via FastAPI
     // The Python brain handles ALL data fetching, scoring, and LLM analysis
-    console.log('[Analyzer] Calling Python Council Brain...');
-    const councilResponse = await fetch(`${COUNCIL_API_URL}/run-council-mapped`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-    });
+    let councilResponse: Response;
+    if (useCached) {
+      // Use cached output from last council run (no new LLM calls)
+      console.log('[Analyzer] Using cached council output...');
+      councilResponse = await fetch(`${COUNCIL_API_URL}/latest-output-mapped`, {
+        signal: AbortSignal.timeout(30_000),
+      });
+    } else {
+      console.log('[Analyzer] Calling Python Council Brain...');
+      councilResponse = await fetch(`${COUNCIL_API_URL}/run-council-mapped`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+        signal: AbortSignal.timeout(3600_000), // 1 hour — full TSX pipeline takes ~45 min
+      });
+    }
 
     if (!councilResponse.ok) {
       const errText = await councilResponse.text();
