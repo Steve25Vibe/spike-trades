@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Fetch live prices for all active tickers
-    const tickers = [...new Set(activePositions.map((p) => p.ticker))];
+    const tickers = Array.from(new Set(activePositions.map((p) => p.ticker)));
     const quotes = await getBatchQuotes(tickers);
     const priceMap = new Map(quotes.map((q) => [q.ticker, q.price]));
 

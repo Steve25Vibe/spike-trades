@@ -467,7 +467,7 @@ export function calculateSpikeScore(input: ScoringInput): ScoringResult {
 
 /** Filter and rank candidates into Top 20 */
 export function rankTopSpikes(
-  candidates: ScoringResult & { quote: StockQuote; sector: string }[],
+  candidates: (ScoringResult & { quote: StockQuote; sector: string })[],
   maxPerSector = 4
 ): typeof candidates {
   // Sort by spike score descending

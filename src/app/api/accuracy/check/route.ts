@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
       if (spikes.length === 0) continue;
 
       // Fetch current (closing) prices for those tickers
-      const tickers = [...new Set(spikes.map((s) => s.ticker))];
+      const tickers = Array.from(new Set(spikes.map((s) => s.ticker)));
       const quotes = await getBatchQuotes(tickers);
       const priceMap = new Map(quotes.map((q) => [q.ticker, q.price]));
 

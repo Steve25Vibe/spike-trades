@@ -604,7 +604,7 @@ function calculateThreeWayConsensus(
   let threeWayAgree = 0;
   let twoWayAgree = 0;
 
-  for (const ticker of grokPicks) {
+  for (const ticker of Array.from(grokPicks)) {
     const inSonnet = sonnetPassed.has(ticker);
     const inOpus = opusPicks.has(ticker);
     if (inSonnet && inOpus) threeWayAgree++;

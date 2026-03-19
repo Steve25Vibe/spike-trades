@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
 
     // For active positions, fetch LIVE quotes to calculate unrealized P&L
     const activePositions = positions.filter((p) => p.status === 'active');
-    const activeTickers = [...new Set(activePositions.map((p) => p.ticker))];
+    const activeTickers = Array.from(new Set(activePositions.map((p) => p.ticker)));
 
     let liveQuotes = new Map<string, number>();
     if (activeTickers.length > 0) {

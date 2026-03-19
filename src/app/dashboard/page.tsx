@@ -147,6 +147,7 @@ export default function DashboardPage() {
 
   const buildSpikeCardData = (spike: SpikeData) => ({
     ...spike,
+    exchange: spike.exchange as 'TSX' | 'TSXV',
     technicals: {
       rsi: spike.rsi,
       macd: spike.macd,
