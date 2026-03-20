@@ -46,6 +46,10 @@ interface ReportData {
     btcPrice: number;
     cadUsd: number;
     csvUrl: string;
+    prevOilPrice: number | null;
+    prevGoldPrice: number | null;
+    prevBtcPrice: number | null;
+    prevCadUsd: number | null;
   };
   spikes: SpikeData[];
 }
