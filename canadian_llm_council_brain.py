@@ -1976,6 +1976,8 @@ class HistoricalPerformanceAnalyzer:
         updated = 0
         try:
             # Find accuracy records missing actual data
+            # Use generous calendar buffer (horizon * 2) since we filter by
+            # actual trading days in Python below
             rows = conn.execute("""
                 SELECT ar.id, ar.pick_id, ar.ticker, ar.horizon_days,
                        ar.predicted_direction, ar.predicted_move_pct,
@@ -1983,8 +1985,22 @@ class HistoricalPerformanceAnalyzer:
                 FROM accuracy_records ar
                 JOIN pick_history ph ON ar.pick_id = ph.id
                 WHERE ar.actual_direction IS NULL
-                  AND date(ph.run_date, '+' || ar.horizon_days || ' days') <= date('now')
+                  AND date(ph.run_date, '+' || (ar.horizon_days * 2) || ' days') <= date('now')
             """).fetchall()
+
+            # Filter to only rows where enough trading days have passed
+            def _trading_days_since(run_date_str: str) -> int:
+                rd = date.fromisoformat(run_date_str)
+                today = datetime.now(ZoneInfo("America/Halifax")).date()
+                count = 0
+                current = rd
+                while current < today:
+                    current += timedelta(days=1)
+                    if current.weekday() < 5:  # Mon-Fri
+                        count += 1
+                return count
+
+            rows = [r for r in rows if _trading_days_since(r[7]) >= r[3]]
 
             if not rows:
                 logger.info("HistoricalPerformanceAnalyzer: No records to backfill")

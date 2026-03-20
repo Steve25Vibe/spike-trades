@@ -79,6 +79,54 @@ export function chunk<T>(arr: T[], size: number): T[][] {
   );
 }
 
+// TSX fixed holidays (month-day format)
+const TSX_FIXED_HOLIDAYS = new Set([
+  '01-01', // New Year's Day
+  '07-01', // Canada Day
+  '12-25', // Christmas Day
+  '12-26', // Boxing Day
+]);
+
+function isTradingDay(d: Date): boolean {
+  const day = d.getDay();
+  if (day === 0 || day === 6) return false; // Weekend
+  const mmdd = `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return !TSX_FIXED_HOLIDAYS.has(mmdd);
+}
+
+// Subtract N trading days from a date (skips weekends and TSX holidays)
+export function subtractTradingDays(from: Date, tradingDays: number): Date {
+  const result = new Date(from);
+  let remaining = tradingDays;
+  while (remaining > 0) {
+    result.setDate(result.getDate() - 1);
+    if (isTradingDay(result)) remaining--;
+  }
+  return result;
+}
+
+// Add N trading days to a date (skips weekends and TSX holidays)
+export function addTradingDays(from: Date, tradingDays: number): Date {
+  const result = new Date(from);
+  let remaining = tradingDays;
+  while (remaining > 0) {
+    result.setDate(result.getDate() + 1);
+    if (isTradingDay(result)) remaining--;
+  }
+  return result;
+}
+
+// Count trading days between two dates
+export function countTradingDays(from: Date, to: Date): number {
+  let count = 0;
+  const current = new Date(from);
+  while (current < to) {
+    current.setDate(current.getDate() + 1);
+    if (isTradingDay(current)) count++;
+  }
+  return count;
+}
+
 export function calculateKellyFraction(
   winRate: number,
   avgWin: number,

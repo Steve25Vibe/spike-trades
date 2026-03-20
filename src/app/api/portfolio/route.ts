@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isAuthenticated } from '@/lib/auth';
 import prisma from '@/lib/db/prisma';
-import { calculateKellyFraction } from '@/lib/utils';
+import { calculateKellyFraction, countTradingDays } from '@/lib/utils';
 import { getBatchQuotes } from '@/lib/api/fmp';
 
 // GET /api/portfolio — Get all portfolio positions with LIVE P&L
@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
       const unrealizedPnl = (currentPrice - p.entryPrice) * p.shares;
       const unrealizedPnlPct = ((currentPrice - p.entryPrice) / p.entryPrice) * 100;
       const currentValue = currentPrice * p.shares;
-      const daysHeld = Math.floor((Date.now() - new Date(p.entryDate).getTime()) / 86400000);
+      const daysHeld = countTradingDays(new Date(p.entryDate), new Date());
 
       // Progress toward targets
       const priceChange = currentPrice - p.entryPrice;

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { getBatchQuotes } from '@/lib/api/fmp';
 import { sendSellReminder, sendDeviationAlert } from '@/lib/email/resend';
+import { countTradingDays, addTradingDays } from '@/lib/utils';
 
 // POST /api/portfolio/alerts — Polled every 15 min during market hours
 // Checks every active position for target hits, sell-reminder windows, and deviations
@@ -33,26 +34,24 @@ export async function POST(request: NextRequest) {
       const currentPrice = priceMap.get(position.ticker);
       if (!currentPrice) continue;
 
-      const daysSinceEntry = Math.floor(
-        (now - new Date(position.entryDate).getTime()) / 86_400_000
+      const tradingDaysSinceEntry = countTradingDays(
+        new Date(position.entryDate), new Date()
       );
       const pricePct = ((currentPrice - position.entryPrice) / position.entryPrice) * 100;
 
       // ---- 1. Sell Reminders (time-based + price-hit) ----
 
-      // 3-Day sell reminder
+      // 3-Day sell reminder (trading days)
       if (!position.alertSent3Day && position.target3Day) {
         const shouldAlert =
-          daysSinceEntry >= 3 || // Window has arrived
+          tradingDaysSinceEntry >= 3 || // Window has arrived
           currentPrice >= position.target3Day; // Hit target early
 
         if (shouldAlert) {
           await sendSellReminder({
             ticker: position.ticker,
             name: position.name,
-            targetDate: new Date(
-              new Date(position.entryDate).getTime() + 3 * 86_400_000
-            ),
+            targetDate: addTradingDays(new Date(position.entryDate), 3),
             targetPrice: position.target3Day,
             entryPrice: position.entryPrice,
             currentPrice,
@@ -66,18 +65,16 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // 5-Day sell reminder
+      // 5-Day sell reminder (trading days)
       if (!position.alertSent5Day && position.target5Day) {
         const shouldAlert =
-          daysSinceEntry >= 5 || currentPrice >= position.target5Day;
+          tradingDaysSinceEntry >= 5 || currentPrice >= position.target5Day;
 
         if (shouldAlert) {
           await sendSellReminder({
             ticker: position.ticker,
             name: position.name,
-            targetDate: new Date(
-              new Date(position.entryDate).getTime() + 5 * 86_400_000
-            ),
+            targetDate: addTradingDays(new Date(position.entryDate), 5),
             targetPrice: position.target5Day,
             entryPrice: position.entryPrice,
             currentPrice,
@@ -91,18 +88,16 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // 8-Day sell reminder
+      // 8-Day sell reminder (trading days)
       if (!position.alertSent8Day && position.target8Day) {
         const shouldAlert =
-          daysSinceEntry >= 8 || currentPrice >= position.target8Day;
+          tradingDaysSinceEntry >= 8 || currentPrice >= position.target8Day;
 
         if (shouldAlert) {
           await sendSellReminder({
             ticker: position.ticker,
             name: position.name,
-            targetDate: new Date(
-              new Date(position.entryDate).getTime() + 8 * 86_400_000
-            ),
+            targetDate: addTradingDays(new Date(position.entryDate), 8),
             targetPrice: position.target8Day,
             entryPrice: position.entryPrice,
             currentPrice,

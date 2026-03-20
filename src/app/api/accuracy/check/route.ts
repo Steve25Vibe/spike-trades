@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { getBatchQuotes } from '@/lib/api/fmp';
+import { subtractTradingDays } from '@/lib/utils';
 
 // POST /api/accuracy/check — Runs daily at 4:30 PM AST after market close
 // Back-fills actual3Day / actual5Day / actual8Day on historical spikes
@@ -12,13 +13,14 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const today = new Date();
+    // Use AST/ADT timezone for "today"
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Halifax' });
+    const today = new Date(todayStr + 'T12:00:00');
     let filled = 0;
 
     // ---- 1. Fill actual returns for spikes from 3, 5, and 8 trading days ago ----
     for (const horizon of [3, 5, 8] as const) {
-      const targetDate = new Date(today);
-      targetDate.setDate(targetDate.getDate() - horizon);
+      const targetDate = subtractTradingDays(today, horizon);
       // Normalize to date-only
       const dateOnly = new Date(targetDate.toISOString().split('T')[0]);
 
