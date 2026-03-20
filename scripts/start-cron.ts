@@ -5,12 +5,41 @@
 // ============================================
 
 import cron from 'node-cron';
+import http from 'node:http';
 
 const TIMEZONE = process.env.CRON_TIMEZONE || 'America/Halifax';
 const CRON_HOUR = process.env.ANALYSIS_CRON_HOUR || '10';
 const CRON_MINUTE = process.env.ANALYSIS_CRON_MINUTE || '45';
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 const CRON_SECRET = process.env.SESSION_SECRET || '';
+
+/**
+ * Make an HTTP request using Node's http module to avoid undici header timeouts.
+ * The council pipeline can take 45-60 minutes, which exceeds undici's default timeout.
+ */
+function httpRequest(url: string, options: { method: string; headers: Record<string, string>; timeout: number }): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const req = http.request(
+      {
+        hostname: parsed.hostname,
+        port: parsed.port || 80,
+        path: parsed.pathname + parsed.search,
+        method: options.method,
+        headers: options.headers,
+        timeout: options.timeout,
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk: Buffer) => { data += chunk.toString(); });
+        res.on('end', () => resolve({ status: res.statusCode || 0, body: data }));
+      }
+    );
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('Request timed out')); });
+    req.end();
+  });
+}
 
 console.log(`[Cron] Spike Trades scheduler starting...`);
 console.log(`[Cron] Scheduled: ${CRON_MINUTE} ${CRON_HOUR} * * 1-5 (${TIMEZONE})`);
@@ -22,16 +51,15 @@ cron.schedule(
   async () => {
     console.log(`[Cron] Triggering daily analysis at ${new Date().toISOString()}`);
     try {
-      const response = await fetch(`${APP_URL}/api/cron`, {
+      const result = await httpRequest(`${APP_URL}/api/cron`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${CRON_SECRET}`,
           'Content-Type': 'application/json',
         },
-        signal: AbortSignal.timeout(3_600_000), // 1 hour timeout for full pipeline
+        timeout: 3_600_000, // 1 hour timeout for full pipeline
       });
-      const result = await response.json();
-      console.log(`[Cron] Analysis result:`, result);
+      console.log(`[Cron] Analysis result (status ${result.status}):`, result.body);
     } catch (error) {
       console.error(`[Cron] Failed to trigger analysis:`, error);
     }
