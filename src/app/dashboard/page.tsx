@@ -225,6 +225,10 @@ export default function DashboardPage() {
               goldPrice={data.report.goldPrice || 0}
               btcPrice={data.report.btcPrice || 0}
               cadUsd={data.report.cadUsd || 0}
+              prevOilPrice={data.report.prevOilPrice}
+              prevGoldPrice={data.report.prevGoldPrice}
+              prevBtcPrice={data.report.prevBtcPrice}
+              prevCadUsd={data.report.prevCadUsd}
             />
 
             {/* Summary stats */}

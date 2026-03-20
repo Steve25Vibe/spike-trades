@@ -33,6 +33,13 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // Fetch previous day's report for comparison arrows
+    const prevReport = await prisma.dailyReport.findFirst({
+      where: { date: { lt: targetDate } },
+      orderBy: { date: 'desc' },
+      select: { oilPrice: true, goldPrice: true, btcPrice: true, cadUsd: true },
+    });
+
     return NextResponse.json({
       success: true,
       data: {
@@ -47,6 +54,10 @@ export async function GET(request: NextRequest) {
           btcPrice: report.btcPrice,
           cadUsd: report.cadUsd,
           csvUrl: report.csvUrl,
+          prevOilPrice: prevReport?.oilPrice ?? null,
+          prevGoldPrice: prevReport?.goldPrice ?? null,
+          prevBtcPrice: prevReport?.btcPrice ?? null,
+          prevCadUsd: prevReport?.cadUsd ?? null,
         },
         spikes: report.spikes.map((s) => ({
           id: s.id,

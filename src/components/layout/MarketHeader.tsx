@@ -11,9 +11,26 @@ interface Props {
   goldPrice: number;
   btcPrice: number;
   cadUsd: number;
+  prevOilPrice?: number | null;
+  prevGoldPrice?: number | null;
+  prevBtcPrice?: number | null;
+  prevCadUsd?: number | null;
 }
 
-export default function MarketHeader({ date, regime, tsxLevel, tsxChange, oilPrice, goldPrice, btcPrice, cadUsd }: Props) {
+function PulseArrow({ current, previous }: { current: number; previous?: number | null }) {
+  if (previous == null || previous === 0) return null;
+  const up = current >= previous;
+  return (
+    <span className={cn(
+      'inline-block ml-1 text-xs',
+      up ? 'text-spike-green pulse-arrow-up' : 'text-spike-red pulse-arrow-down'
+    )}>
+      {up ? '\u25B2' : '\u25BC'}
+    </span>
+  );
+}
+
+export default function MarketHeader({ date, regime, tsxLevel, tsxChange, oilPrice, goldPrice, btcPrice, cadUsd, prevOilPrice, prevGoldPrice, prevBtcPrice, prevCadUsd }: Props) {
   const regimeColors: Record<string, string> = {
     bull: 'text-spike-green bg-spike-green/10 border-spike-green/30 regime-glow-bull',
     bear: 'text-spike-red bg-spike-red/10 border-spike-red/30 regime-glow-bear',
@@ -54,19 +71,19 @@ export default function MarketHeader({ date, regime, tsxLevel, tsxChange, oilPri
           <div className="w-px h-8 bg-spike-border" />
           <div className="text-center">
             <p className="text-[10px] text-spike-text-muted uppercase tracking-wider">USO Oil</p>
-            <p className="font-bold mono">${oilPrice.toFixed(2)}</p>
+            <p className="font-bold mono">${oilPrice.toFixed(2)}<PulseArrow current={oilPrice} previous={prevOilPrice} /></p>
           </div>
           <div className="text-center">
             <p className="text-[10px] text-spike-text-muted uppercase tracking-wider">Gold</p>
-            <p className="font-bold mono">${goldPrice.toFixed(0)}</p>
+            <p className="font-bold mono">${goldPrice.toFixed(0)}<PulseArrow current={goldPrice} previous={prevGoldPrice} /></p>
           </div>
           <div className="text-center">
             <p className="text-[10px] text-spike-text-muted uppercase tracking-wider">BTC</p>
-            <p className="font-bold mono">${btcPrice.toLocaleString('en-CA', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
+            <p className="font-bold mono">${btcPrice.toLocaleString('en-CA', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}<PulseArrow current={btcPrice} previous={prevBtcPrice} /></p>
           </div>
           <div className="text-center">
             <p className="text-[10px] text-spike-text-muted uppercase tracking-wider">CAD/USD</p>
-            <p className="font-bold mono">{cadUsd.toFixed(4)}</p>
+            <p className="font-bold mono">{cadUsd.toFixed(4)}<PulseArrow current={cadUsd} previous={prevCadUsd} /></p>
           </div>
         </div>
       </div>

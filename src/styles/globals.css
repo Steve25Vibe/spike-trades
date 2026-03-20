@@ -209,6 +209,22 @@ body {
   animation: glowPulseRed 2s ease-in-out infinite;
 }
 
+/* Pulsing direction arrows for market indicators */
+@keyframes arrowPulseUp {
+  0%, 100% { opacity: 1; text-shadow: 0 0 6px rgba(0, 255, 136, 0.8); }
+  50% { opacity: 0.3; text-shadow: 0 0 2px rgba(0, 255, 136, 0.2); }
+}
+@keyframes arrowPulseDown {
+  0%, 100% { opacity: 1; text-shadow: 0 0 6px rgba(255, 51, 102, 0.8); }
+  50% { opacity: 0.3; text-shadow: 0 0 2px rgba(255, 51, 102, 0.2); }
+}
+.pulse-arrow-up {
+  animation: arrowPulseUp 2s ease-in-out infinite;
+}
+.pulse-arrow-down {
+  animation: arrowPulseDown 2s ease-in-out infinite;
+}
+
 /* Table styles */
 .spike-table th {
   position: sticky;
