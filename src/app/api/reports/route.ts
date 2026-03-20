@@ -2,6 +2,31 @@ import { NextRequest, NextResponse } from 'next/server';
 import { isAuthenticated } from '@/lib/auth';
 import prisma from '@/lib/db/prisma';
 
+// DELETE /api/reports?date=YYYY-MM-DD — Delete a daily report by date
+export async function DELETE(request: NextRequest) {
+  if (!(await isAuthenticated())) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const dateParam = request.nextUrl.searchParams.get('date');
+  if (!dateParam) {
+    return NextResponse.json({ error: 'Date parameter required' }, { status: 400 });
+  }
+
+  try {
+    const deleted = await prisma.dailyReport.delete({
+      where: { date: new Date(dateParam) },
+    });
+    return NextResponse.json({ success: true, deleted: deleted.id });
+  } catch (error) {
+    console.error('Report delete error:', error);
+    return NextResponse.json(
+      { success: false, error: 'Failed to delete report' },
+      { status: 500 }
+    );
+  }
+}
+
 // GET /api/reports — List all daily reports
 export async function GET(request: NextRequest) {
   if (!(await isAuthenticated())) {
