@@ -178,59 +178,75 @@ export async function runDailyAnalysis(useCached = false): Promise<{
 
     console.log(`[Analyzer] Council returned ${spikes.length} picks. Regime: ${reportData.marketRegime}`);
 
-    // Step 2: Save DailyReport + Spikes to database
+    // Step 2: Save DailyReport + Spikes to database (upsert to handle re-runs)
     console.log('[Analyzer] Saving report to database...');
-    const report = await prisma.dailyReport.create({
-      data: {
-        date: new Date(reportData.date),
-        marketRegime: reportData.marketRegime,
-        tsxLevel: reportData.tsxLevel,
-        tsxChange: reportData.tsxChange,
-        oilPrice: reportData.oilPrice,
-        goldPrice: reportData.goldPrice,
-        btcPrice: reportData.btcPrice,
-        cadUsd: reportData.cadUsd,
-        councilLog: reportData.councilLog as any,
-        spikes: {
-          create: spikes.map((spike) => ({
-            rank: spike.rank,
-            ticker: spike.ticker,
-            name: spike.name,
-            sector: spike.sector || 'Unknown',
-            exchange: spike.exchange,
-            price: spike.price,
-            volume: spike.volume,
-            avgVolume: spike.avgVolume,
-            marketCap: spike.marketCap,
-            spikeScore: spike.spikeScore,
-            momentumScore: spike.momentumScore,
-            volumeScore: spike.volumeScore,
-            technicalScore: spike.technicalScore,
-            macroScore: spike.macroScore,
-            sentimentScore: spike.sentimentScore,
-            shortInterest: spike.shortInterest,
-            volatilityAdj: spike.volatilityAdj,
-            sectorRotation: spike.sectorRotation,
-            patternMatch: spike.patternMatch,
-            liquidityDepth: spike.liquidityDepth,
-            insiderSignal: spike.insiderSignal,
-            gapPotential: spike.gapPotential,
-            predicted3Day: spike.predicted3Day,
-            predicted5Day: spike.predicted5Day,
-            predicted8Day: spike.predicted8Day,
-            confidence: spike.confidence,
-            narrative: spike.narrative || '',
-            rsi: spike.rsi,
-            macd: spike.macd,
-            macdSignal: spike.macdSignal,
-            adx: spike.adx,
-            bollingerUpper: spike.bollingerUpper,
-            bollingerLower: spike.bollingerLower,
-            ema3: spike.ema3,
-            ema8: spike.ema8,
-            atr: spike.atr,
-          })),
-        },
+    const reportDate = new Date(reportData.date);
+
+    // Delete existing spikes for this date if re-running
+    await prisma.spike.deleteMany({
+      where: { report: { date: reportDate } },
+    });
+
+    const reportFields = {
+      marketRegime: reportData.marketRegime,
+      tsxLevel: reportData.tsxLevel,
+      tsxChange: reportData.tsxChange,
+      oilPrice: reportData.oilPrice,
+      goldPrice: reportData.goldPrice,
+      btcPrice: reportData.btcPrice,
+      cadUsd: reportData.cadUsd,
+      councilLog: reportData.councilLog as any,
+    };
+
+    const spikeData = spikes.map((spike) => ({
+      rank: spike.rank,
+      ticker: spike.ticker,
+      name: spike.name,
+      sector: spike.sector || 'Unknown',
+      exchange: spike.exchange,
+      price: spike.price,
+      volume: spike.volume,
+      avgVolume: spike.avgVolume,
+      marketCap: spike.marketCap,
+      spikeScore: spike.spikeScore,
+      momentumScore: spike.momentumScore,
+      volumeScore: spike.volumeScore,
+      technicalScore: spike.technicalScore,
+      macroScore: spike.macroScore,
+      sentimentScore: spike.sentimentScore,
+      shortInterest: spike.shortInterest,
+      volatilityAdj: spike.volatilityAdj,
+      sectorRotation: spike.sectorRotation,
+      patternMatch: spike.patternMatch,
+      liquidityDepth: spike.liquidityDepth,
+      insiderSignal: spike.insiderSignal,
+      gapPotential: spike.gapPotential,
+      predicted3Day: spike.predicted3Day,
+      predicted5Day: spike.predicted5Day,
+      predicted8Day: spike.predicted8Day,
+      confidence: spike.confidence,
+      narrative: spike.narrative || '',
+      rsi: spike.rsi,
+      macd: spike.macd,
+      macdSignal: spike.macdSignal,
+      adx: spike.adx,
+      bollingerUpper: spike.bollingerUpper,
+      bollingerLower: spike.bollingerLower,
+      ema3: spike.ema3,
+      ema8: spike.ema8,
+      atr: spike.atr,
+    }));
+
+    const report = await prisma.dailyReport.upsert({
+      where: { date: reportDate },
+      create: {
+        date: reportDate,
+        ...reportFields,
+        spikes: { create: spikeData },
+      },
+      update: {
+        ...reportFields,
+        spikes: { create: spikeData },
       },
     });
 
