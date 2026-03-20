@@ -4,18 +4,10 @@
 // Calls Python Council Brain via FastAPI, then saves results to Prisma
 // ============================================
 
-import { Agent } from 'undici';
 import prisma from '@/lib/db/prisma';
 import { sendDailySummary, sendCouncilEmail } from '@/lib/email/resend';
 
 const COUNCIL_API_URL = process.env.COUNCIL_API_URL || 'http://localhost:8100';
-
-// Long-timeout agent for council calls that can take 60+ minutes
-const longTimeoutAgent = new Agent({
-  headersTimeout: 3_600_000,   // 1 hour for headers
-  bodyTimeout: 3_600_000,      // 1 hour for body
-  connectTimeout: 30_000,      // 30s to connect
-});
 
 interface CouncilMappedResponse {
   dailyReport: {
@@ -111,13 +103,40 @@ export async function runDailyAnalysis(useCached = false): Promise<{
       });
     } else {
       console.log('[Analyzer] Calling Python Council Brain...');
-      councilResponse = await fetch(`${COUNCIL_API_URL}/run-council-mapped`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-        signal: AbortSignal.timeout(3_600_000), // 1 hour overall timeout
-        // @ts-expect-error undici dispatcher for long-running council calls
-        dispatcher: longTimeoutAgent,
+      // Use http module directly to avoid undici's default headersTimeout (300s)
+      // The council pipeline takes 45-60 minutes with no response until complete
+      const http = await import('http');
+      councilResponse = await new Promise<Response>((resolve, reject) => {
+        const url = new URL(`${COUNCIL_API_URL}/run-council-mapped`);
+        const req = http.request(
+          {
+            hostname: url.hostname,
+            port: url.port,
+            path: url.pathname,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 3_600_000, // 1 hour socket timeout
+          },
+          (res) => {
+            const chunks: Buffer[] = [];
+            res.on('data', (chunk: Buffer) => chunks.push(chunk));
+            res.on('end', () => {
+              const body = Buffer.concat(chunks).toString();
+              resolve(new Response(body, {
+                status: res.statusCode || 500,
+                headers: res.headers as Record<string, string>,
+              }));
+            });
+            res.on('error', reject);
+          },
+        );
+        req.on('timeout', () => {
+          req.destroy();
+          reject(new Error('Council request timed out after 1 hour'));
+        });
+        req.on('error', reject);
+        req.write(JSON.stringify({}));
+        req.end();
       });
     }
 
