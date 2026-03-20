@@ -28,6 +28,7 @@ cron.schedule(
           'Authorization': `Bearer ${CRON_SECRET}`,
           'Content-Type': 'application/json',
         },
+        signal: AbortSignal.timeout(3_600_000), // 1 hour timeout for full pipeline
       });
       const result = await response.json();
       console.log(`[Cron] Analysis result:`, result);

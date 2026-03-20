@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runDailyAnalysis } from '@/lib/scheduling/analyzer';
 
+// Allow up to 1 hour for the council pipeline
+export const maxDuration = 3600;
+
 // POST /api/cron — Trigger daily analysis
 // Called by node-cron scheduler or manually
 // Query params: ?cached=true to use last council output (no new LLM calls)

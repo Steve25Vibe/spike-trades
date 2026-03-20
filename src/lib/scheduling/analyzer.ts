@@ -4,10 +4,18 @@
 // Calls Python Council Brain via FastAPI, then saves results to Prisma
 // ============================================
 
+import { Agent } from 'undici';
 import prisma from '@/lib/db/prisma';
 import { sendDailySummary, sendCouncilEmail } from '@/lib/email/resend';
 
 const COUNCIL_API_URL = process.env.COUNCIL_API_URL || 'http://localhost:8100';
+
+// Long-timeout agent for council calls that can take 60+ minutes
+const longTimeoutAgent = new Agent({
+  headersTimeout: 3_600_000,   // 1 hour for headers
+  bodyTimeout: 3_600_000,      // 1 hour for body
+  connectTimeout: 30_000,      // 30s to connect
+});
 
 interface CouncilMappedResponse {
   dailyReport: {
@@ -107,7 +115,9 @@ export async function runDailyAnalysis(useCached = false): Promise<{
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
-        signal: AbortSignal.timeout(3600_000), // 1 hour — full TSX pipeline takes ~45 min
+        signal: AbortSignal.timeout(3_600_000), // 1 hour overall timeout
+        // @ts-expect-error undici dispatcher for long-running council calls
+        dispatcher: longTimeoutAgent,
       });
     }
 
