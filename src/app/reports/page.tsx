@@ -61,10 +61,9 @@ export default function ReportsPage() {
 
         <div className="space-y-3">
           {reports.map((report) => (
-            <Link
+            <div
               key={report.id}
-              href={`/dashboard?date=${report.date}`}
-              className="glass-card p-4 flex items-center justify-between gap-4 block hover:border-spike-cyan/30"
+              className="glass-card p-4 flex items-center justify-between gap-4 hover:border-spike-cyan/30"
             >
               <div className="flex items-center gap-4">
                 <div>
@@ -87,27 +86,22 @@ export default function ReportsPage() {
                 </div>
               </div>
 
-              {/* Top 3 preview */}
-              <div className="flex gap-3">
-                {report.topSpikes.map((spike, i) => (
-                  <div key={i} className="text-center">
-                    <p className="text-xs font-bold text-spike-cyan">{spike.ticker}</p>
-                    <p className="text-[10px] mono text-spike-text-dim">{spike.spikeScore.toFixed(0)}</p>
-                  </div>
-                ))}
+              <div className="flex items-center gap-3">
+                <Link
+                  href={`/dashboard?date=${report.date}`}
+                  className="px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide text-spike-cyan border border-spike-cyan/30 hover:bg-spike-cyan/10 transition-colors"
+                >
+                  View
+                </Link>
+                <a
+                  href={`/api/reports/${report.id}/xlsx`}
+                  className="px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide text-spike-green border border-spike-green/30 hover:bg-spike-green/10 transition-colors"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  XLSX
+                </a>
               </div>
-
-              {report.csvUrl && (
-                <span className="text-xs text-spike-text-muted flex items-center gap-1">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                    <polyline points="7 10 12 15 17 10" />
-                    <line x1="12" y1="15" x2="12" y2="3" />
-                  </svg>
-                  CSV
-                </span>
-              )}
-            </Link>
+            </div>
           ))}
 
           {reports.length === 0 && !loading && (
