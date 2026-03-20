@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Sidebar from '@/components/layout/Sidebar';
 import ParticleBackground from '@/components/layout/ParticleBackground';
 import MarketHeader from '@/components/layout/MarketHeader';
@@ -56,6 +57,16 @@ interface ReportData {
 }
 
 export default function DashboardPage() {
+  return (
+    <Suspense fallback={null}>
+      <DashboardContent />
+    </Suspense>
+  );
+}
+
+function DashboardContent() {
+  const searchParams = useSearchParams();
+  const dateParam = searchParams.get('date');
   const [data, setData] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -66,11 +77,12 @@ export default function DashboardPage() {
 
   useEffect(() => {
     fetchSpikes();
-  }, []);
+  }, [dateParam]);
 
   const fetchSpikes = async () => {
     try {
-      const res = await fetch('/api/spikes');
+      const url = dateParam ? `/api/spikes?date=${dateParam}` : '/api/spikes';
+      const res = await fetch(url);
       if (res.status === 401) {
         window.location.href = '/login';
         return;

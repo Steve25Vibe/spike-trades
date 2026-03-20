@@ -88,7 +88,7 @@ export default function ReportsPage() {
 
               <div className="flex items-center gap-3">
                 <Link
-                  href={`/dashboard?date=${report.date}`}
+                  href={`/dashboard?date=${new Date(report.date).toISOString().split('T')[0]}`}
                   className="px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide text-spike-cyan border border-spike-cyan/30 hover:bg-spike-cyan/10 transition-colors"
                 >
                   View
