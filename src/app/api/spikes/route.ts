@@ -58,7 +58,7 @@ export async function GET(request: NextRequest) {
           prevGoldPrice: prevReport?.goldPrice ?? null,
           prevBtcPrice: prevReport?.btcPrice ?? null,
           prevCadUsd: prevReport?.cadUsd ?? null,
-          stocksAnalyzed: (report.councilLog as any)?.tickersScreened || (report.councilLog as any)?.universeSize || null,
+          stocksAnalyzed: (report.councilLog as any)?.universeSize || null,
         },
         spikes: report.spikes.map((s) => ({
           id: s.id,

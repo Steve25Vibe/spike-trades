@@ -220,7 +220,7 @@ export default function DashboardPage() {
         ) : data ? (
           <>
             <MarketHeader
-              date={new Date(data.report.date).toLocaleDateString('en-CA', {
+              date={new Date(new Date(data.report.date).toISOString().split('T')[0] + 'T12:00:00').toLocaleDateString('en-CA', {
                 weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
               })}
               regime={data.report.marketRegime || 'neutral'}

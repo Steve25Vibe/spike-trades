@@ -68,7 +68,7 @@ export default function ReportsPage() {
               <div className="flex items-center gap-4">
                 <div>
                   <p className="font-bold text-spike-text">
-                    {new Date(report.date).toLocaleDateString('en-CA', {
+                    {new Date(new Date(report.date).toISOString().split('T')[0] + 'T12:00:00').toLocaleDateString('en-CA', {
                       weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
                     })}
                   </p>
