@@ -22,6 +22,7 @@ import logging
 import os
 import time
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Any, Optional
 
@@ -109,7 +110,7 @@ def _map_to_prisma(council_output: dict) -> dict:
     picks = council_output.get("top_picks", [])
     risk = council_output.get("risk_summary", {})
     roadmap = council_output.get("daily_roadmap", {})
-    run_date = council_output.get("run_date", datetime.now().strftime("%Y-%m-%d"))
+    run_date = council_output.get("run_date", datetime.now(ZoneInfo("America/Halifax")).strftime("%Y-%m-%d"))
 
     # Map regime: Python uses RISK_ON/RISK_OFF/COMMODITY_BOOM/COMMODITY_BUST/NEUTRAL
     # Prisma uses bull/bear/neutral/volatile

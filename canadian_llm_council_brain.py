@@ -38,6 +38,7 @@ import ssl
 import statistics
 import time
 from datetime import datetime, timezone, timedelta, date
+from zoneinfo import ZoneInfo
 from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
@@ -2778,7 +2779,7 @@ class CanadianStockCouncilBrain:
 
             result = CouncilResult(
                 run_id=run_id,
-                run_date=date.today(),
+                run_date=datetime.now(ZoneInfo("America/Halifax")).date(),
                 macro_context=macro,
                 regime=regime,
                 universe_size=len(universe),

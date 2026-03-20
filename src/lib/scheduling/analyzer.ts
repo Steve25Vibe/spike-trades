@@ -88,7 +88,8 @@ export async function runDailyAnalysis(useCached = false): Promise<{
   error?: string;
 }> {
   const startTime = Date.now();
-  const today = new Date().toISOString().split('T')[0];
+  // Use AST/ADT (America/Halifax) for date to match the trading day
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Halifax' });
   console.log(`\n[Analyzer] ====== Starting daily analysis for ${today} ======`);
 
   try {
