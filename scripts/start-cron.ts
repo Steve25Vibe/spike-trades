@@ -73,14 +73,14 @@ cron.schedule(
   async () => {
     console.log(`[Cron] Triggering accuracy check at ${new Date().toISOString()}`);
     try {
-      const response = await fetch(`${APP_URL}/api/accuracy/check`, {
+      const result = await httpRequest(`${APP_URL}/api/accuracy/check`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${CRON_SECRET}`,
         },
+        timeout: 300_000, // 5 minute timeout for batch FMP API calls
       });
-      const result = await response.json();
-      console.log(`[Cron] Accuracy check result:`, result);
+      console.log(`[Cron] Accuracy check result (status ${result.status}):`, result.body);
     } catch (error) {
       console.error(`[Cron] Accuracy check failed:`, error);
     }
@@ -93,9 +93,10 @@ cron.schedule(
   '*/15 9-16 * * 1-5',
   async () => {
     try {
-      await fetch(`${APP_URL}/api/portfolio/alerts`, {
+      await httpRequest(`${APP_URL}/api/portfolio/alerts`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${CRON_SECRET}` },
+        timeout: 120_000, // 2 minute timeout for batch quotes
       });
     } catch (error) {
       // Silent fail for frequent checks

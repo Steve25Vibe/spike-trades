@@ -98,8 +98,36 @@ export async function runDailyAnalysis(useCached = false): Promise<{
     if (useCached) {
       // Use cached output from last council run (no new LLM calls)
       console.log('[Analyzer] Using cached council output...');
-      councilResponse = await fetch(`${COUNCIL_API_URL}/latest-output-mapped`, {
-        signal: AbortSignal.timeout(30_000),
+      const http = await import('http');
+      councilResponse = await new Promise<Response>((resolve, reject) => {
+        const url = new URL(`${COUNCIL_API_URL}/latest-output-mapped`);
+        const req = http.request(
+          {
+            hostname: url.hostname,
+            port: url.port,
+            path: url.pathname,
+            method: 'GET',
+            timeout: 60_000, // 1 minute timeout for cached data
+          },
+          (res) => {
+            const chunks: Buffer[] = [];
+            res.on('data', (chunk: Buffer) => chunks.push(chunk));
+            res.on('end', () => {
+              const body = Buffer.concat(chunks).toString();
+              resolve(new Response(body, {
+                status: res.statusCode || 500,
+                headers: res.headers as Record<string, string>,
+              }));
+            });
+            res.on('error', reject);
+          },
+        );
+        req.on('timeout', () => {
+          req.destroy();
+          reject(new Error('Cached council fetch timed out after 1 minute'));
+        });
+        req.on('error', reject);
+        req.end();
       });
     } else {
       console.log('[Analyzer] Calling Python Council Brain...');
@@ -233,8 +261,37 @@ export async function runDailyAnalysis(useCached = false): Promise<{
     // Try to send the rich HTML email from the Python renderer first
     let emailSent = false;
     try {
-      const emailResponse = await fetch(`${COUNCIL_API_URL}/render-email`, {
-        method: 'POST',
+      const httpMod = await import('http');
+      const emailResponse = await new Promise<Response>((resolve, reject) => {
+        const url = new URL(`${COUNCIL_API_URL}/render-email`);
+        const req = httpMod.request(
+          {
+            hostname: url.hostname,
+            port: url.port,
+            path: url.pathname,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 120_000, // 2 minute timeout for email rendering
+          },
+          (res) => {
+            const chunks: Buffer[] = [];
+            res.on('data', (chunk: Buffer) => chunks.push(chunk));
+            res.on('end', () => {
+              const body = Buffer.concat(chunks).toString();
+              resolve(new Response(body, {
+                status: res.statusCode || 500,
+                headers: res.headers as Record<string, string>,
+              }));
+            });
+            res.on('error', reject);
+          },
+        );
+        req.on('timeout', () => {
+          req.destroy();
+          reject(new Error('Email render timed out after 2 minutes'));
+        });
+        req.on('error', reject);
+        req.end();
       });
       if (emailResponse.ok) {
         const html = await emailResponse.text();

@@ -369,6 +369,7 @@ You are the final authority. Produce the definitive Top 20. Your verdict is law.
           max_tokens: 8192,
           temperature: 0.3, // Low temperature for consistent, careful decisions
         }),
+        signal: AbortSignal.timeout(300_000), // 5 minute timeout for LLM response
       });
 
       if (response.ok) {
