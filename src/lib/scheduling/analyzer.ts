@@ -182,10 +182,21 @@ export async function runDailyAnalysis(useCached = false): Promise<{
     console.log('[Analyzer] Saving report to database...');
     const reportDate = new Date(reportData.date);
 
-    // Delete existing spikes for this date if re-running
-    await prisma.spike.deleteMany({
-      where: { report: { date: reportDate } },
+    // Check if a report already exists for this date
+    const existingReport = await prisma.dailyReport.findUnique({
+      where: { date: reportDate },
+      select: { id: true },
     });
+
+    // If re-running, delete old spikes (clearing portfolio refs first)
+    if (existingReport) {
+      await prisma.portfolioEntry.deleteMany({
+        where: { spike: { reportId: existingReport.id } },
+      });
+      await prisma.spike.deleteMany({
+        where: { reportId: existingReport.id },
+      });
+    }
 
     const reportFields = {
       marketRegime: reportData.marketRegime,
