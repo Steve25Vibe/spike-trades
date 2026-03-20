@@ -50,6 +50,7 @@ interface ReportData {
     prevGoldPrice: number | null;
     prevBtcPrice: number | null;
     prevCadUsd: number | null;
+    stocksAnalyzed: number | null;
   };
   spikes: SpikeData[];
 }
@@ -236,8 +237,9 @@ export default function DashboardPage() {
             />
 
             {/* Summary stats */}
-            <div className="grid grid-cols-4 gap-4 mb-6">
+            <div className="grid grid-cols-5 gap-4 mb-6">
               {[
+                { label: 'Stocks Analyzed', value: data.report.stocksAnalyzed?.toLocaleString() || '--', color: 'text-spike-amber' },
                 { label: 'Total Spikes', value: data.spikes.length, color: 'text-spike-cyan' },
                 { label: 'Avg Score', value: (data.spikes.reduce((a, s) => a + s.spikeScore, 0) / data.spikes.length).toFixed(1), color: 'text-spike-green' },
                 { label: 'Top Score', value: data.spikes[0]?.spikeScore.toFixed(1) || '--', color: 'text-spike-gold' },

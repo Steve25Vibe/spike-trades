@@ -242,6 +242,8 @@ def _map_to_prisma(council_output: dict) -> dict:
         },
         "consensusScore": sum(p.get("consensus_score", 0) for p in picks) / max(len(picks), 1),
         "processingTime": int(council_output.get("total_runtime_seconds", 0) * 1000),
+        "universeSize": council_output.get("universe_size", 0),
+        "tickersScreened": council_output.get("tickers_screened", 0),
     }
 
     return {
