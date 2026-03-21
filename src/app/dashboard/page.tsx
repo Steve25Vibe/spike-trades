@@ -399,7 +399,7 @@ function DashboardContent() {
                 Trading stocks involves risk. You may lose your entire investment.
               </p>
               <p className="mt-2">
-                &copy; {new Date().getFullYear()} Spike Trades &mdash; spiketrades.ca. All rights reserved.
+                &copy; {new Date().getFullYear()} Spike Trades &mdash; spiketrades.ca. All rights reserved. &middot; Ver 1.0
               </p>
             </div>
           </>

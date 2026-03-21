@@ -120,7 +120,8 @@ export default function LoginPage() {
         {/* Legal */}
         <p className="text-center text-spike-text-muted text-[10px] mt-8 leading-relaxed">
           For educational and informational purposes only. Not financial advice.<br />
-          Past performance is no guarantee of future results.
+          Past performance is no guarantee of future results.<br />
+          Ver 1.0
         </p>
       </div>
     </div>
