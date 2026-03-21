@@ -72,15 +72,15 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// DELETE /api/portfolios — Delete a portfolio and all its closed entries
-// Blocks if active positions exist — user must close them first.
+// DELETE /api/portfolios — Delete a portfolio and all its entries
+// If closePositions is true, auto-closes active positions first.
 export async function DELETE(request: NextRequest) {
   if (!(await isAuthenticated())) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   try {
-    const { portfolioId } = await request.json();
+    const { portfolioId, closePositions } = await request.json();
 
     if (!portfolioId) {
       return NextResponse.json({ success: false, error: 'portfolioId required' }, { status: 400 });
@@ -88,30 +88,47 @@ export async function DELETE(request: NextRequest) {
 
     const portfolio = await prisma.portfolio.findUnique({
       where: { id: portfolioId },
-      include: { _count: { select: { entries: { where: { status: 'active' } } } } },
+      include: {
+        entries: { where: { status: 'active' }, select: { id: true } },
+      },
     });
 
     if (!portfolio) {
       return NextResponse.json({ success: false, error: 'Portfolio not found' }, { status: 404 });
     }
 
-    if (portfolio._count.entries > 0) {
+    const activeCount = portfolio.entries.length;
+
+    if (activeCount > 0 && !closePositions) {
       return NextResponse.json({
         success: false,
-        error: `Portfolio has ${portfolio._count.entries} active position(s). Close them before deleting.`,
-        activeCount: portfolio._count.entries,
+        error: `Portfolio has ${activeCount} active position(s).`,
+        activeCount,
+        requiresClose: true,
       }, { status: 400 });
     }
 
-    // Hard delete all closed entries belonging to this portfolio
+    // Close active positions if requested
+    if (activeCount > 0 && closePositions) {
+      await prisma.portfolioEntry.updateMany({
+        where: { portfolioId, status: 'active' },
+        data: {
+          status: 'closed',
+          exitDate: new Date(),
+          exitReason: 'portfolio_deleted',
+        },
+      });
+    }
+
+    // Delete all entries
     await prisma.portfolioEntry.deleteMany({
       where: { portfolioId },
     });
 
-    // Delete the portfolio itself
+    // Delete the portfolio
     await prisma.portfolio.delete({ where: { id: portfolioId } });
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, closedPositions: activeCount });
   } catch (error) {
     console.error('Portfolio delete error:', error);
     return NextResponse.json({ success: false, error: 'Failed to delete portfolio' }, { status: 500 });

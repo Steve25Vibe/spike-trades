@@ -211,32 +211,38 @@ export default function PortfolioPage() {
   const handleConfirmDelete = async () => {
     if (deleteSelectedIds.size === 0) return;
     setDeleting(true);
+    const hasActive = portfolios.some((p) => deleteSelectedIds.has(p.id) && p.activePositions > 0);
     const errors: string[] = [];
+    let totalClosed = 0;
     for (const portfolioId of deleteSelectedIds) {
       const res = await fetch('/api/portfolios', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ portfolioId }),
+        body: JSON.stringify({ portfolioId, closePositions: hasActive }),
       });
       const json = await res.json();
       if (!json.success) {
         const p = portfolios.find((x) => x.id === portfolioId);
         errors.push(`${p?.name || portfolioId}: ${json.error}`);
+      } else {
+        totalClosed += json.closedPositions || 0;
       }
     }
     const count = deleteSelectedIds.size;
     setDeleting(false);
     setShowDeleteModal(false);
     setDeleteSelectedIds(new Set());
-    // Clear positions immediately so stale data doesn't show
+    setDeleteStep('select');
     setPositions([]);
     setSummary(null);
-    // refreshPortfolios will clear activeId if the active one was deleted
     await refreshPortfolios();
     if (errors.length > 0) {
       setToast({ message: errors.join('; '), type: 'error' });
     } else {
-      setToast({ message: `Deleted ${count} portfolio${count > 1 ? 's' : ''}`, type: 'success' });
+      const msg = totalClosed > 0
+        ? `Deleted ${count} portfolio${count > 1 ? 's' : ''} (${totalClosed} position${totalClosed > 1 ? 's' : ''} closed)`
+        : `Deleted ${count} portfolio${count > 1 ? 's' : ''}`;
+      setToast({ message: msg, type: 'success' });
     }
     setTimeout(() => setToast(null), 5000);
   };
@@ -684,25 +690,31 @@ export default function PortfolioPage() {
                     </button>
                   </div>
                 </>
-              ) : (
+              ) : (() => {
+                const selected = portfolios.filter((p) => deleteSelectedIds.has(p.id));
+                const totalActive = selected.reduce((sum, p) => sum + p.activePositions, 0);
+                return (
                 <>
                   <div className="p-4 rounded-xl bg-spike-red/10 border border-spike-red/30 mb-5">
                     <p className="text-sm text-spike-red font-medium mb-2">This action cannot be undone.</p>
-                    <p className="text-xs text-spike-text-dim">
-                      The following portfolio{deleteSelectedIds.size > 1 ? 's' : ''} and all {deleteSelectedIds.size > 1 ? 'their' : 'its'} closed positions will be permanently deleted.
-                      {portfolios.some((p) => deleteSelectedIds.has(p.id) && p.activePositions > 0) && (
-                        <span className="text-spike-red font-medium"> Portfolios with active positions cannot be deleted — close them first.</span>
-                      )}
-                    </p>
+                    {totalActive > 0 ? (
+                      <p className="text-xs text-spike-text-dim">
+                        {totalActive} active position{totalActive > 1 ? 's' : ''} will be <span className="text-spike-red font-medium">closed at current market price</span> and the portfolio{selected.length > 1 ? 's' : ''} permanently deleted.
+                      </p>
+                    ) : (
+                      <p className="text-xs text-spike-text-dim">
+                        The selected portfolio{selected.length > 1 ? 's' : ''} will be permanently deleted.
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-2 mb-5">
-                    {portfolios.filter((p) => deleteSelectedIds.has(p.id)).map((p) => (
+                    {selected.map((p) => (
                       <div key={p.id} className="flex items-center justify-between p-3 rounded-lg bg-spike-bg/50 border border-spike-border/30">
                         <span className="text-sm font-medium text-spike-text">{p.name}</span>
                         {p.activePositions > 0 ? (
-                          <span className="text-xs text-spike-red">{p.activePositions} active — will be blocked</span>
+                          <span className="text-xs text-spike-amber">{p.activePositions} position{p.activePositions > 1 ? 's' : ''} will be closed</span>
                         ) : (
-                          <span className="text-xs text-spike-text-muted">will be deleted</span>
+                          <span className="text-xs text-spike-text-muted">no active positions</span>
                         )}
                       </div>
                     ))}
@@ -714,11 +726,14 @@ export default function PortfolioPage() {
                       disabled={deleting}
                       className="flex-1 py-2.5 rounded-lg text-sm font-bold text-white bg-spike-red hover:bg-spike-red/80 transition-all disabled:opacity-50"
                     >
-                      {deleting ? 'Deleting...' : `Delete ${deleteSelectedIds.size} Portfolio${deleteSelectedIds.size > 1 ? 's' : ''}`}
+                      {deleting ? 'Deleting...' : totalActive > 0
+                        ? `Close Positions & Delete`
+                        : `Delete ${deleteSelectedIds.size} Portfolio${deleteSelectedIds.size > 1 ? 's' : ''}`}
                     </button>
                   </div>
                 </>
-              )}
+                );
+              })()}
             </div>
           </div>
         )}
