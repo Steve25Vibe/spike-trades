@@ -6,6 +6,7 @@ import Link from 'next/link';
 import Sidebar from '@/components/layout/Sidebar';
 import ParticleBackground from '@/components/layout/ParticleBackground';
 import LockInModal from '@/components/portfolio/LockInModal';
+import PortfolioChoiceModal from '@/components/portfolio/PortfolioChoiceModal';
 import { type SizingMode } from '@/components/portfolio/PortfolioSettings';
 import { usePortfolios } from '@/components/portfolio/usePortfolios';
 import { cn, formatCurrency, formatPercent, formatVolume, formatMarketCap } from '@/lib/utils';
@@ -105,6 +106,8 @@ export default function AnalysisPage() {
   const [loading, setLoading] = useState(true);
   const [locking, setLocking] = useState(false);
   const [showLockInModal, setShowLockInModal] = useState(false);
+  const [showPortfolioChoice, setShowPortfolioChoice] = useState(false);
+  const [chosenPortfolioId, setChosenPortfolioId] = useState<string | null>(null);
   const { portfolios, activeId, refresh: refreshPortfolios } = usePortfolios();
 
   useEffect(() => {
@@ -126,7 +129,14 @@ export default function AnalysisPage() {
 
   const handleLockIn = () => {
     if (!data) return;
+    setShowPortfolioChoice(true);
+  };
+
+  const handlePortfolioChosen = (portfolioId: string) => {
+    setChosenPortfolioId(portfolioId);
+    setShowPortfolioChoice(false);
     setShowLockInModal(true);
+    refreshPortfolios();
   };
 
   const handleConfirmLockIn = async (params: { spikeId: string; portfolioId: string; shares?: number; positionSize?: number; portfolioSize?: number; mode: SizingMode }) => {
@@ -532,8 +542,19 @@ export default function AnalysisPage() {
           </p>
         </div>
 
+        {/* Portfolio Choice Modal */}
+        {showPortfolioChoice && data && (
+          <PortfolioChoiceModal
+            portfolios={portfolios}
+            spikeCount={1}
+            onSelect={handlePortfolioChosen}
+            onCreate={handlePortfolioChosen}
+            onCancel={() => setShowPortfolioChoice(false)}
+          />
+        )}
+
         {/* Lock-In Confirmation Modal */}
-        {showLockInModal && data && (
+        {showLockInModal && data && chosenPortfolioId && (
           <LockInModal
             spike={{
               id: spike.id,
@@ -546,9 +567,9 @@ export default function AnalysisPage() {
               atr: spike.technicals?.atr,
             }}
             portfolios={portfolios}
-            activePortfolioId={activeId}
+            activePortfolioId={chosenPortfolioId}
             onConfirm={handleConfirmLockIn}
-            onCancel={() => setShowLockInModal(false)}
+            onCancel={() => { setShowLockInModal(false); setChosenPortfolioId(null); }}
           />
         )}
       </main>

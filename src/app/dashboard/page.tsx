@@ -8,6 +8,7 @@ import MarketHeader from '@/components/layout/MarketHeader';
 import SpikeCard from '@/components/spikes/SpikeCard';
 import LockInModal from '@/components/portfolio/LockInModal';
 import BulkLockInModal from '@/components/portfolio/BulkLockInModal';
+import PortfolioChoiceModal from '@/components/portfolio/PortfolioChoiceModal';
 import PortfolioSettings from '@/components/portfolio/PortfolioSettings';
 import PortfolioSelector from '@/components/portfolio/PortfolioSelector';
 import { usePortfolios } from '@/components/portfolio/usePortfolios';
@@ -84,6 +85,10 @@ function DashboardContent() {
   const [showSettings, setShowSettings] = useState(false);
   const [showNewPortfolio, setShowNewPortfolio] = useState(false);
   const [newPortfolioName, setNewPortfolioName] = useState('');
+  // Portfolio choice flow: pending spikes wait for portfolio selection before showing lock-in modal
+  const [pendingSingleSpike, setPendingSingleSpike] = useState<SpikeData | null>(null);
+  const [pendingBulkSpikes, setPendingBulkSpikes] = useState<SpikeData[] | null>(null);
+  const [chosenPortfolioId, setChosenPortfolioId] = useState<string | null>(null);
 
   const { portfolios, activeId, activePortfolio, selectPortfolio, refresh: refreshPortfolios } = usePortfolios();
 
@@ -112,9 +117,30 @@ function DashboardContent() {
     }
   };
 
+  // Step 1: user clicks Lock In → show portfolio choice modal
   const handleLockIn = (spikeId: string) => {
     const spike = data?.spikes.find((s) => s.id === spikeId);
-    if (spike) setLockInSpike(spike);
+    if (spike) setPendingSingleSpike(spike);
+  };
+
+  // Step 2a: user chose a portfolio → show lock-in modal
+  const handlePortfolioChosen = (portfolioId: string) => {
+    setChosenPortfolioId(portfolioId);
+    if (pendingSingleSpike) {
+      setLockInSpike(pendingSingleSpike);
+      setPendingSingleSpike(null);
+    }
+    if (pendingBulkSpikes) {
+      setBulkLockInSpikes(pendingBulkSpikes);
+      setPendingBulkSpikes(null);
+    }
+    refreshPortfolios();
+  };
+
+  // Cancel choice modal
+  const handleCancelChoice = () => {
+    setPendingSingleSpike(null);
+    setPendingBulkSpikes(null);
   };
 
   const handleConfirmLockIn = async (params: { spikeId: string; portfolioId: string; shares?: number; positionSize?: number; portfolioSize?: number; mode: SizingMode }) => {
@@ -153,7 +179,7 @@ function DashboardContent() {
   const handleBulkLockIn = () => {
     if (selectedIds.size === 0 || !data) return;
     const selected = data.spikes.filter((s) => selectedIds.has(s.id));
-    setBulkLockInSpikes(selected);
+    setPendingBulkSpikes(selected);
   };
 
   const handleConfirmBulkLockIn = async (params: {
@@ -426,19 +452,30 @@ function DashboardContent() {
           </>
         ) : null}
 
-        {/* Lock-In Confirmation Modal */}
-        {lockInSpike && (
-          <LockInModal
-            spike={lockInSpike}
+        {/* Portfolio Choice Modal — appears first when locking in */}
+        {(pendingSingleSpike || pendingBulkSpikes) && (
+          <PortfolioChoiceModal
             portfolios={portfolios}
-            activePortfolioId={activeId}
-            onConfirm={handleConfirmLockIn}
-            onCancel={() => setLockInSpike(null)}
+            spikeCount={pendingSingleSpike ? 1 : (pendingBulkSpikes?.length || 0)}
+            onSelect={handlePortfolioChosen}
+            onCreate={handlePortfolioChosen}
+            onCancel={handleCancelChoice}
           />
         )}
 
-        {/* Bulk Lock-In Modal */}
-        {bulkLockInSpikes && bulkLockInSpikes.length > 0 && (
+        {/* Lock-In Confirmation Modal — after portfolio chosen */}
+        {lockInSpike && chosenPortfolioId && (
+          <LockInModal
+            spike={lockInSpike}
+            portfolios={portfolios}
+            activePortfolioId={chosenPortfolioId}
+            onConfirm={handleConfirmLockIn}
+            onCancel={() => { setLockInSpike(null); setChosenPortfolioId(null); }}
+          />
+        )}
+
+        {/* Bulk Lock-In Modal — after portfolio chosen */}
+        {bulkLockInSpikes && bulkLockInSpikes.length > 0 && chosenPortfolioId && (
           <BulkLockInModal
             spikes={bulkLockInSpikes.map((s) => ({
               id: s.id,
@@ -449,9 +486,9 @@ function DashboardContent() {
               atr: s.atr,
             }))}
             portfolios={portfolios}
-            activePortfolioId={activeId}
+            activePortfolioId={chosenPortfolioId}
             onConfirm={handleConfirmBulkLockIn}
-            onCancel={() => setBulkLockInSpikes(null)}
+            onCancel={() => { setBulkLockInSpikes(null); setChosenPortfolioId(null); }}
           />
         )}
 
@@ -464,7 +501,7 @@ function DashboardContent() {
           />
         )}
 
-        {/* New Portfolio Modal */}
+        {/* New Portfolio Modal (from top-right selector) */}
         {showNewPortfolio && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center" onClick={() => setShowNewPortfolio(false)}>
             <div className="glass-card p-6 w-full max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
