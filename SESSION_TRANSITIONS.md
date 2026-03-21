@@ -1003,3 +1003,84 @@ When ending a session, Claude Code should append an entry like this:
 ### Context window status:
 - Estimated usage: moderate
 - Reason for stopping: completed Session 11 scope — multi-portfolio frontend fully deployed and working
+
+---
+
+## Session 11 Checkpoint — 2026-03-21
+
+### What was built:
+
+- **Portfolio hard-delete model**: Deleted portfolios and all their positions are permanently removed (no orphaned entries). Storage simplified — only active portfolios tracked.
+
+- **3-step delete flow** (`src/app/portfolio/page.tsx`):
+  - Step 1: Select which portfolios to delete (multi-select checkboxes)
+  - Step 2: Close active positions warning (amber) — closes all positions at market price
+  - Step 3: Confirm portfolio deletion (red) — permanently deletes portfolio records
+  - Skips step 2 if no active positions exist
+
+- **Same stock in multiple portfolios** (`src/app/api/portfolio/route.ts`):
+  - Duplicate check now scoped by `portfolioId` — same ticker can exist in different portfolios independently
+
+- **Portfolio page UX improvements** (`src/app/portfolio/page.tsx`):
+  - "Choose Portfolio" and "Delete Portfolio" buttons in toolbar
+  - Auto-selects first portfolio on load when no stored selection
+  - Empty state shows "Portfolios" heading with create prompt
+  - "Go pick some spikes" links to dashboard with last report (works weekends/holidays)
+
+- **Auto-select first portfolio on load** (`src/components/portfolio/usePortfolios.ts`):
+  - When stored portfolio ID is invalid or deleted, auto-selects first available
+  - Falls through to null (empty state) when no portfolios exist
+
+- **Partial sell / close positions** (`src/app/api/portfolio/route.ts` + `src/app/portfolio/page.tsx`):
+  - API: new `sharesToSell` parameter on DELETE endpoint
+  - Partial sell: reduces shares, keeps position active, returns realized P&L on sold portion
+  - Full sell: closes position entirely (existing behavior)
+  - Sell modal: shows position details, share quantity input, "Sell All" button, estimated proceeds, estimated P&L, remaining shares preview
+
+- **Dashboard cleanup**: Removed "New Portfolio" and "Choose Portfolio" buttons from Today's Spikes page — the PortfolioChoiceModal during lock-in handles both create and select
+
+- **Version bump**: All pages updated from Ver 1.0 → Ver 2.0
+
+### What was tested:
+- TypeScript compilation: 0 errors → PASS
+- Portfolio deletion (single and multi-select) → PASS
+- Portfolio auto-select after delete → PASS
+- Empty state display when all portfolios deleted → PASS
+- 3-step delete flow with active positions → PASS
+- Same stock in multiple portfolios → PASS (duplicate check scoped to portfolio)
+- Partial sell API with sharesToSell param → PASS
+- Sell modal UI with quantity selector → PASS
+
+### Key decisions made:
+- **Hard delete over soft delete**: Deleted portfolios are permanently removed with all positions. Simplifies data model and accuracy tracking.
+- **3-step delete with position closure**: User explicitly confirms position closure before portfolio deletion — no surprise data loss.
+- **Partial sell keeps position active**: Selling some shares reduces the position count but doesn't close it. Only selling all shares triggers full close.
+- **Bulk close remains full-close only**: Partial sells in bulk mode would be confusing UX. Bulk close sells all shares of selected positions.
+- **Portfolio-scoped duplicate check**: Same stock can exist in different portfolios. Only blocks duplicates within the same portfolio.
+
+### Files modified:
+- `src/app/api/portfolio/route.ts` — partial sell support (sharesToSell), portfolio-scoped duplicate check
+- `src/app/api/portfolios/route.ts` — deletePortfolio flag, two-phase delete (close then delete)
+- `src/app/portfolio/page.tsx` — 3-step delete modal, sell modal with quantity selector, auto-select, empty state
+- `src/components/portfolio/usePortfolios.ts` — auto-select first portfolio when stored ID invalid
+- `src/app/dashboard/page.tsx` — removed create/select portfolio buttons, version bump
+- `src/app/dashboard/analysis/[id]/page.tsx` — version bump
+- `src/app/accuracy/page.tsx` — version bump
+- `src/app/reports/page.tsx` — version bump
+- `src/app/login/page.tsx` — version bump
+
+### Checkpoint artifacts:
+- GitHub: `Steve25Vibe/spike-trades` latest commits on `main`
+- Production: spiketrades.ca deployed at Ver 2.0
+- All portfolio CRUD operations working end-to-end
+
+### What the next session should do first:
+1. Test partial sell flow on live site — sell partial shares, verify position stays active with reduced count
+2. Test creating portfolios with overlapping stocks to verify siloing
+3. Consider adding realized P&L tracking for partial sells (cumulative realized gains per position)
+4. Review accuracy page — ensure it correctly handles portfolios with partial sells
+5. Final feature upgrade pass as planned for Ver 2.0
+
+### Context window status:
+- Estimated usage: high
+- Reason for stopping: completed Session 11 scope — portfolio management overhaul + partial sell feature deployed as Ver 2.0
