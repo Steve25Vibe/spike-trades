@@ -6,6 +6,8 @@ import Sidebar from '@/components/layout/Sidebar';
 import ParticleBackground from '@/components/layout/ParticleBackground';
 import MarketHeader from '@/components/layout/MarketHeader';
 import SpikeCard from '@/components/spikes/SpikeCard';
+import LockInModal from '@/components/portfolio/LockInModal';
+import PortfolioSettings, { getPortfolioConfig, type SizingMode } from '@/components/portfolio/PortfolioSettings';
 import { cn } from '@/lib/utils';
 
 interface SpikeData {
@@ -74,6 +76,8 @@ function DashboardContent() {
   const [selectionMode, setSelectionMode] = useState(false);
   const [bulkLocking, setBulkLocking] = useState(false);
   const [lockResults, setLockResults] = useState<{ locked: number; skipped: any[] } | null>(null);
+  const [lockInSpike, setLockInSpike] = useState<SpikeData | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
     fetchSpikes();
@@ -100,22 +104,24 @@ function DashboardContent() {
     }
   };
 
-  // Single lock-in from card
-  const handleLockIn = async (spikeId: string) => {
-    try {
-      const res = await fetch('/api/portfolio', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ spikeId, portfolioSize: 100000 }),
-      });
-      const json = await res.json();
-      if (json.success) {
-        const entry = json.data;
-        setLockResults({ locked: 1, skipped: [] });
-        setTimeout(() => setLockResults(null), 3000);
-      }
-    } catch {
-      // handle
+  // Single lock-in — opens confirmation modal
+  const handleLockIn = (spikeId: string) => {
+    const spike = data?.spikes.find((s) => s.id === spikeId);
+    if (spike) setLockInSpike(spike);
+  };
+
+  // Confirmed lock-in from modal
+  const handleConfirmLockIn = async (params: { spikeId: string; shares?: number; positionSize?: number; portfolioSize?: number; mode: SizingMode }) => {
+    const res = await fetch('/api/portfolio', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    const json = await res.json();
+    if (json.success) {
+      setLockInSpike(null);
+      setLockResults({ locked: 1, skipped: [] });
+      setTimeout(() => setLockResults(null), 3000);
     }
   };
 
@@ -139,15 +145,21 @@ function DashboardContent() {
     }
   };
 
-  // Bulk lock-in
+  // Bulk lock-in (uses auto or fixed mode — manual not practical for bulk)
   const handleBulkLockIn = async () => {
     if (selectedIds.size === 0) return;
     setBulkLocking(true);
     try {
+      const config = getPortfolioConfig();
       const res = await fetch('/api/portfolio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ spikeIds: Array.from(selectedIds), portfolioSize: 100000 }),
+        body: JSON.stringify({
+          spikeIds: Array.from(selectedIds),
+          portfolioSize: config.portfolioSize,
+          mode: config.mode === 'manual' ? 'auto' : config.mode,
+          shares: config.mode === 'fixed' ? Math.floor(config.fixedAmount / (data?.spikes[0]?.price || 1)) : undefined,
+        }),
       });
       const json = await res.json();
       if (json.success) {
@@ -267,6 +279,17 @@ function DashboardContent() {
             {/* Selection toolbar */}
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
+                {/* Portfolio settings gear */}
+                <button
+                  onClick={() => setShowSettings(true)}
+                  className="w-9 h-9 rounded-lg border border-spike-border hover:border-spike-cyan/30 flex items-center justify-center text-spike-text-dim hover:text-spike-cyan transition-all"
+                  title="Portfolio Settings"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                  </svg>
+                </button>
+
                 <button
                   onClick={() => { setSelectionMode(!selectionMode); if (selectionMode) setSelectedIds(new Set()); }}
                   className={cn(
@@ -377,6 +400,20 @@ function DashboardContent() {
             </div>
           </>
         ) : null}
+
+        {/* Lock-In Confirmation Modal */}
+        {lockInSpike && (
+          <LockInModal
+            spike={lockInSpike}
+            onConfirm={handleConfirmLockIn}
+            onCancel={() => setLockInSpike(null)}
+          />
+        )}
+
+        {/* Portfolio Settings Modal */}
+        {showSettings && (
+          <PortfolioSettings onClose={() => setShowSettings(false)} />
+        )}
       </main>
     </div>
   );

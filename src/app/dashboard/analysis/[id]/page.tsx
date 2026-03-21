@@ -5,6 +5,8 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Sidebar from '@/components/layout/Sidebar';
 import ParticleBackground from '@/components/layout/ParticleBackground';
+import LockInModal from '@/components/portfolio/LockInModal';
+import { type SizingMode } from '@/components/portfolio/PortfolioSettings';
 import { cn, formatCurrency, formatPercent, formatVolume, formatMarketCap } from '@/lib/utils';
 import {
   RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
@@ -101,6 +103,7 @@ export default function AnalysisPage() {
   const [data, setData] = useState<SpikeDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [locking, setLocking] = useState(false);
+  const [showLockInModal, setShowLockInModal] = useState(false);
 
   useEffect(() => {
     if (params.id) fetchDetail(params.id as string);
@@ -119,24 +122,26 @@ export default function AnalysisPage() {
     }
   };
 
-  const handleLockIn = async () => {
+  const handleLockIn = () => {
     if (!data) return;
-    setLocking(true);
-    try {
-      const res = await fetch('/api/portfolio', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ spikeId: data.spike.id, portfolioSize: 100000 }),
+    setShowLockInModal(true);
+  };
+
+  const handleConfirmLockIn = async (params: { spikeId: string; shares?: number; positionSize?: number; portfolioSize?: number; mode: SizingMode }) => {
+    if (!data) return;
+    const res = await fetch('/api/portfolio', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    const json = await res.json();
+    if (json.success) {
+      setShowLockInModal(false);
+      setData({
+        ...data,
+        portfolio: { locked: true, entryPrice: json.data.entryPrice, shares: json.data.shares, entryDate: json.data.entryDate },
       });
-      const json = await res.json();
-      if (json.success) {
-        setData({
-          ...data,
-          portfolio: { locked: true, entryPrice: json.data.entryPrice, shares: json.data.shares, entryDate: json.data.entryDate },
-        });
-      }
-    } catch { /* handle */ }
-    setLocking(false);
+    }
   };
 
   if (loading) {
@@ -521,6 +526,24 @@ export default function AnalysisPage() {
             &copy; {new Date().getFullYear()} Spike Trades &mdash; spiketrades.ca. All rights reserved.
           </p>
         </div>
+
+        {/* Lock-In Confirmation Modal */}
+        {showLockInModal && data && (
+          <LockInModal
+            spike={{
+              id: spike.id,
+              ticker: spike.ticker,
+              name: spike.name,
+              price: spike.price,
+              predicted3Day: spike.predicted3Day,
+              predicted5Day: spike.predicted5Day,
+              predicted8Day: spike.predicted8Day,
+              atr: spike.technicals?.atr,
+            }}
+            onConfirm={handleConfirmLockIn}
+            onCancel={() => setShowLockInModal(false)}
+          />
+        )}
       </main>
     </div>
   );

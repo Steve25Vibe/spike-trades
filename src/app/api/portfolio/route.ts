@@ -158,7 +158,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { spikeId, spikeIds, portfolioSize } = body;
+    const { spikeId, spikeIds, portfolioSize, mode, shares: manualShares, positionSize: manualPositionSize } = body;
 
     const idsToLock: string[] = spikeIds || (spikeId ? [spikeId] : []);
 
@@ -189,10 +189,20 @@ export async function POST(request: NextRequest) {
       }
 
       const atrPct = spike.atr ? (spike.atr / spike.price) * 100 : 2;
-      const kellyFraction = calculateKellyFraction(0.6, atrPct, atrPct * 0.5);
-      const positionPct = Math.min(kellyFraction, 0.02) * 100;
-      const positionSize = totalPortfolio * (positionPct / 100);
-      const shares = Math.floor(positionSize / spike.price);
+      let shares: number;
+      let positionPct: number;
+
+      if ((mode === 'manual' || mode === 'fixed') && manualShares) {
+        // Manual or fixed mode — user specifies shares directly
+        shares = Math.floor(manualShares);
+        positionPct = totalPortfolio > 0 ? ((shares * spike.price) / totalPortfolio) * 100 : 0;
+      } else {
+        // Auto mode — Kelly Criterion sizing
+        const kellyFraction = calculateKellyFraction(0.6, atrPct, atrPct * 0.5);
+        positionPct = Math.min(kellyFraction, 0.02) * 100;
+        const positionSize = totalPortfolio * (positionPct / 100);
+        shares = Math.floor(positionSize / spike.price);
+      }
 
       if (shares <= 0) {
         errors.push({ id, ticker: spike.ticker, error: 'Position too small' });
