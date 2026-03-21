@@ -706,3 +706,99 @@ When ending a session, Claude Code should append an entry like this:
 ### Context window status:
 - Estimated usage: heavy (multiple deploy cycles, council runs, iterative fixes)
 - Reason for stopping: context getting long, good breakpoint after scoring + UI fixes
+
+---
+
+## Session 9 Checkpoint — 2026-03-21
+
+### What was accomplished:
+
+**TSX (XIU) price formatting:**
+- Display now shows dollar amount with decimal (e.g., $47.02 instead of 47)
+
+**Bitcoin (BTC) in CAD:**
+- Added BTC price in CAD to market header between Gold and CAD/USD
+- Pulled from FMP API
+
+**BULL/BEAR regime badge:**
+- Pulsing glow animation — green for BULL, red for BEAR
+- Same pulse rhythm as market open/closed indicator
+
+**Yahoo Finance links:**
+- All ticker names across spike cards and analysis pages link to Yahoo Finance quote pages
+
+**Market indicator arrows:**
+- Green/red pulsing arrows on USO Oil, Gold, BTC, CAD/USD showing direction vs previous day
+
+**Stocks Analyzed stat:**
+- Added "STOCKS ANALYZED" to dashboard summary bar showing universe size
+- Backfilled March 20th report with 2050
+
+**Archive page fixes:**
+- Removed dead March 18th entry
+- Replaced 3-ticker preview with "View" and "XLSX" download buttons
+- Fixed View links to load correct date's report via `?date=` parameter
+
+**Trading days fix (critical):**
+- 3/5/8-day accuracy horizons now use trading days instead of calendar days
+- Skips weekends and holidays correctly
+
+**Timezone fix:**
+- All date calculations use America/Halifax (AST) timezone
+- Ensures report dates match user's local perspective
+
+**March 19th data restoration:**
+- Rebuilt March 19th report from user-provided XLSX spreadsheet
+- All 20 spikes restored with correct data
+
+**Customizable portfolio sizing:**
+- Removed hardcoded $100,000 assumption
+- Added 3 modes: Auto-Size, Fixed Dollar, Manual Shares
+- Settings persist in localStorage
+- Confirmation modal on every Lock In with full trade summary
+
+**Fetch timeout audit:**
+- Scanned entire codebase for undici/fetch timeout vulnerabilities
+- Fixed all remaining instances across pipeline
+
+**Server IP change:**
+- DigitalOcean system update changed server IP from 137.184.244.19 to 147.182.150.30
+- SSH restored with both original and new keys
+- All references updated
+
+### Key decisions made:
+- **Trading days, not calendar days**: 3/5/8-day predictions refer to market days, skipping weekends/holidays
+- **AST timezone**: All date logic uses America/Halifax to match user's timezone
+- **Portfolio flexibility**: No more assumptions — users choose their own sizing method
+- **Server IP**: Now 147.182.150.30 (was 137.184.244.19)
+
+### Files modified:
+- `src/components/layout/MarketHeader.tsx` — BTC, arrows, TSX formatting
+- `src/styles/globals.css` — pulse animations for BULL/BEAR, arrows
+- `src/components/dashboard/SpikeCard.tsx` — Yahoo Finance links
+- `src/app/dashboard/page.tsx` — Stocks Analyzed stat, portfolio settings integration
+- `src/app/dashboard/analysis/[id]/page.tsx` — Yahoo links, portfolio modal
+- `src/app/reports/page.tsx` — View/XLSX buttons, removed dead entries
+- `src/app/api/reports/[id]/xlsx/route.ts` — XLSX download endpoint
+- `src/app/api/portfolio/route.ts` — accepts user-defined portfolio sizing
+- `src/app/api/accuracy/check/route.ts` — trading days calculation
+- `src/components/portfolio/PortfolioSettings.tsx` — new component
+- `src/components/portfolio/LockInModal.tsx` — new component
+- `canadian_llm_council_brain.py` — BTC fetch, universe size tracking
+
+### Checkpoint artifacts:
+- GitHub: `Steve25Vibe/spike-trades` commit `10862e9` — all changes pushed
+- Server: 147.182.150.30, all containers rebuilt and running
+- Dashboard: fully functional with all new features
+- Cron: set for weekdays at 10:45 AM AST (next run Monday March 23)
+
+### What the next session should do first:
+1. Verify Monday's 10:45 AM AST automatic run completes successfully
+2. Consider pipeline optimization (pre-filtering universe to reduce ~57min runtime)
+3. Revisit Accuracy page after 3 trading days of data (Wednesday March 25th)
+4. Address brute-force SSH attempts — consider fail2ban or IP-restricted firewall
+5. Continue feature development as directed by user
+
+### Context window status:
+- Estimated usage: very heavy (SSH debugging, multiple deploys, data restoration, feature development)
+- Reason for stopping: user requested session transition for continued feature development
