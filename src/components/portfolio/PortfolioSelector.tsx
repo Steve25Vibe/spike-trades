@@ -58,7 +58,7 @@ export default function PortfolioSelector({ portfolios, activeId, onSelect, onCr
                 <div>
                   <p className="font-medium text-sm">{p.name}</p>
                   <p className="text-xs text-spike-text-muted mt-0.5">
-                    {p.activePositions} active · {p.totalPositions} total · {p.sizingMode}
+                    {p.activePositions} active · {p.sizingMode}
                   </p>
                 </div>
                 {p.id === activeId && (

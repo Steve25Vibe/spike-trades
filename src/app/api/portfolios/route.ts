@@ -12,7 +12,7 @@ export async function GET() {
     const portfolios = await prisma.portfolio.findMany({
       orderBy: { createdAt: 'desc' },
       include: {
-        _count: { select: { entries: true } },
+        _count: { select: { entries: { where: { status: 'active' } } } },
         entries: {
           where: { status: 'active' },
           select: { positionSize: true },
