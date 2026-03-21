@@ -3,8 +3,7 @@
 import { useState, useEffect } from 'react';
 import Sidebar from '@/components/layout/Sidebar';
 import ParticleBackground from '@/components/layout/ParticleBackground';
-import { cn, formatPercent } from '@/lib/utils';
-import { usePortfolios } from '@/components/portfolio/usePortfolios';
+import { cn, formatPercent, formatCurrency } from '@/lib/utils';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, ScatterChart, Scatter, ZAxis, Area, AreaChart,
@@ -42,12 +41,17 @@ interface PerformancePoint {
   top5Picks: number;
 }
 
-interface PortfolioReturn {
+interface PortfolioHealthTimeline {
   date: string;
-  ticker: string;
-  returnPct: number;
-  cumulative: number;
-  pnl: number;
+  totalValue: number;
+  totalInvested: number;
+  realizedPnl: number;
+}
+
+interface PortfolioHealthEntry {
+  portfolioId: string;
+  portfolioName: string;
+  timeline: PortfolioHealthTimeline[];
 }
 
 interface PredVsActualPoint {
@@ -73,22 +77,19 @@ export default function AccuracyPage() {
   const [rolling, setRolling] = useState<RollingData[]>([]);
   const [scatter, setScatter] = useState<ScatterPoint[]>([]);
   const [perfComparison, setPerfComparison] = useState<PerformancePoint[]>([]);
-  const [portfolioReturns, setPortfolioReturns] = useState<PortfolioReturn[]>([]);
+  const [portfolioHealth, setPortfolioHealth] = useState<PortfolioHealthEntry[]>([]);
+  const [selectedHealthPortfolio, setSelectedHealthPortfolio] = useState<string>('all');
   const [predVsActual, setPredVsActual] = useState<PredVsActualPoint[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const { portfolios, activeId, selectPortfolio } = usePortfolios();
-  const [accuracyScope, setAccuracyScope] = useState<'all' | string>('all');
-
   useEffect(() => {
     fetchAccuracy();
-  }, [horizon, accuracyScope]);
+  }, [horizon]);
 
   const fetchAccuracy = async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams({ horizon: String(horizon), days: '90' });
-      if (accuracyScope !== 'all') params.set('portfolioId', accuracyScope);
       const res = await fetch(`/api/accuracy?${params}`);
       if (res.status === 401) { window.location.href = '/login'; return; }
       const json = await res.json();
@@ -97,7 +98,7 @@ export default function AccuracyPage() {
         setRolling(json.data.rolling);
         setScatter(json.data.scatterData);
         setPerfComparison(json.data.performanceComparison || []);
-        setPortfolioReturns(json.data.portfolioReturns || []);
+        setPortfolioHealth(json.data.portfolioHealth || []);
         setPredVsActual(json.data.dailyPredVsActual || []);
       }
     } catch { /* handle */ }
@@ -119,34 +120,6 @@ export default function AccuracyPage() {
             ACCURACY ENGINE
           </h2>
           <div className="flex items-center gap-4">
-          {/* Scope: All Predictions vs per-portfolio */}
-          <div className="flex gap-1 bg-spike-bg/50 rounded-lg border border-spike-border p-0.5">
-            <button
-              onClick={() => setAccuracyScope('all')}
-              className={cn(
-                'px-3 py-1.5 rounded-md text-xs font-medium transition-all',
-                accuracyScope === 'all'
-                  ? 'bg-spike-cyan/10 text-spike-cyan'
-                  : 'text-spike-text-dim hover:text-spike-text'
-              )}
-            >
-              All Predictions
-            </button>
-            {portfolios.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => setAccuracyScope(p.id)}
-                className={cn(
-                  'px-3 py-1.5 rounded-md text-xs font-medium transition-all',
-                  accuracyScope === p.id
-                    ? 'bg-spike-cyan/10 text-spike-cyan'
-                    : 'text-spike-text-dim hover:text-spike-text'
-                )}
-              >
-                {p.name}
-              </button>
-            ))}
-          </div>
           <div className="flex gap-2">
             {([3, 5, 8] as const).map((h) => (
               <button
@@ -320,50 +293,154 @@ export default function AccuracyPage() {
 
         {/* Second row: Your Portfolio + Rolling Hit Rate */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
-          {/* Your Portfolio Cumulative Returns (closed trades) */}
+          {/* Portfolio Health — Value Over Time */}
           <div className="glass-card p-6">
-            <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-1">
-              Your Portfolio — Closed Trades
-            </h3>
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider">
+                Portfolio Health
+              </h3>
+              {portfolioHealth.length > 0 && (
+                <select
+                  value={selectedHealthPortfolio}
+                  onChange={(e) => setSelectedHealthPortfolio(e.target.value)}
+                  className="bg-spike-bg border border-spike-border rounded-lg px-3 py-1.5 text-xs text-spike-text focus:outline-none focus:border-spike-cyan/50"
+                >
+                  <option value="all">All Portfolios</option>
+                  {portfolioHealth.map((ph) => (
+                    <option key={ph.portfolioId} value={ph.portfolioId}>
+                      {ph.portfolioName}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
             <p className="text-xs text-spike-text-muted mb-4">
-              Cumulative realized returns from your locked-in positions
+              Total portfolio value over time — tracks invested capital + realized gains
             </p>
-            {portfolioReturns.length > 0 ? (
-              <ResponsiveContainer width="100%" height={280}>
-                <AreaChart data={portfolioReturns}>
-                  <defs>
-                    <linearGradient id="portfolioGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#00FF88" stopOpacity={0.25} />
-                      <stop offset="95%" stopColor="#00FF88" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1E3A5F" />
-                  <XAxis dataKey="date" tickFormatter={formatDate} stroke="#64748B" fontSize={11} />
-                  <YAxis stroke="#64748B" fontSize={11} tickFormatter={(v) => `${v > 0 ? '+' : ''}${v}%`} />
-                  <Tooltip
-                    contentStyle={CHART_TOOLTIP_STYLE}
-                    labelFormatter={(d) => new Date(d).toLocaleDateString('en-CA')}
-                    formatter={(value: number, name: string) => {
-                      if (name === 'cumulative') return [`${value > 0 ? '+' : ''}${value.toFixed(2)}%`, 'Cumulative Return'];
-                      return [`${value.toFixed(2)}%`, name];
-                    }}
-                  />
-                  <ReferenceLine y={0} stroke="#475569" strokeDasharray="3 3" />
-                  <Area
-                    type="monotone"
-                    dataKey="cumulative"
-                    stroke="#00FF88"
-                    fill="url(#portfolioGrad)"
-                    strokeWidth={2.5}
-                    dot={{ r: 3, fill: '#00FF88', stroke: '#0A1428', strokeWidth: 1 }}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-[280px] flex items-center justify-center text-spike-text-muted text-sm">
-                No closed trades yet. Lock in spikes and close them to see your performance here.
-              </div>
-            )}
+            {(() => {
+              // Build chart data based on selection
+              const selectedData = selectedHealthPortfolio === 'all'
+                ? portfolioHealth
+                : portfolioHealth.filter((ph) => ph.portfolioId === selectedHealthPortfolio);
+
+              if (selectedData.length === 0 || selectedData.every((d) => d.timeline.length === 0)) {
+                return (
+                  <div className="h-[280px] flex items-center justify-center text-spike-text-muted text-sm">
+                    No portfolio data yet. Create a portfolio and lock in spikes to track health.
+                  </div>
+                );
+              }
+
+              // For "all" — merge all timelines into a single combined series
+              // For single portfolio — just use its timeline
+              if (selectedHealthPortfolio === 'all' && selectedData.length > 1) {
+                // Multi-portfolio overlay: one line per portfolio
+                // Collect all unique dates, build a combined dataset
+                const allDates = new Set<string>();
+                for (const ph of selectedData) {
+                  for (const t of ph.timeline) {
+                    allDates.add(new Date(t.date).toISOString().split('T')[0]);
+                  }
+                }
+                const sortedDates = [...allDates].sort();
+                const PORTFOLIO_COLORS = ['#00F0FF', '#00FF88', '#A855F7', '#FF3366', '#FBBF24'];
+
+                // Build data points per date with each portfolio's value
+                const chartData = sortedDates.map((dateStr) => {
+                  const point: Record<string, unknown> = { date: dateStr };
+                  for (const ph of selectedData) {
+                    // Find the most recent timeline entry on or before this date
+                    let val: number | null = null;
+                    for (const t of ph.timeline) {
+                      const tDate = new Date(t.date).toISOString().split('T')[0];
+                      if (tDate <= dateStr) val = t.totalValue;
+                    }
+                    point[ph.portfolioName] = val;
+                  }
+                  return point;
+                });
+
+                return (
+                  <ResponsiveContainer width="100%" height={280}>
+                    <LineChart data={chartData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#1E3A5F" />
+                      <XAxis dataKey="date" tickFormatter={formatDate} stroke="#64748B" fontSize={11} />
+                      <YAxis stroke="#64748B" fontSize={11} tickFormatter={(v) => formatCurrency(v, 0)} />
+                      <Tooltip
+                        contentStyle={CHART_TOOLTIP_STYLE}
+                        labelFormatter={(d) => new Date(d).toLocaleDateString('en-CA')}
+                        formatter={(value: number) => [formatCurrency(value), 'Value']}
+                      />
+                      <Legend wrapperStyle={{ fontSize: 12, color: '#94A3B8' }} />
+                      {selectedData.map((ph, i) => (
+                        <Line
+                          key={ph.portfolioId}
+                          type="monotone"
+                          dataKey={ph.portfolioName}
+                          stroke={PORTFOLIO_COLORS[i % PORTFOLIO_COLORS.length]}
+                          strokeWidth={2}
+                          dot={{ r: 3, fill: PORTFOLIO_COLORS[i % PORTFOLIO_COLORS.length], stroke: '#0A1428', strokeWidth: 1 }}
+                          connectNulls
+                        />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                );
+              }
+
+              // Single portfolio view
+              const singleData = selectedData[0];
+              const chartData = singleData.timeline.map((t) => ({
+                date: new Date(t.date).toISOString().split('T')[0],
+                totalValue: t.totalValue,
+                totalInvested: t.totalInvested,
+              }));
+
+              return (
+                <ResponsiveContainer width="100%" height={280}>
+                  <AreaChart data={chartData}>
+                    <defs>
+                      <linearGradient id="healthGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#00FF88" stopOpacity={0.25} />
+                        <stop offset="95%" stopColor="#00FF88" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1E3A5F" />
+                    <XAxis dataKey="date" tickFormatter={formatDate} stroke="#64748B" fontSize={11} />
+                    <YAxis stroke="#64748B" fontSize={11} tickFormatter={(v) => formatCurrency(v, 0)} />
+                    <Tooltip
+                      contentStyle={CHART_TOOLTIP_STYLE}
+                      labelFormatter={(d) => new Date(d).toLocaleDateString('en-CA')}
+                      formatter={(value: number, name: string) => [
+                        formatCurrency(value),
+                        name === 'totalValue' ? 'Portfolio Value' : 'Invested Capital',
+                      ]}
+                    />
+                    <Legend
+                      wrapperStyle={{ fontSize: 12, color: '#94A3B8' }}
+                      formatter={(value) => value === 'totalValue' ? 'Portfolio Value' : 'Invested Capital'}
+                    />
+                    <ReferenceLine y={0} stroke="#475569" strokeDasharray="3 3" />
+                    <Area
+                      type="monotone"
+                      dataKey="totalValue"
+                      stroke="#00FF88"
+                      fill="url(#healthGrad)"
+                      strokeWidth={2.5}
+                      dot={{ r: 3, fill: '#00FF88', stroke: '#0A1428', strokeWidth: 1 }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="totalInvested"
+                      stroke="#64748B"
+                      strokeWidth={1.5}
+                      strokeDasharray="6 3"
+                      dot={false}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              );
+            })()}
           </div>
 
           {/* Rolling Hit Rate */}

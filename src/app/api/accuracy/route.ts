@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isAuthenticated } from '@/lib/auth';
 import prisma from '@/lib/db/prisma';
+import { getBatchQuotes } from '@/lib/api/fmp';
 
 // GET /api/accuracy — Get accuracy metrics + portfolio vs market performance
 export async function GET(request: NextRequest) {
@@ -106,39 +107,131 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    // 4. Portfolio closed trades — actual P&L history for the "Your Portfolio" line
-    const closedTradesWhere: Record<string, unknown> = {
-      status: { in: ['closed', 'stopped'] },
-      exitDate: { gte: cutoff },
-    };
-    if (portfolioId) closedTradesWhere.portfolioId = portfolioId;
-
-    const closedTrades = await prisma.portfolioEntry.findMany({
-      where: closedTradesWhere,
-      orderBy: { exitDate: 'asc' },
-      select: {
-        ticker: true,
-        entryPrice: true,
-        exitPrice: true,
-        realizedPnlPct: true,
-        exitDate: true,
-        shares: true,
-        positionSize: true,
-        realizedPnl: true,
-      },
+    // 4. Portfolio health — value timeline for each portfolio
+    // For each portfolio, build a chronological series of events (entries + exits)
+    // to show portfolio value over time
+    const allPortfolios = await prisma.portfolio.findMany({
+      select: { id: true, name: true, portfolioSize: true },
+      orderBy: { createdAt: 'asc' },
     });
 
-    let cumulativePortfolio = 0;
-    const portfolioReturns = closedTrades.map((t) => {
-      cumulativePortfolio += (t.realizedPnlPct || 0);
-      return {
-        date: t.exitDate,
-        ticker: t.ticker,
-        returnPct: t.realizedPnlPct,
-        cumulative: Math.round(cumulativePortfolio * 100) / 100,
-        pnl: t.realizedPnl,
-      };
-    });
+    const portfolioHealthMap: Record<string, Array<{ date: Date | string; totalValue: number; totalInvested: number; realizedPnl: number; portfolioName: string }>> = {};
+
+    for (const pf of allPortfolios) {
+      const entries = await prisma.portfolioEntry.findMany({
+        where: { portfolioId: pf.id },
+        orderBy: { entryDate: 'asc' },
+        select: {
+          ticker: true,
+          entryPrice: true,
+          exitPrice: true,
+          entryDate: true,
+          exitDate: true,
+          shares: true,
+          positionSize: true,
+          realizedPnl: true,
+          status: true,
+        },
+      });
+
+      if (entries.length === 0) continue;
+
+      // Collect all event dates (entries + exits)
+      const events: Array<{ date: Date; type: 'entry' | 'exit'; ticker: string; shares: number; entryPrice: number; exitPrice?: number; positionSize: number; realizedPnl?: number }> = [];
+
+      for (const e of entries) {
+        events.push({
+          date: new Date(e.entryDate),
+          type: 'entry',
+          ticker: e.ticker,
+          shares: e.shares,
+          entryPrice: e.entryPrice,
+          positionSize: e.positionSize,
+        });
+        if (e.exitDate && (e.status === 'closed' || e.status === 'stopped')) {
+          events.push({
+            date: new Date(e.exitDate),
+            type: 'exit',
+            ticker: e.ticker,
+            shares: e.shares,
+            entryPrice: e.entryPrice,
+            exitPrice: e.exitPrice || e.entryPrice,
+            positionSize: e.positionSize,
+            realizedPnl: e.realizedPnl || 0,
+          });
+        }
+      }
+
+      events.sort((a, b) => a.date.getTime() - b.date.getTime());
+
+      // Walk through events to build value timeline
+      let totalInvested = 0;
+      let cumulativeRealized = 0;
+      const timeline: typeof portfolioHealthMap[string] = [];
+
+      for (const ev of events) {
+        if (ev.type === 'entry') {
+          totalInvested += ev.positionSize;
+        } else {
+          totalInvested -= ev.positionSize;
+          cumulativeRealized += (ev.realizedPnl || 0);
+        }
+        timeline.push({
+          date: ev.date,
+          totalValue: totalInvested + cumulativeRealized,
+          totalInvested,
+          realizedPnl: Math.round(cumulativeRealized * 100) / 100,
+          portfolioName: pf.name,
+        });
+      }
+
+      // Add current point for active positions with live prices
+      const activeEntries = entries.filter((e) => e.status === 'active');
+      if (activeEntries.length > 0) {
+        const activeTickers = [...new Set(activeEntries.map((e) => e.ticker))];
+        try {
+          const quotes = await getBatchQuotes(activeTickers);
+          const priceMap = new Map(quotes.map((q) => [q.ticker, q.price]));
+          let currentActiveValue = 0;
+          for (const e of activeEntries) {
+            const livePrice = priceMap.get(e.ticker) || e.entryPrice;
+            currentActiveValue += livePrice * e.shares;
+          }
+          timeline.push({
+            date: new Date(),
+            totalValue: currentActiveValue + cumulativeRealized,
+            totalInvested: activeEntries.reduce((s, e) => s + e.positionSize, 0),
+            realizedPnl: Math.round(cumulativeRealized * 100) / 100,
+            portfolioName: pf.name,
+          });
+        } catch {
+          // Live quotes failed — use entry prices as fallback
+          const fallbackValue = activeEntries.reduce((s, e) => s + e.positionSize, 0);
+          timeline.push({
+            date: new Date(),
+            totalValue: fallbackValue + cumulativeRealized,
+            totalInvested: fallbackValue,
+            realizedPnl: Math.round(cumulativeRealized * 100) / 100,
+            portfolioName: pf.name,
+          });
+        }
+      }
+
+      if (timeline.length > 0) {
+        portfolioHealthMap[pf.id] = timeline;
+      }
+    }
+
+    const portfolioHealth = Object.entries(portfolioHealthMap).map(([id, timeline]) => ({
+      portfolioId: id,
+      portfolioName: timeline[0]?.portfolioName || 'Unknown',
+      timeline: timeline.map((t) => ({
+        date: t.date,
+        totalValue: Math.round(t.totalValue * 100) / 100,
+        totalInvested: Math.round(t.totalInvested * 100) / 100,
+        realizedPnl: t.realizedPnl,
+      })),
+    }));
 
     // 5. Daily predicted vs actual line chart (not scatter — line comparison)
     const dailyPredVsActual = dailyReports.map((report) => {
@@ -184,8 +277,8 @@ export async function GET(request: NextRequest) {
         })),
         // NEW: Performance comparison line chart data
         performanceComparison,
-        // NEW: Portfolio closed-trade cumulative returns
-        portfolioReturns,
+        // Portfolio health timelines (per-portfolio value over time)
+        portfolioHealth,
         // NEW: Daily predicted vs actual averages (line chart, not scatter)
         dailyPredVsActual,
       },
