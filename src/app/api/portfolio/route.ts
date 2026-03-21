@@ -158,7 +158,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { spikeId, spikeIds, portfolioSize, mode, shares: manualShares, positionSize: manualPositionSize } = body;
+    const { spikeId, spikeIds, portfolioSize, mode, shares: manualShares, positionSize: manualPositionSize, fixedAmount } = body;
 
     const idsToLock: string[] = spikeIds || (spikeId ? [spikeId] : []);
 
@@ -195,6 +195,10 @@ export async function POST(request: NextRequest) {
       if ((mode === 'manual' || mode === 'fixed') && manualShares) {
         // Manual or fixed mode — user specifies shares directly
         shares = Math.floor(manualShares);
+        positionPct = totalPortfolio > 0 ? ((shares * spike.price) / totalPortfolio) * 100 : 0;
+      } else if (mode === 'fixed' && fixedAmount) {
+        // Fixed mode with dollar amount — calculate shares per spike
+        shares = Math.floor(fixedAmount / spike.price);
         positionPct = totalPortfolio > 0 ? ((shares * spike.price) / totalPortfolio) * 100 : 0;
       } else {
         // Auto mode — Kelly Criterion sizing

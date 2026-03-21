@@ -145,20 +145,29 @@ function DashboardContent() {
     }
   };
 
-  // Bulk lock-in (uses auto or fixed mode — manual not practical for bulk)
+  // Bulk lock-in
   const handleBulkLockIn = async () => {
     if (selectedIds.size === 0) return;
+    const config = getPortfolioConfig();
+
+    // Manual mode can't be used for bulk — lock each spike individually
+    if (config.mode === 'manual') {
+      const firstId = Array.from(selectedIds)[0];
+      const spike = data?.spikes.find((s) => s.id === firstId);
+      if (spike) setLockInSpike(spike);
+      return;
+    }
+
     setBulkLocking(true);
     try {
-      const config = getPortfolioConfig();
       const res = await fetch('/api/portfolio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           spikeIds: Array.from(selectedIds),
           portfolioSize: config.portfolioSize,
-          mode: config.mode === 'manual' ? 'auto' : config.mode,
-          shares: config.mode === 'fixed' ? Math.floor(config.fixedAmount / (data?.spikes[0]?.price || 1)) : undefined,
+          mode: config.mode,
+          fixedAmount: config.mode === 'fixed' ? config.fixedAmount : undefined,
         }),
       });
       const json = await res.json();
