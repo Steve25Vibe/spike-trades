@@ -158,7 +158,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { spikeId, spikeIds, portfolioSize, mode, shares: manualShares, positionSize: manualPositionSize, fixedAmount } = body;
+    const { spikeId, spikeIds, portfolioSize, mode, shares: manualShares, positionSize: manualPositionSize, fixedAmount, perSpikeShares } = body;
 
     const idsToLock: string[] = spikeIds || (spikeId ? [spikeId] : []);
 
@@ -192,7 +192,11 @@ export async function POST(request: NextRequest) {
       let shares: number;
       let positionPct: number;
 
-      if ((mode === 'manual' || mode === 'fixed') && manualShares) {
+      if (perSpikeShares && perSpikeShares[id]) {
+        // Per-spike shares specified (manual bulk)
+        shares = Math.floor(perSpikeShares[id]);
+        positionPct = totalPortfolio > 0 ? ((shares * spike.price) / totalPortfolio) * 100 : 0;
+      } else if ((mode === 'manual' || mode === 'fixed') && manualShares) {
         // Manual or fixed mode — user specifies shares directly
         shares = Math.floor(manualShares);
         positionPct = totalPortfolio > 0 ? ((shares * spike.price) / totalPortfolio) * 100 : 0;
@@ -203,7 +207,7 @@ export async function POST(request: NextRequest) {
       } else {
         // Auto mode — Kelly Criterion sizing
         const kellyFraction = calculateKellyFraction(0.6, atrPct, atrPct * 0.5);
-        positionPct = Math.min(kellyFraction, 0.02) * 100;
+        positionPct = kellyFraction * 100; // kellyFraction already capped at 2% by util
         const positionSize = totalPortfolio * (positionPct / 100);
         shares = Math.floor(positionSize / spike.price);
       }

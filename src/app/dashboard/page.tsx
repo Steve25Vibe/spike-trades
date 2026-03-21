@@ -7,6 +7,7 @@ import ParticleBackground from '@/components/layout/ParticleBackground';
 import MarketHeader from '@/components/layout/MarketHeader';
 import SpikeCard from '@/components/spikes/SpikeCard';
 import LockInModal from '@/components/portfolio/LockInModal';
+import BulkLockInModal from '@/components/portfolio/BulkLockInModal';
 import PortfolioSettings, { getPortfolioConfig, type SizingMode } from '@/components/portfolio/PortfolioSettings';
 import { cn } from '@/lib/utils';
 
@@ -77,6 +78,7 @@ function DashboardContent() {
   const [bulkLocking, setBulkLocking] = useState(false);
   const [lockResults, setLockResults] = useState<{ locked: number; skipped: any[] } | null>(null);
   const [lockInSpike, setLockInSpike] = useState<SpikeData | null>(null);
+  const [bulkLockInSpikes, setBulkLockInSpikes] = useState<SpikeData[] | null>(null);
   const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
@@ -145,42 +147,33 @@ function DashboardContent() {
     }
   };
 
-  // Bulk lock-in
-  const handleBulkLockIn = async () => {
-    if (selectedIds.size === 0) return;
-    const config = getPortfolioConfig();
+  // Bulk lock-in — opens the bulk modal for all modes
+  const handleBulkLockIn = () => {
+    if (selectedIds.size === 0 || !data) return;
+    const selected = data.spikes.filter((s) => selectedIds.has(s.id));
+    setBulkLockInSpikes(selected);
+  };
 
-    // Manual mode can't be used for bulk — lock each spike individually
-    if (config.mode === 'manual') {
-      const firstId = Array.from(selectedIds)[0];
-      const spike = data?.spikes.find((s) => s.id === firstId);
-      if (spike) setLockInSpike(spike);
-      return;
-    }
-
-    setBulkLocking(true);
-    try {
-      const res = await fetch('/api/portfolio', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          spikeIds: Array.from(selectedIds),
-          portfolioSize: config.portfolioSize,
-          mode: config.mode,
-          fixedAmount: config.mode === 'fixed' ? config.fixedAmount : undefined,
-        }),
-      });
-      const json = await res.json();
-      if (json.success) {
-        setLockResults({ locked: json.locked, skipped: json.skipped || [] });
-        setSelectedIds(new Set());
-        setSelectionMode(false);
-        setTimeout(() => setLockResults(null), 5000);
-      }
-    } catch {
-      // handle
-    } finally {
-      setBulkLocking(false);
+  // Confirmed bulk lock-in from BulkLockInModal
+  const handleConfirmBulkLockIn = async (params: {
+    spikeIds: string[];
+    mode: SizingMode;
+    portfolioSize?: number;
+    fixedAmount?: number;
+    perSpikeShares?: Record<string, number>;
+  }) => {
+    const res = await fetch('/api/portfolio', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    const json = await res.json();
+    if (json.success) {
+      setBulkLockInSpikes(null);
+      setLockResults({ locked: json.locked, skipped: json.skipped || [] });
+      setSelectedIds(new Set());
+      setSelectionMode(false);
+      setTimeout(() => setLockResults(null), 5000);
     }
   };
 
@@ -331,18 +324,10 @@ function DashboardContent() {
               {selectionMode && selectedIds.size > 0 && (
                 <button
                   onClick={handleBulkLockIn}
-                  disabled={bulkLocking}
-                  className="btn-lock-in text-base px-6 py-2.5 disabled:opacity-50 flex items-center gap-2"
+                  className="btn-lock-in text-base px-6 py-2.5 flex items-center gap-2"
                   title="Add your selected stocks to your portfolio"
                 >
-                  {bulkLocking ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-spike-bg/30 border-t-spike-bg rounded-full animate-spin" />
-                      Locking {selectedIds.size}...
-                    </>
-                  ) : (
-                    <>⚡ Lock In {selectedIds.size} Spike{selectedIds.size > 1 ? 's' : ''}</>
-                  )}
+                  ⚡ Lock In {selectedIds.size} Spike{selectedIds.size > 1 ? 's' : ''}
                 </button>
               )}
             </div>
@@ -420,6 +405,22 @@ function DashboardContent() {
             spike={lockInSpike}
             onConfirm={handleConfirmLockIn}
             onCancel={() => setLockInSpike(null)}
+          />
+        )}
+
+        {/* Bulk Lock-In Modal */}
+        {bulkLockInSpikes && bulkLockInSpikes.length > 0 && (
+          <BulkLockInModal
+            spikes={bulkLockInSpikes.map((s) => ({
+              id: s.id,
+              ticker: s.ticker,
+              name: s.name,
+              price: s.price,
+              predicted3Day: s.predicted3Day,
+              atr: s.atr,
+            }))}
+            onConfirm={handleConfirmBulkLockIn}
+            onCancel={() => setBulkLockInSpikes(null)}
           />
         )}
 
