@@ -2,8 +2,10 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 
 export default function LoginPage() {
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -18,13 +20,19 @@ export default function LoginPage() {
       const res = await fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ email, password }),
       });
 
-      if (res.ok) {
-        router.push('/dashboard');
+      const json = await res.json();
+
+      if (res.ok && json.success) {
+        if (json.mustChangePassword) {
+          router.push('/change-password');
+        } else {
+          router.push('/dashboard');
+        }
       } else {
-        setError('Access denied.');
+        setError(json.error || 'Access denied.');
         setPassword('');
       }
     } catch {
@@ -69,18 +77,32 @@ export default function LoginPage() {
 
         {/* Login card */}
         <div className="glass-card p-8">
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-5">
             <div>
               <label className="block text-sm font-medium text-spike-text-dim mb-2 tracking-wide uppercase">
-                Access Code
+                Email
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full bg-spike-bg border border-spike-border rounded-lg px-4 py-3 text-spike-text placeholder:text-spike-text-muted focus:outline-none focus:border-spike-cyan focus:ring-1 focus:ring-spike-cyan/30 transition-all"
+                placeholder="your@email.com"
+                autoFocus
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-spike-text-dim mb-2 tracking-wide uppercase">
+                Password
               </label>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full bg-spike-bg border border-spike-border rounded-lg px-4 py-3 text-spike-text placeholder:text-spike-text-muted focus:outline-none focus:border-spike-cyan focus:ring-1 focus:ring-spike-cyan/30 transition-all font-mono"
-                placeholder="Enter access code"
-                autoFocus
+                placeholder="Enter password"
                 required
               />
             </div>
@@ -93,9 +115,8 @@ export default function LoginPage() {
 
             <button
               type="submit"
-              disabled={loading || !password}
+              disabled={loading || !email || !password}
               className="w-full btn-gradient text-lg disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Log in to access the dashboard"
             >
               {loading ? (
                 <span className="flex items-center justify-center gap-2">
@@ -110,7 +131,10 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <div className="mt-6 text-center">
+          <div className="mt-6 text-center space-y-2">
+            <Link href="/register" className="text-spike-cyan text-sm hover:text-spike-cyan/80 transition-colors">
+              Create an account
+            </Link>
             <p className="text-spike-text-muted text-xs">
               Authorized access only. All sessions are logged.
             </p>

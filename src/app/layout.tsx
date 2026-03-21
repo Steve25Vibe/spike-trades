@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import '@/styles/globals.css';
+import { AuthProvider } from '@/components/providers/AuthProvider';
 
 export const metadata: Metadata = {
   title: 'Spike Trades — Today\'s Spikes | AI Canadian Stock Analyst',
@@ -24,7 +25,9 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className="bg-spike-bg text-spike-text antialiased min-h-screen">
-        {children}
+        <AuthProvider>
+          {children}
+        </AuthProvider>
       </body>
     </html>
   );

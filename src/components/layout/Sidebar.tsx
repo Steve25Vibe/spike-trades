@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn, isMarketOpen } from '@/lib/utils';
+import { useAuth } from '@/components/providers/AuthProvider';
 
 const navItems = [
   {
@@ -58,6 +59,7 @@ const navItems = [
 export default function Sidebar() {
   const pathname = usePathname();
   const [marketOpen, setMarketOpen] = useState(false);
+  const { email, role, logout } = useAuth();
 
   useEffect(() => {
     setMarketOpen(isMarketOpen());
@@ -110,15 +112,81 @@ export default function Sidebar() {
             </Link>
           );
         })}
+
+        {/* Settings */}
+        <Link
+          href="/settings"
+          title="Email notification preferences"
+          className={cn(
+            'flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all',
+            pathname === '/settings'
+              ? 'bg-spike-cyan/10 text-spike-cyan border border-spike-cyan/20'
+              : 'text-spike-text-dim hover:text-spike-text hover:bg-spike-bg-hover'
+          )}
+        >
+          <span className={cn(pathname === '/settings' ? 'text-spike-cyan' : 'text-spike-text-muted')}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+          </span>
+          Settings
+        </Link>
+
+        {/* Admin section */}
+        {role === 'admin' && (
+          <>
+            <div className="pt-4 pb-1 px-4">
+              <p className="text-[10px] text-spike-text-muted uppercase tracking-[0.15em] font-medium">
+                Admin
+              </p>
+            </div>
+            <Link
+              href="/admin"
+              title="Manage users, invitations, and activity"
+              className={cn(
+                'flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all',
+                pathname === '/admin'
+                  ? 'bg-spike-cyan/10 text-spike-cyan border border-spike-cyan/20'
+                  : 'text-spike-text-dim hover:text-spike-text hover:bg-spike-bg-hover'
+              )}
+            >
+              <span className={cn(pathname === '/admin' ? 'text-spike-cyan' : 'text-spike-text-muted')}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                </svg>
+              </span>
+              Admin Panel
+            </Link>
+          </>
+        )}
       </nav>
 
-      {/* Market status */}
-      <div className="p-4 border-t border-spike-border">
+      {/* User section + Market status */}
+      <div className="p-4 border-t border-spike-border space-y-3">
+        {email && (
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-spike-text-dim truncate max-w-[140px]" title={email}>
+              {email}
+            </p>
+            <button
+              onClick={logout}
+              title="Log out"
+              className="text-spike-text-muted hover:text-spike-red transition-colors"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
+            </button>
+          </div>
+        )}
         <div className="flex items-center gap-2 text-xs text-spike-text-dim">
           <div className={marketOpen ? 'live-dot' : 'live-dot-closed'} />
           <span>{marketOpen ? 'Live — TSX Open' : 'Closed — TSX Closed'}</span>
         </div>
-        <p className="text-[10px] text-spike-text-muted mt-2">
+        <p className="text-[10px] text-spike-text-muted">
           Next analysis: 10:45 AST
         </p>
       </div>

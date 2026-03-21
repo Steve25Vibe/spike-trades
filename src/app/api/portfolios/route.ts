@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { isAuthenticated } from '@/lib/auth';
+import { getAuthenticatedUser } from '@/lib/auth';
 import prisma from '@/lib/db/prisma';
 
-// GET /api/portfolios — List all portfolios with position counts
+// GET /api/portfolios — List user's portfolios with position counts
 export async function GET() {
-  if (!(await isAuthenticated())) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const user = await getAuthenticatedUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
     const portfolios = await prisma.portfolio.findMany({
+      where: { userId: user.userId },
       orderBy: { createdAt: 'desc' },
       include: {
         _count: { select: { entries: { where: { status: 'active' } } } },
@@ -41,11 +41,10 @@ export async function GET() {
   }
 }
 
-// POST /api/portfolios — Create a new portfolio
+// POST /api/portfolios — Create a new portfolio for current user
 export async function POST(request: NextRequest) {
-  if (!(await isAuthenticated())) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const user = await getAuthenticatedUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
     const { name, sizingMode, portfolioSize, fixedAmount, kellyMaxPct, kellyWinRate } = await request.json();
@@ -56,6 +55,7 @@ export async function POST(request: NextRequest) {
 
     const portfolio = await prisma.portfolio.create({
       data: {
+        userId: user.userId,
         name: name.trim(),
         sizingMode: sizingMode || 'manual',
         portfolioSize: portfolioSize ?? 100000,
@@ -72,12 +72,10 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// DELETE /api/portfolios — Delete a portfolio and all its entries
-// If closePositions is true, auto-closes active positions first.
+// DELETE /api/portfolios — Delete a portfolio (must belong to current user)
 export async function DELETE(request: NextRequest) {
-  if (!(await isAuthenticated())) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const user = await getAuthenticatedUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
     const { portfolioId, closePositions, deletePortfolio = true } = await request.json();
@@ -86,6 +84,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'portfolioId required' }, { status: 400 });
     }
 
+    // Verify ownership
     const portfolio = await prisma.portfolio.findUnique({
       where: { id: portfolioId },
       include: {
@@ -93,7 +92,7 @@ export async function DELETE(request: NextRequest) {
       },
     });
 
-    if (!portfolio) {
+    if (!portfolio || portfolio.userId !== user.userId) {
       return NextResponse.json({ success: false, error: 'Portfolio not found' }, { status: 404 });
     }
 
@@ -120,17 +119,11 @@ export async function DELETE(request: NextRequest) {
       });
     }
 
-    // If deletePortfolio is false, just close positions and return (step 1 of 2-step delete)
     if (!deletePortfolio) {
       return NextResponse.json({ success: true, closedPositions: activeCount });
     }
 
-    // Delete all entries
-    await prisma.portfolioEntry.deleteMany({
-      where: { portfolioId },
-    });
-
-    // Delete the portfolio
+    await prisma.portfolioEntry.deleteMany({ where: { portfolioId } });
     await prisma.portfolio.delete({ where: { id: portfolioId } });
 
     return NextResponse.json({ success: true, closedPositions: activeCount });

@@ -11,6 +11,61 @@ datasource db {
 // SPIKE TRADES — Database Schema
 // ============================================
 
+// ---- User & Auth ----
+
+model User {
+  id                String    @id @default(cuid())
+  email             String    @unique
+  passwordHash      String
+  role              String    @default("user") // "admin" | "user"
+  mustChangePassword Boolean  @default(false)
+  sessionVersion    Int       @default(1)
+
+  // Email preferences (auto-enrolled, opt-out)
+  emailDailySpikes    Boolean @default(true)
+  emailSellReminders  Boolean @default(true)
+  emailDeviationAlerts Boolean @default(true)
+
+  lastLoginAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  portfolios        Portfolio[]
+  sessions          UserSession[]
+  invitationUsed    Invitation? @relation("UsedBy")
+
+  @@index([email])
+}
+
+model Invitation {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  email       String
+  status      String   @default("pending") // pending, accepted, expired
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  usedAt      DateTime?
+  usedById    String?  @unique
+  usedBy      User?    @relation("UsedBy", fields: [usedById], references: [id])
+
+  @@index([code])
+  @@index([email])
+}
+
+model UserSession {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  loginAt   DateTime  @default(now())
+  logoutAt  DateTime?
+  duration  Int?      // seconds
+
+  @@index([userId])
+  @@index([loginAt])
+}
+
+// ---- Market Data ----
+
 model DailyReport {
   id            String   @id @default(cuid())
   date          DateTime @db.Date
@@ -101,6 +156,8 @@ model Spike {
 
 model Portfolio {
   id            String   @id @default(cuid())
+  userId        String?
+  user          User?    @relation(fields: [userId], references: [id])
   name          String
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -114,6 +171,7 @@ model Portfolio {
 
   entries       PortfolioEntry[]
 
+  @@index([userId])
   @@index([createdAt])
 }
 

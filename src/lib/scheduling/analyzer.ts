@@ -323,12 +323,20 @@ export async function runDailyAnalysis(useCached = false): Promise<{
       });
       if (emailResponse.ok) {
         const html = await emailResponse.text();
-        await sendCouncilEmail({
-          date: reportData.date,
-          html,
-          topTicker: spikes[0]?.ticker || 'N/A',
-          topScore: spikes[0]?.spikeScore || 0,
+        // Send council email to all opted-in users
+        const councilRecipients = await prisma.user.findMany({
+          where: { emailDailySpikes: true },
+          select: { email: true },
         });
+        for (const recipient of councilRecipients) {
+          await sendCouncilEmail({
+            to: recipient.email,
+            date: reportData.date,
+            html,
+            topTicker: spikes[0]?.ticker || 'N/A',
+            topScore: spikes[0]?.spikeScore || 0,
+          });
+        }
         emailSent = true;
       }
     } catch (emailErr) {
@@ -337,22 +345,30 @@ export async function runDailyAnalysis(useCached = false): Promise<{
 
     // Fallback: send simple daily summary
     if (!emailSent) {
-      await sendDailySummary({
-        date: today,
-        topSpikes: spikes.map((s) => ({
-          rank: s.rank,
-          ticker: s.ticker,
-          name: s.name,
-          spikeScore: s.spikeScore,
-          predicted3Day: s.predicted3Day,
-          predicted5Day: s.predicted5Day,
-          predicted8Day: s.predicted8Day,
-          narrative: s.narrative || '',
-        })),
-        marketRegime: reportData.marketRegime,
-        tsxLevel: reportData.tsxLevel,
-        tsxChange: reportData.tsxChange,
+      // Send daily summary to all opted-in users
+      const summaryRecipients = await prisma.user.findMany({
+        where: { emailDailySpikes: true },
+        select: { email: true },
       });
+      for (const recipient of summaryRecipients) {
+        await sendDailySummary({
+          to: recipient.email,
+          date: today,
+          topSpikes: spikes.map((s) => ({
+            rank: s.rank,
+            ticker: s.ticker,
+            name: s.name,
+            spikeScore: s.spikeScore,
+            predicted3Day: s.predicted3Day,
+            predicted5Day: s.predicted5Day,
+            predicted8Day: s.predicted8Day,
+            narrative: s.narrative || '',
+          })),
+          marketRegime: reportData.marketRegime,
+          tsxLevel: reportData.tsxLevel,
+          tsxChange: reportData.tsxChange,
+        });
+      }
     }
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);

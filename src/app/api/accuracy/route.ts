@@ -1,17 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { isAuthenticated } from '@/lib/auth';
+import { getAuthenticatedUser } from '@/lib/auth';
 import prisma from '@/lib/db/prisma';
 import { getBatchQuotes } from '@/lib/api/fmp';
 
 // GET /api/accuracy — Get accuracy metrics + portfolio vs market performance
 export async function GET(request: NextRequest) {
-  if (!(await isAuthenticated())) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const user = await getAuthenticatedUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const horizon = parseInt(request.nextUrl.searchParams.get('horizon') || '3');
   const days = parseInt(request.nextUrl.searchParams.get('days') || '90');
-  const portfolioId = request.nextUrl.searchParams.get('portfolioId');
   const cutoff = new Date(Date.now() - days * 86400000);
 
   try {
@@ -111,6 +109,7 @@ export async function GET(request: NextRequest) {
     // For each portfolio, build a chronological series of events (entries + exits)
     // to show portfolio value over time
     const allPortfolios = await prisma.portfolio.findMany({
+      where: { userId: user.userId },
       select: { id: true, name: true, portfolioSize: true },
       orderBy: { createdAt: 'asc' },
     });

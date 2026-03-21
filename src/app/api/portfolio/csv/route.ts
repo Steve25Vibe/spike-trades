@@ -1,17 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { isAuthenticated } from '@/lib/auth';
+import { getAuthenticatedUser } from '@/lib/auth';
 import prisma from '@/lib/db/prisma';
 
 // POST /api/portfolio/csv — Import positions from Wealthsimple CSV
 export async function POST(request: NextRequest) {
-  if (!(await isAuthenticated())) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const user = await getAuthenticatedUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
     const portfolioId = formData.get('portfolioId') as string | null;
+
+    // Verify portfolio ownership if provided
+    if (portfolioId) {
+      const portfolio = await prisma.portfolio.findUnique({ where: { id: portfolioId } });
+      if (!portfolio || portfolio.userId !== user.userId) {
+        return NextResponse.json({ error: 'Portfolio not found' }, { status: 404 });
+      }
+    }
 
     if (!file) {
       return NextResponse.json(
@@ -140,14 +147,26 @@ export async function POST(request: NextRequest) {
 
 // GET /api/portfolio/csv — Export portfolio as Wealthsimple-compatible CSV
 export async function GET(request: NextRequest) {
-  if (!(await isAuthenticated())) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const authUser = await getAuthenticatedUser();
+  if (!authUser) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
     const portfolioId = request.nextUrl.searchParams.get('portfolioId');
-    const where: Record<string, unknown> = {};
-    if (portfolioId) where.portfolioId = portfolioId;
+
+    // Scope to user's portfolios
+    const userPortfolioIds = portfolioId
+      ? [portfolioId]
+      : (await prisma.portfolio.findMany({ where: { userId: authUser.userId }, select: { id: true } })).map((p) => p.id);
+
+    // Verify ownership if specific portfolio requested
+    if (portfolioId) {
+      const portfolio = await prisma.portfolio.findUnique({ where: { id: portfolioId } });
+      if (!portfolio || portfolio.userId !== authUser.userId) {
+        return NextResponse.json({ error: 'Portfolio not found' }, { status: 404 });
+      }
+    }
+
+    const where: Record<string, unknown> = { portfolioId: { in: userPortfolioIds } };
 
     const positions = await prisma.portfolioEntry.findMany({
       where,

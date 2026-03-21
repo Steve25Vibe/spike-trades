@@ -1,22 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { isAuthenticated } from '@/lib/auth';
+import { getAuthenticatedUser } from '@/lib/auth';
 import prisma from '@/lib/db/prisma';
 import { calculateKellyFraction, countTradingDays } from '@/lib/utils';
 import { getBatchQuotes } from '@/lib/api/fmp';
 
-// GET /api/portfolio — Get all portfolio positions with LIVE P&L
+// GET /api/portfolio — Get user's portfolio positions with LIVE P&L
 export async function GET(request: NextRequest) {
-  if (!(await isAuthenticated())) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const user = await getAuthenticatedUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const status = request.nextUrl.searchParams.get('status') || 'active';
   const portfolioId = request.nextUrl.searchParams.get('portfolioId');
 
   try {
-    const where: Record<string, unknown> = {};
+    // If portfolioId provided, verify ownership
+    if (portfolioId) {
+      const portfolio = await prisma.portfolio.findUnique({ where: { id: portfolioId } });
+      if (!portfolio || portfolio.userId !== user.userId) {
+        return NextResponse.json({ error: 'Portfolio not found' }, { status: 404 });
+      }
+    }
+
+    // Scope to user's portfolios
+    const userPortfolioIds = portfolioId
+      ? [portfolioId]
+      : (await prisma.portfolio.findMany({ where: { userId: user.userId }, select: { id: true } })).map((p) => p.id);
+
+    const where: Record<string, unknown> = { portfolioId: { in: userPortfolioIds } };
     if (status !== 'all') where.status = status;
-    if (portfolioId) where.portfolioId = portfolioId;
 
     const positions = await prisma.portfolioEntry.findMany({
       where,
@@ -157,9 +168,8 @@ export async function GET(request: NextRequest) {
 
 // POST /api/portfolio — Lock in spike(s)
 export async function POST(request: NextRequest) {
-  if (!(await isAuthenticated())) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const user = await getAuthenticatedUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
     const body = await request.json();
@@ -174,10 +184,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Load portfolio settings if portfolioId provided
+    // Load portfolio settings if portfolioId provided, verify ownership
     let portfolio = null;
     if (portfolioId) {
       portfolio = await prisma.portfolio.findUnique({ where: { id: portfolioId } });
+      if (!portfolio || portfolio.userId !== user.userId) {
+        return NextResponse.json({ error: 'Portfolio not found' }, { status: 404 });
+      }
     }
 
     const effectiveMode = mode || portfolio?.sizingMode || 'auto';
@@ -269,11 +282,10 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// DELETE /api/portfolio — Remove/close a position
+// DELETE /api/portfolio — Remove/close a position (must belong to user)
 export async function DELETE(request: NextRequest) {
-  if (!(await isAuthenticated())) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const user = await getAuthenticatedUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
     const { positionId, exitPrice, exitReason, sharesToSell } = await request.json();
@@ -287,9 +299,10 @@ export async function DELETE(request: NextRequest) {
 
     const position = await prisma.portfolioEntry.findUnique({
       where: { id: positionId },
+      include: { portfolio: { select: { userId: true } } },
     });
 
-    if (!position) {
+    if (!position || (position.portfolio && position.portfolio.userId !== user.userId)) {
       return NextResponse.json(
         { success: false, error: 'Position not found' },
         { status: 404 }

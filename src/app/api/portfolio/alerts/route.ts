@@ -6,6 +6,7 @@ import { countTradingDays, addTradingDays } from '@/lib/utils';
 
 // POST /api/portfolio/alerts — Polled every 15 min during market hours
 // Checks every active position for target hits, sell-reminder windows, and deviations
+// Sends alerts to the position owner's email
 export async function POST(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
   if (authHeader !== `Bearer ${process.env.SESSION_SECRET}`) {
@@ -15,7 +16,14 @@ export async function POST(request: NextRequest) {
   try {
     const activePositions = await prisma.portfolioEntry.findMany({
       where: { status: 'active' },
-      include: { spike: true },
+      include: {
+        spike: true,
+        portfolio: {
+          include: {
+            user: { select: { email: true, emailSellReminders: true, emailDeviationAlerts: true } },
+          },
+        },
+      },
     });
 
     if (activePositions.length === 0) {
@@ -28,11 +36,17 @@ export async function POST(request: NextRequest) {
     const priceMap = new Map(quotes.map((q) => [q.ticker, q.price]));
 
     let alertsSent = 0;
-    const now = Date.now();
 
     for (const position of activePositions) {
       const currentPrice = priceMap.get(position.ticker);
       if (!currentPrice) continue;
+
+      // Get the owner's email and preferences
+      const ownerEmail = position.portfolio?.user?.email;
+      const wantsSellReminders = position.portfolio?.user?.emailSellReminders ?? true;
+      const wantsDeviationAlerts = position.portfolio?.user?.emailDeviationAlerts ?? true;
+
+      if (!ownerEmail) continue;
 
       const tradingDaysSinceEntry = countTradingDays(
         new Date(position.entryDate), new Date()
@@ -41,22 +55,24 @@ export async function POST(request: NextRequest) {
 
       // ---- 1. Sell Reminders (time-based + price-hit) ----
 
-      // 3-Day sell reminder (trading days)
+      // 3-Day sell reminder
       if (!position.alertSent3Day && position.target3Day) {
         const shouldAlert =
-          tradingDaysSinceEntry >= 3 || // Window has arrived
-          currentPrice >= position.target3Day; // Hit target early
+          tradingDaysSinceEntry >= 3 || currentPrice >= position.target3Day;
 
         if (shouldAlert) {
-          await sendSellReminder({
-            ticker: position.ticker,
-            name: position.name,
-            targetDate: addTradingDays(new Date(position.entryDate), 3),
-            targetPrice: position.target3Day,
-            entryPrice: position.entryPrice,
-            currentPrice,
-            horizon: '3-day',
-          });
+          if (wantsSellReminders) {
+            await sendSellReminder({
+              to: ownerEmail,
+              ticker: position.ticker,
+              name: position.name,
+              targetDate: addTradingDays(new Date(position.entryDate), 3),
+              targetPrice: position.target3Day,
+              entryPrice: position.entryPrice,
+              currentPrice,
+              horizon: '3-day',
+            });
+          }
           await prisma.portfolioEntry.update({
             where: { id: position.id },
             data: { alertSent3Day: true },
@@ -65,21 +81,24 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // 5-Day sell reminder (trading days)
+      // 5-Day sell reminder
       if (!position.alertSent5Day && position.target5Day) {
         const shouldAlert =
           tradingDaysSinceEntry >= 5 || currentPrice >= position.target5Day;
 
         if (shouldAlert) {
-          await sendSellReminder({
-            ticker: position.ticker,
-            name: position.name,
-            targetDate: addTradingDays(new Date(position.entryDate), 5),
-            targetPrice: position.target5Day,
-            entryPrice: position.entryPrice,
-            currentPrice,
-            horizon: '5-day',
-          });
+          if (wantsSellReminders) {
+            await sendSellReminder({
+              to: ownerEmail,
+              ticker: position.ticker,
+              name: position.name,
+              targetDate: addTradingDays(new Date(position.entryDate), 5),
+              targetPrice: position.target5Day,
+              entryPrice: position.entryPrice,
+              currentPrice,
+              horizon: '5-day',
+            });
+          }
           await prisma.portfolioEntry.update({
             where: { id: position.id },
             data: { alertSent5Day: true },
@@ -88,21 +107,24 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // 8-Day sell reminder (trading days)
+      // 8-Day sell reminder
       if (!position.alertSent8Day && position.target8Day) {
         const shouldAlert =
           tradingDaysSinceEntry >= 8 || currentPrice >= position.target8Day;
 
         if (shouldAlert) {
-          await sendSellReminder({
-            ticker: position.ticker,
-            name: position.name,
-            targetDate: addTradingDays(new Date(position.entryDate), 8),
-            targetPrice: position.target8Day,
-            entryPrice: position.entryPrice,
-            currentPrice,
-            horizon: '8-day',
-          });
+          if (wantsSellReminders) {
+            await sendSellReminder({
+              to: ownerEmail,
+              ticker: position.ticker,
+              name: position.name,
+              targetDate: addTradingDays(new Date(position.entryDate), 8),
+              targetPrice: position.target8Day,
+              entryPrice: position.entryPrice,
+              currentPrice,
+              horizon: '8-day',
+            });
+          }
           await prisma.portfolioEntry.update({
             where: { id: position.id },
             data: { alertSent8Day: true },
@@ -111,16 +133,18 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // ---- 2. Deviation Alerts (escalating) ----
-      // Caution at -5%, Danger at -8%
+      // ---- 2. Deviation Alerts ----
       if (!position.deviationAlert && pricePct <= -5) {
-        await sendDeviationAlert({
-          ticker: position.ticker,
-          name: position.name,
-          entryPrice: position.entryPrice,
-          currentPrice,
-          deviationPct: pricePct,
-        });
+        if (wantsDeviationAlerts) {
+          await sendDeviationAlert({
+            to: ownerEmail,
+            ticker: position.ticker,
+            name: position.name,
+            entryPrice: position.entryPrice,
+            currentPrice,
+            deviationPct: pricePct,
+          });
+        }
         await prisma.portfolioEntry.update({
           where: { id: position.id },
           data: { deviationAlert: true },
@@ -130,10 +154,8 @@ export async function POST(request: NextRequest) {
 
       // ---- 3. Auto-close if stop-loss breached ----
       if (position.stopLoss && currentPrice <= position.stopLoss) {
-        const realizedPnl =
-          (currentPrice - position.entryPrice) * position.shares;
-        const realizedPnlPct =
-          ((currentPrice - position.entryPrice) / position.entryPrice) * 100;
+        const realizedPnl = (currentPrice - position.entryPrice) * position.shares;
+        const realizedPnlPct = ((currentPrice - position.entryPrice) / position.entryPrice) * 100;
 
         await prisma.portfolioEntry.update({
           where: { id: position.id },
@@ -147,9 +169,9 @@ export async function POST(request: NextRequest) {
           },
         });
 
-        // Also send a deviation alert for the stop-out
-        if (!position.deviationAlert) {
+        if (!position.deviationAlert && wantsDeviationAlerts) {
           await sendDeviationAlert({
+            to: ownerEmail,
             ticker: position.ticker,
             name: position.name,
             entryPrice: position.entryPrice,
@@ -161,9 +183,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log(
-      `[Alerts] Checked ${activePositions.length} positions, sent ${alertsSent} alerts`
-    );
+    console.log(`[Alerts] Checked ${activePositions.length} positions, sent ${alertsSent} alerts`);
 
     return NextResponse.json({
       success: true,

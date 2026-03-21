@@ -1,18 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { isAuthenticated } from '@/lib/auth';
+import { getAuthenticatedUser } from '@/lib/auth';
 import prisma from '@/lib/db/prisma';
 
-// PUT /api/portfolios/[id] — Update portfolio name or settings
+// PUT /api/portfolios/[id] — Update portfolio name or settings (must own it)
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  if (!(await isAuthenticated())) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const user = await getAuthenticatedUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
     const { id } = await params;
+
+    // Verify ownership
+    const existing = await prisma.portfolio.findUnique({ where: { id } });
+    if (!existing || existing.userId !== user.userId) {
+      return NextResponse.json({ error: 'Portfolio not found' }, { status: 404 });
+    }
+
     const body = await request.json();
     const { name, sizingMode, portfolioSize, fixedAmount, kellyMaxPct, kellyWinRate } = body;
 
