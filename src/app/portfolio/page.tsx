@@ -63,6 +63,10 @@ export default function PortfolioPage() {
   const [closing, setClosing] = useState<string | null>(null);
   const [closeConfirm, setCloseConfirm] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkClosing, setBulkClosing] = useState(false);
+  const [bulkCloseConfirm, setBulkCloseConfirm] = useState(false);
 
   useEffect(() => { fetchPortfolio(); }, [filter]);
 
@@ -106,6 +110,52 @@ export default function PortfolioPage() {
       setClosing(null);
       setCloseConfirm(null);
     }
+  };
+
+  const handleSelectPosition = (id: string, selected: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (selected) next.add(id); else next.delete(id);
+      return next;
+    });
+  };
+
+  const handleSelectAll = () => {
+    const activeIds = positions.filter((p) => p.status === 'active').map((p) => p.id);
+    if (selectedIds.size === activeIds.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(activeIds));
+    }
+  };
+
+  const handleBulkClose = async () => {
+    if (selectedIds.size === 0) return;
+    setBulkClosing(true);
+    let closed = 0;
+    let totalPnl = 0;
+    for (const positionId of selectedIds) {
+      try {
+        const res = await fetch('/api/portfolio', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ positionId, exitReason: 'manual' }),
+        });
+        const json = await res.json();
+        if (json.success) {
+          closed++;
+          totalPnl += json.data.realizedPnl ?? 0;
+        }
+      } catch { /* continue */ }
+    }
+    setPositions((prev) => prev.filter((p) => !selectedIds.has(p.id)));
+    setSelectedIds(new Set());
+    setSelectionMode(false);
+    setBulkCloseConfirm(false);
+    setBulkClosing(false);
+    setToast(`Closed ${closed} position${closed !== 1 ? 's' : ''} — ${totalPnl >= 0 ? '+' : ''}${formatCurrency(totalPnl)} realized`);
+    setTimeout(() => setToast(null), 5000);
+    await fetchPortfolio();
   };
 
   const riskColors = {
@@ -208,16 +258,101 @@ export default function PortfolioPage() {
           <CsvImportExport onImportComplete={fetchPortfolio} />
         </div>
 
+        {/* Selection toolbar (active positions only) */}
+        {filter !== 'closed' && positions.some((p) => p.status === 'active') && (
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => { setSelectionMode(!selectionMode); if (selectionMode) { setSelectedIds(new Set()); setBulkCloseConfirm(false); } }}
+                className={cn(
+                  'px-4 py-2 rounded-lg text-sm font-medium transition-all border',
+                  selectionMode
+                    ? 'bg-spike-red/10 text-spike-red border-spike-red/30'
+                    : 'text-spike-text-dim border-spike-border hover:border-spike-red/30 hover:text-spike-text'
+                )}
+                title="Select multiple positions to close at once"
+              >
+                {selectionMode ? '✕ Cancel Selection' : '☐ Select Positions to Close'}
+              </button>
+
+              {selectionMode && (
+                <>
+                  <button
+                    onClick={handleSelectAll}
+                    className="px-3 py-2 rounded-lg text-xs font-medium text-spike-text-dim hover:text-spike-text border border-spike-border hover:border-spike-red/30 transition-all"
+                    title="Select or deselect all active positions"
+                  >
+                    {selectedIds.size === positions.filter((p) => p.status === 'active').length ? 'Deselect All' : 'Select All'}
+                  </button>
+                  <span className="text-sm text-spike-text-dim">
+                    {selectedIds.size} selected
+                  </span>
+                </>
+              )}
+            </div>
+
+            {selectionMode && selectedIds.size > 0 && (
+              bulkCloseConfirm ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-spike-red">Close {selectedIds.size} position{selectedIds.size !== 1 ? 's' : ''}?</span>
+                  <button
+                    onClick={handleBulkClose}
+                    disabled={bulkClosing}
+                    className="px-4 py-2 rounded-lg text-sm font-bold text-white bg-spike-red hover:bg-spike-red/80 transition-all disabled:opacity-50"
+                  >
+                    {bulkClosing ? 'Closing...' : 'Confirm Sell All'}
+                  </button>
+                  <button
+                    onClick={() => setBulkCloseConfirm(false)}
+                    className="px-3 py-2 rounded-lg text-xs text-spike-text-muted hover:text-spike-text"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setBulkCloseConfirm(true)}
+                  className="px-4 py-2 rounded-lg text-sm font-medium text-spike-red bg-spike-red/10 border border-spike-red/30 hover:bg-spike-red/20 transition-all"
+                  title="Close all selected positions"
+                >
+                  Sell / Close {selectedIds.size} Position{selectedIds.size !== 1 ? 's' : ''}
+                </button>
+              )
+            )}
+          </div>
+        )}
+
         {/* Position cards (active) or table (closed) */}
         {filter !== 'closed' ? (
           <div className="space-y-3">
             {positions.filter((p) => filter === 'all' || p.status === 'active').map((pos) => (
               pos.status === 'active' ? (
                 <div key={pos.id} className={cn(
-                  'glass-card p-5 transition-all',
-                  pos.riskStatus === 'danger' && 'border-spike-red/30',
-                  pos.riskStatus === 'target_hit' && 'border-spike-gold/30',
+                  'glass-card p-5 transition-all relative',
+                  selectedIds.has(pos.id) && 'ring-2 ring-spike-red/50 border-spike-red/30',
+                  pos.riskStatus === 'danger' && !selectedIds.has(pos.id) && 'border-spike-red/30',
+                  pos.riskStatus === 'target_hit' && !selectedIds.has(pos.id) && 'border-spike-gold/30',
                 )}>
+                  {/* Selection checkbox */}
+                  {selectionMode && (
+                    <button
+                      onClick={() => handleSelectPosition(pos.id, !selectedIds.has(pos.id))}
+                      className={cn(
+                        'absolute top-4 right-4 z-10 w-7 h-7 rounded-lg border-2 flex items-center justify-center transition-all',
+                        selectedIds.has(pos.id)
+                          ? 'bg-spike-red border-spike-red text-spike-bg'
+                          : 'border-spike-border hover:border-spike-red/50 bg-spike-bg/50'
+                      )}
+                      title={selectedIds.has(pos.id) ? 'Remove from selection' : 'Add to selection'}
+                    >
+                      {selectedIds.has(pos.id) && (
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      )}
+                    </button>
+                  )}
+
                   <div className="flex items-start justify-between gap-6">
                     {/* Left: Ticker + meta */}
                     <div className="flex items-center gap-4 min-w-0">
