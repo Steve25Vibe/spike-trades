@@ -16,7 +16,8 @@ export async function GET(request: NextRequest) {
   const targetDate = new Date(date.toISOString().split('T')[0]);
 
   try {
-    const report = await prisma.dailyReport.findUnique({
+    // Try exact date first
+    let report = await prisma.dailyReport.findUnique({
       where: { date: targetDate },
       include: {
         spikes: {
@@ -24,6 +25,19 @@ export async function GET(request: NextRequest) {
         },
       },
     });
+
+    // If no report for today and no specific date was requested, fall back to most recent
+    if (!report && !dateStr) {
+      report = await prisma.dailyReport.findFirst({
+        where: { date: { lte: targetDate } },
+        orderBy: { date: 'desc' },
+        include: {
+          spikes: {
+            orderBy: { rank: 'asc' },
+          },
+        },
+      });
+    }
 
     if (!report) {
       return NextResponse.json({

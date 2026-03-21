@@ -194,8 +194,7 @@ export default function PortfolioPage() {
   };
 
   const handleOpenDeleteModal = () => {
-    // Pre-select current portfolio
-    setDeleteSelectedIds(activeId ? new Set([activeId]) : new Set());
+    setDeleteSelectedIds(new Set());
     setDeleteStep('select');
     setShowDeleteModal(true);
   };
@@ -211,14 +210,15 @@ export default function PortfolioPage() {
   const handleConfirmDelete = async () => {
     if (deleteSelectedIds.size === 0) return;
     setDeleting(true);
-    const hasActive = portfolios.some((p) => deleteSelectedIds.has(p.id) && p.activePositions > 0);
     const errors: string[] = [];
     let totalClosed = 0;
     for (const portfolioId of deleteSelectedIds) {
+      const portfolio = portfolios.find((p) => p.id === portfolioId);
+      const needsClose = portfolio ? portfolio.activePositions > 0 : false;
       const res = await fetch('/api/portfolios', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ portfolioId, closePositions: hasActive }),
+        body: JSON.stringify({ portfolioId, closePositions: needsClose }),
       });
       const json = await res.json();
       if (!json.success) {
@@ -278,7 +278,10 @@ export default function PortfolioPage() {
         {!activePortfolio ? (
           <div className="glass-card p-12 text-center mb-6">
             <p className="text-spike-text-dim text-lg mb-4">No portfolios yet.</p>
-            <p className="text-spike-text-muted text-sm mb-6">Lock in spikes from the dashboard to create your first portfolio.</p>
+            <p className="text-spike-text-muted text-sm mb-4">Lock in spikes from the dashboard to create your first portfolio.</p>
+            <Link href="/dashboard" className="text-spike-cyan text-sm hover:underline">
+              ← Go pick some spikes
+            </Link>
           </div>
         ) : (
         <>
