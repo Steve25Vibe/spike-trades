@@ -191,6 +191,7 @@ export default function AnalysisPage() {
         <Link
           href="/dashboard"
           className="inline-flex items-center gap-2 text-sm text-spike-text-dim hover:text-spike-cyan transition-colors mb-6"
+          title="Return to the main dashboard"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
@@ -212,7 +213,7 @@ export default function AnalysisPage() {
               </div>
               <div>
                 <div className="flex items-center gap-3 mb-1">
-                  <a href={`https://finance.yahoo.com/quote/${spike.ticker}`} target="_blank" rel="noopener noreferrer" className="text-3xl font-bold text-spike-text hover:text-spike-cyan transition-colors">{spike.ticker}</a>
+                  <a href={`https://finance.yahoo.com/quote/${spike.ticker}`} target="_blank" rel="noopener noreferrer" title={`View ${spike.ticker} on Yahoo Finance`} className="text-3xl font-bold text-spike-text hover:text-spike-cyan transition-colors">{spike.ticker}</a>
                   <span className="text-sm font-medium px-3 py-1 rounded-full bg-spike-border/50 text-spike-text-dim">#{spike.rank}</span>
                   <span className="text-sm px-3 py-1 rounded-full bg-spike-violet/10 text-spike-violet">{spike.sector}</span>
                 </div>
@@ -237,6 +238,7 @@ export default function AnalysisPage() {
                   onClick={handleLockIn}
                   disabled={locking}
                   className="btn-lock-in text-base px-8 py-3 disabled:opacity-50"
+                  title="Add this stock to your portfolio"
                 >
                   {locking ? 'Locking...' : '⚡ Lock In This Spike'}
                 </button>

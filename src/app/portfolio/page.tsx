@@ -174,10 +174,17 @@ export default function PortfolioPage() {
 
         {/* Filter tabs */}
         <div className="flex gap-2 mb-4">
-          {(['active', 'closed', 'all'] as const).map((f) => (
+          {(['active', 'closed', 'all'] as const).map((f) => {
+            const tooltips: Record<string, string> = {
+              active: 'Show stocks you currently hold',
+              closed: 'Show positions you\'ve sold',
+              all: 'Show all positions, active and closed',
+            };
+            return (
             <button
               key={f}
               onClick={() => setFilter(f)}
+              title={tooltips[f]}
               className={cn(
                 'px-4 py-2 rounded-lg text-sm font-medium transition-all capitalize',
                 filter === f
@@ -186,8 +193,8 @@ export default function PortfolioPage() {
               )}
             >
               {f}
-            </button>
-          ))}
+            </button>);
+          })}
         </div>
 
         {/* Position cards (active) or table (closed) */}
@@ -205,7 +212,7 @@ export default function PortfolioPage() {
                     <div className="flex items-center gap-4 min-w-0">
                       <div>
                         <div className="flex items-center gap-2">
-                          <Link href={`/dashboard/analysis/${pos.spikeId}`} className="text-xl font-bold text-spike-text hover:text-spike-cyan transition-colors">
+                          <Link href={`/dashboard/analysis/${pos.spikeId}`} title="See the full AI analysis for this stock" className="text-xl font-bold text-spike-text hover:text-spike-cyan transition-colors">
                             {pos.ticker}
                           </Link>
                           <span className={cn('text-xs px-2 py-0.5 rounded-full font-semibold', riskColors[pos.riskStatus], `bg-current/10`)}>
@@ -234,6 +241,7 @@ export default function PortfolioPage() {
                       <Link
                         href={`/dashboard/analysis/${pos.spikeId}`}
                         className="px-3 py-2 rounded-lg text-xs font-medium text-spike-cyan bg-spike-cyan/5 border border-spike-cyan/15 hover:bg-spike-cyan/10 transition-all"
+                        title="See the full AI analysis for this stock"
                       >
                         View Analysis
                       </Link>
@@ -257,6 +265,7 @@ export default function PortfolioPage() {
                         <button
                           onClick={() => setCloseConfirm(pos.id)}
                           className="px-3 py-2 rounded-lg text-xs font-medium text-spike-text-dim bg-spike-bg border border-spike-border hover:border-spike-red/30 hover:text-spike-red transition-all"
+                          title="Close this position and record the result"
                         >
                           Sell / Close
                         </button>

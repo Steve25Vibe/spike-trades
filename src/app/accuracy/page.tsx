@@ -117,6 +117,7 @@ export default function AccuracyPage() {
               <button
                 key={h}
                 onClick={() => setHorizon(h)}
+                title={`Check prediction accuracy after ${h} trading days`}
                 className={cn(
                   'px-4 py-2 rounded-lg text-sm font-medium transition-all',
                   horizon === h

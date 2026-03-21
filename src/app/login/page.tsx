@@ -95,6 +95,7 @@ export default function LoginPage() {
               type="submit"
               disabled={loading || !password}
               className="w-full btn-gradient text-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Log in to access the dashboard"
             >
               {loading ? (
                 <span className="flex items-center justify-center gap-2">

@@ -9,6 +9,7 @@ const navItems = [
   {
     href: '/dashboard',
     label: 'Today\'s Spikes',
+    tooltip: 'View today\'s AI-selected stock picks',
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
@@ -19,6 +20,7 @@ const navItems = [
   {
     href: '/portfolio',
     label: 'Portfolio',
+    tooltip: 'Manage your locked-in positions and trades',
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
@@ -29,6 +31,7 @@ const navItems = [
   {
     href: '/accuracy',
     label: 'Accuracy',
+    tooltip: 'See how past predictions performed',
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="12" cy="12" r="10" />
@@ -40,6 +43,7 @@ const navItems = [
   {
     href: '/reports',
     label: 'Archives',
+    tooltip: 'Browse previous daily reports',
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -65,7 +69,7 @@ export default function Sidebar() {
     <aside className="fixed left-0 top-0 h-full w-64 bg-spike-bg-light border-r border-spike-border z-40 flex flex-col">
       {/* Logo */}
       <div className="p-6 border-b border-spike-border">
-        <Link href="/dashboard" className="flex items-center gap-3">
+        <Link href="/dashboard" className="flex items-center gap-3" title="Go to today's top stock picks">
           <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-spike-cyan to-spike-violet flex items-center justify-center flex-shrink-0">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0A1428" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
@@ -91,6 +95,7 @@ export default function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
+              title={item.tooltip}
               className={cn(
                 'flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all',
                 isActive

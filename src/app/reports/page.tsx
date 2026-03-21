@@ -90,12 +90,14 @@ export default function ReportsPage() {
                 <Link
                   href={`/dashboard?date=${new Date(report.date).toISOString().split('T')[0]}`}
                   className="px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide text-spike-cyan border border-spike-cyan/30 hover:bg-spike-cyan/10 transition-colors"
+                  title="Open this day's report on the dashboard"
                 >
                   View
                 </Link>
                 <a
                   href={`/api/reports/${report.id}/xlsx`}
                   className="px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide text-spike-green border border-spike-green/30 hover:bg-spike-green/10 transition-colors"
+                  title="Download this report as an Excel file"
                   onClick={(e) => e.stopPropagation()}
                 >
                   XLSX
@@ -118,6 +120,7 @@ export default function ReportsPage() {
               onClick={() => setPage(Math.max(1, page - 1))}
               disabled={page === 1}
               className="px-4 py-2 rounded-lg text-sm text-spike-text-dim hover:text-spike-text disabled:opacity-30"
+              title="Go to the previous page of reports"
             >
               ← Previous
             </button>
@@ -128,6 +131,7 @@ export default function ReportsPage() {
               onClick={() => setPage(page + 1)}
               disabled={page >= Math.ceil(total / 20)}
               className="px-4 py-2 rounded-lg text-sm text-spike-text-dim hover:text-spike-text disabled:opacity-30"
+              title="Go to the next page of reports"
             >
               Next →
             </button>

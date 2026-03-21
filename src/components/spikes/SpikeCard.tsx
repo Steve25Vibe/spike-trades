@@ -73,7 +73,7 @@ export default function SpikeCard({ spike, selected, onSelect, onLockIn, selecti
         {/* Main info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <a href={`https://finance.yahoo.com/quote/${spike.ticker}`} target="_blank" rel="noopener noreferrer" className="text-lg font-bold text-spike-text hover:text-spike-cyan transition-colors truncate">{spike.ticker}</a>
+            <a href={`https://finance.yahoo.com/quote/${spike.ticker}`} target="_blank" rel="noopener noreferrer" title={`View ${spike.ticker} on Yahoo Finance`} className="text-lg font-bold text-spike-text hover:text-spike-cyan transition-colors truncate">{spike.ticker}</a>
             <span className="text-xs px-2 py-0.5 rounded-full bg-spike-border/50 text-spike-text-dim">
               {spike.exchange}
             </span>
@@ -162,6 +162,7 @@ export default function SpikeCard({ spike, selected, onSelect, onLockIn, selecti
           <Link
             href={`/dashboard/analysis/${spike.id}`}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-spike-cyan bg-spike-cyan/5 border border-spike-cyan/15 hover:bg-spike-cyan/10 hover:border-spike-cyan/30 transition-all"
+            title="See the full AI analysis for this stock"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
@@ -176,6 +177,7 @@ export default function SpikeCard({ spike, selected, onSelect, onLockIn, selecti
               onClick={handleLockIn}
               disabled={locking}
               className="btn-lock-in disabled:opacity-50"
+              title="Add this stock to your portfolio"
             >
               {locking ? 'Locking...' : '⚡ Lock In'}
             </button>

@@ -298,6 +298,7 @@ function DashboardContent() {
                       ? 'bg-spike-cyan/10 text-spike-cyan border-spike-cyan/30'
                       : 'text-spike-text-dim border-spike-border hover:border-spike-cyan/30 hover:text-spike-text'
                   )}
+                  title={selectionMode ? 'Exit selection mode without making changes' : 'Pick multiple stocks to add to your portfolio at once'}
                 >
                   {selectionMode ? '✕ Cancel Selection' : '☐ Select Spikes for Portfolio'}
                 </button>
@@ -307,6 +308,7 @@ function DashboardContent() {
                     <button
                       onClick={handleSelectAll}
                       className="px-3 py-2 rounded-lg text-xs font-medium text-spike-text-dim hover:text-spike-text border border-spike-border hover:border-spike-cyan/30 transition-all"
+                      title="Select or deselect all stocks on this page"
                     >
                       {selectedIds.size === data.spikes.length ? 'Deselect All' : 'Select All'}
                     </button>
@@ -322,6 +324,7 @@ function DashboardContent() {
                   onClick={handleBulkLockIn}
                   disabled={bulkLocking}
                   className="btn-lock-in text-base px-6 py-2.5 disabled:opacity-50 flex items-center gap-2"
+                  title="Add your selected stocks to your portfolio"
                 >
                   {bulkLocking ? (
                     <>
@@ -375,6 +378,7 @@ function DashboardContent() {
                 <a
                   href={data.report.csvUrl}
                   className="inline-flex items-center gap-2 text-sm text-spike-cyan hover:text-spike-cyan/80 transition-colors"
+                  title="Download today's full analysis as a spreadsheet"
                   download
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
