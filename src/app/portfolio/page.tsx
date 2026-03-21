@@ -69,7 +69,7 @@ export default function PortfolioPage() {
   const fetchPortfolio = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/portfolio?status=${filter}`);
+      const res = await fetch(`/api/portfolio?status=${filter}&t=${Date.now()}`, { cache: 'no-store' });
       if (res.status === 401) { window.location.href = '/login'; return; }
       const json = await res.json();
       if (json.success) {
@@ -92,6 +92,8 @@ export default function PortfolioPage() {
       if (json.success) {
         setToast(`Closed ${json.data.ticker} — ${json.data.realizedPnlPct >= 0 ? '+' : ''}${json.data.realizedPnlPct.toFixed(2)}% (${formatCurrency(json.data.realizedPnl)})`);
         setTimeout(() => setToast(null), 4000);
+        // Immediately remove from UI, then refresh from server
+        setPositions((prev) => prev.filter((p) => p.id !== positionId));
         setClosing(null);
         setCloseConfirm(null);
         await fetchPortfolio();
