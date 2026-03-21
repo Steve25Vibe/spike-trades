@@ -51,8 +51,12 @@ export function usePortfolios() {
 
         if (exists && storedId) {
           setActiveId(storedId);
+        } else if (list.length > 0) {
+          // Stored one was deleted or never set — pick first
+          setActiveId(list[0].id);
+          setActivePortfolioId(list[0].id);
         } else {
-          // Stored one was deleted or never set — clear selection
+          // No portfolios at all
           setActiveId(null);
           setActivePortfolioId(null);
         }

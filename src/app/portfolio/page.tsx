@@ -6,7 +6,7 @@ import Sidebar from '@/components/layout/Sidebar';
 import ParticleBackground from '@/components/layout/ParticleBackground';
 import { cn, formatCurrency, formatPercent } from '@/lib/utils';
 import CsvImportExport from '@/components/portfolio/CsvImportExport';
-import { usePortfolios } from '@/components/portfolio/usePortfolios';
+import { usePortfolios, setActivePortfolioId } from '@/components/portfolio/usePortfolios';
 
 interface Position {
   id: string;
@@ -235,6 +235,8 @@ export default function PortfolioPage() {
     setDeleteStep('select');
     setPositions([]);
     setSummary(null);
+    // Clear stored selection so refreshPortfolios auto-selects next remaining (or null)
+    setActivePortfolioId(null);
     await refreshPortfolios();
     if (errors.length > 0) {
       setToast({ message: errors.join('; '), type: 'error' });
