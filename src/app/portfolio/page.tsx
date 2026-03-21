@@ -6,7 +6,6 @@ import Sidebar from '@/components/layout/Sidebar';
 import ParticleBackground from '@/components/layout/ParticleBackground';
 import { cn, formatCurrency, formatPercent } from '@/lib/utils';
 import CsvImportExport from '@/components/portfolio/CsvImportExport';
-import PortfolioSelector from '@/components/portfolio/PortfolioSelector';
 import { usePortfolios } from '@/components/portfolio/usePortfolios';
 
 interface Position {
@@ -71,6 +70,7 @@ export default function PortfolioPage() {
   const [bulkCloseConfirm, setBulkCloseConfirm] = useState(false);
   const [showNewPortfolio, setShowNewPortfolio] = useState(false);
   const [newPortfolioName, setNewPortfolioName] = useState('');
+  const [showChoosePortfolio, setShowChoosePortfolio] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   const { portfolios, activeId, selectPortfolio, refresh: refreshPortfolios } = usePortfolios();
@@ -223,38 +223,23 @@ export default function PortfolioPage() {
       <Sidebar />
 
       <main className="ml-64 p-8 relative z-10">
-        {/* Header with portfolio selector */}
+        {/* Header: portfolio name or empty state */}
+        {!activePortfolio ? (
+          <div className="glass-card p-12 text-center mb-6">
+            <p className="text-spike-text-dim text-lg mb-4">No portfolios yet.</p>
+            <button
+              onClick={() => setShowNewPortfolio(true)}
+              className="btn-lock-in px-6 py-2.5"
+            >
+              + Create Your First Portfolio
+            </button>
+          </div>
+        ) : (
+        <>
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-display font-bold text-spike-cyan tracking-wide">
-            PORTFOLIO
+            {activePortfolio.name}
           </h2>
-          <div className="flex items-center gap-3">
-            <PortfolioSelector
-              portfolios={portfolios}
-              activeId={activeId}
-              onSelect={selectPortfolio}
-              onCreateNew={() => setShowNewPortfolio(true)}
-            />
-            {activePortfolio && (
-              <>
-                {deleteConfirm === activeId ? (
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-spike-red">Delete?</span>
-                    <button onClick={() => handleDeletePortfolio(activeId!)} className="px-2 py-1 rounded text-xs font-bold text-spike-red bg-spike-red/10 border border-spike-red/30">Yes</button>
-                    <button onClick={() => setDeleteConfirm(null)} className="px-2 py-1 rounded text-xs text-spike-text-muted">No</button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => setDeleteConfirm(activeId)}
-                    className="text-spike-text-muted hover:text-spike-red text-xs transition-colors"
-                    title="Delete this portfolio"
-                  >
-                    Delete
-                  </button>
-                )}
-              </>
-            )}
-          </div>
         </div>
 
         {/* Toast */}
@@ -333,10 +318,21 @@ export default function PortfolioPage() {
           <CsvImportExport portfolioId={activeId} onImportComplete={fetchPortfolio} />
         </div>
 
-        {/* Selection toolbar (active positions only) */}
-        {filter !== 'closed' && positions.some((p) => p.status === 'active') && (
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
+        {/* Selection toolbar */}
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            {/* Choose Portfolio */}
+            <button
+              onClick={() => setShowChoosePortfolio(true)}
+              className="px-4 py-2 rounded-lg text-sm font-medium transition-all border border-spike-border text-spike-text-dim hover:border-spike-cyan/30 hover:text-spike-text"
+              title="Switch to a different portfolio"
+            >
+              Choose Portfolio
+            </button>
+
+            {/* Select Positions to Close — only when active positions exist */}
+            {filter !== 'closed' && positions.some((p) => p.status === 'active') && (
+              <>
               <button
                 onClick={() => { setSelectionMode(!selectionMode); if (selectionMode) { setSelectedIds(new Set()); setBulkCloseConfirm(false); } }}
                 className={cn(
@@ -364,7 +360,8 @@ export default function PortfolioPage() {
                   </span>
                 </>
               )}
-            </div>
+              </>
+            )}
 
             {selectionMode && selectedIds.size > 0 && (
               bulkCloseConfirm ? (
@@ -395,7 +392,34 @@ export default function PortfolioPage() {
               )
             )}
           </div>
-        )}
+
+          {/* Delete Portfolio — far right */}
+          {deleteConfirm === activeId ? (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-spike-red">Delete this portfolio?</span>
+              <button
+                onClick={() => handleDeletePortfolio(activeId!)}
+                className="px-3 py-2 rounded-lg text-xs font-bold text-spike-red bg-spike-red/10 border border-spike-red/30 hover:bg-spike-red/20 transition-all"
+              >
+                Confirm Delete
+              </button>
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                className="px-2 py-2 rounded-lg text-xs text-spike-text-muted hover:text-spike-text"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setDeleteConfirm(activeId)}
+              className="px-3 py-2 rounded-lg text-xs font-medium text-spike-text-dim bg-spike-bg border border-spike-border hover:border-spike-red/30 hover:text-spike-red transition-all"
+              title="Delete this portfolio and all its closed positions"
+            >
+              Delete Portfolio
+            </button>
+          )}
+        </div>
 
         {/* Position cards (active) or table (closed) */}
         {filter !== 'closed' ? (
@@ -601,6 +625,48 @@ export default function PortfolioPage() {
           <p>For educational and informational purposes only. Not financial advice. Past performance is no guarantee of future results.</p>
           <p className="mt-2">&copy; {new Date().getFullYear()} Spike Trades — spiketrades.ca &middot; Ver 1.0</p>
         </div>
+        </>
+        )}
+
+        {/* Choose Portfolio Modal */}
+        {showChoosePortfolio && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center" onClick={() => setShowChoosePortfolio(false)}>
+            <div className="glass-card p-6 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-lg font-bold text-spike-text">Choose Portfolio</h2>
+                <button onClick={() => setShowChoosePortfolio(false)} className="text-spike-text-dim hover:text-spike-text text-xl">&times;</button>
+              </div>
+              {portfolios.length === 0 ? (
+                <p className="text-sm text-spike-text-dim text-center py-6">No portfolios yet. Create one first.</p>
+              ) : (
+                <div className="space-y-2">
+                  {portfolios.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => { selectPortfolio(p.id); setShowChoosePortfolio(false); }}
+                      className={cn(
+                        'w-full text-left p-4 rounded-xl border transition-all flex items-center justify-between group',
+                        p.id === activeId
+                          ? 'bg-spike-cyan/10 border-spike-cyan/30'
+                          : 'border-spike-border hover:border-spike-cyan/30 bg-spike-bg/50 hover:bg-spike-cyan/5'
+                      )}
+                    >
+                      <div>
+                        <p className={cn('font-semibold text-sm', p.id === activeId ? 'text-spike-cyan' : 'text-spike-text')}>{p.name}</p>
+                        <p className="text-xs text-spike-text-muted mt-0.5">{p.activePositions} active · {p.sizingMode}</p>
+                      </div>
+                      {p.id === activeId && (
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-spike-cyan">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* New Portfolio Modal */}
         {showNewPortfolio && (

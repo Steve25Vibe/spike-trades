@@ -23,8 +23,12 @@ export function getActivePortfolioId(): string | null {
   return localStorage.getItem(ACTIVE_PORTFOLIO_KEY);
 }
 
-export function setActivePortfolioId(id: string) {
-  localStorage.setItem(ACTIVE_PORTFOLIO_KEY, id);
+export function setActivePortfolioId(id: string | null) {
+  if (id) {
+    localStorage.setItem(ACTIVE_PORTFOLIO_KEY, id);
+  } else {
+    localStorage.removeItem(ACTIVE_PORTFOLIO_KEY);
+  }
 }
 
 export function usePortfolios() {
@@ -38,15 +42,23 @@ export function usePortfolios() {
       if (!res.ok) return;
       const json = await res.json();
       if (json.success) {
-        setPortfolios(json.data);
-        // If no active portfolio set, or current one no longer exists, default to first
+        const list: PortfolioInfo[] = json.data;
+        setPortfolios(list);
+
+        // Resolve active portfolio
         const storedId = getActivePortfolioId();
-        const exists = json.data.some((p: PortfolioInfo) => p.id === storedId);
+        const exists = list.some((p) => p.id === storedId);
+
         if (exists && storedId) {
           setActiveId(storedId);
-        } else if (json.data.length > 0) {
-          setActiveId(json.data[0].id);
-          setActivePortfolioId(json.data[0].id);
+        } else if (list.length > 0) {
+          // Stored one was deleted or never set — pick first
+          setActiveId(list[0].id);
+          setActivePortfolioId(list[0].id);
+        } else {
+          // No portfolios at all
+          setActiveId(null);
+          setActivePortfolioId(null);
         }
       }
     } catch { /* ignore */ }

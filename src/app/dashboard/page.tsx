@@ -10,7 +10,6 @@ import LockInModal from '@/components/portfolio/LockInModal';
 import BulkLockInModal from '@/components/portfolio/BulkLockInModal';
 import PortfolioChoiceModal from '@/components/portfolio/PortfolioChoiceModal';
 import PortfolioSettings from '@/components/portfolio/PortfolioSettings';
-import PortfolioSelector from '@/components/portfolio/PortfolioSelector';
 import { usePortfolios } from '@/components/portfolio/usePortfolios';
 import type { SizingMode } from '@/components/portfolio/PortfolioSettings';
 import { cn } from '@/lib/utils';
@@ -85,6 +84,7 @@ function DashboardContent() {
   const [showSettings, setShowSettings] = useState(false);
   const [showNewPortfolio, setShowNewPortfolio] = useState(false);
   const [newPortfolioName, setNewPortfolioName] = useState('');
+  const [showChoosePortfolio, setShowChoosePortfolio] = useState(false);
   // Portfolio choice flow: pending spikes wait for portfolio selection before showing lock-in modal
   const [pendingSingleSpike, setPendingSingleSpike] = useState<SpikeData | null>(null);
   const [pendingBulkSpikes, setPendingBulkSpikes] = useState<SpikeData[] | null>(null);
@@ -376,13 +376,23 @@ function DashboardContent() {
                 )}
               </div>
 
-              {/* Portfolio selector — far right */}
-              <PortfolioSelector
-                portfolios={portfolios}
-                activeId={activeId}
-                onSelect={selectPortfolio}
-                onCreateNew={() => setShowNewPortfolio(true)}
-              />
+              {/* Portfolio buttons — far right */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowNewPortfolio(true)}
+                  className="px-4 py-2 rounded-lg text-sm font-medium transition-all border border-spike-cyan/30 text-spike-cyan hover:bg-spike-cyan/10"
+                  title="Create a new portfolio"
+                >
+                  + New Portfolio
+                </button>
+                <button
+                  onClick={() => setShowChoosePortfolio(true)}
+                  className="px-4 py-2 rounded-lg text-sm font-medium transition-all border border-spike-border text-spike-text-dim hover:border-spike-cyan/30 hover:text-spike-text"
+                  title="Switch to a different portfolio"
+                >
+                  Choose Portfolio
+                </button>
+              </div>
             </div>
 
             {/* Lock-in confirmation toast */}
@@ -499,6 +509,46 @@ function DashboardContent() {
             onClose={() => setShowSettings(false)}
             onUpdated={refreshPortfolios}
           />
+        )}
+
+        {/* Choose Portfolio Modal */}
+        {showChoosePortfolio && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center" onClick={() => setShowChoosePortfolio(false)}>
+            <div className="glass-card p-6 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-lg font-bold text-spike-text">Choose Portfolio</h2>
+                <button onClick={() => setShowChoosePortfolio(false)} className="text-spike-text-dim hover:text-spike-text text-xl">&times;</button>
+              </div>
+              {portfolios.length === 0 ? (
+                <p className="text-sm text-spike-text-dim text-center py-6">No portfolios yet. Create one first.</p>
+              ) : (
+                <div className="space-y-2">
+                  {portfolios.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => { selectPortfolio(p.id); setShowChoosePortfolio(false); }}
+                      className={cn(
+                        'w-full text-left p-4 rounded-xl border transition-all flex items-center justify-between group',
+                        p.id === activeId
+                          ? 'bg-spike-cyan/10 border-spike-cyan/30'
+                          : 'border-spike-border hover:border-spike-cyan/30 bg-spike-bg/50 hover:bg-spike-cyan/5'
+                      )}
+                    >
+                      <div>
+                        <p className={cn('font-semibold text-sm', p.id === activeId ? 'text-spike-cyan' : 'text-spike-text')}>{p.name}</p>
+                        <p className="text-xs text-spike-text-muted mt-0.5">{p.activePositions} active · {p.sizingMode}</p>
+                      </div>
+                      {p.id === activeId && (
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-spike-cyan">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         )}
 
         {/* New Portfolio Modal (from top-right selector) */}
