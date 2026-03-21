@@ -92,7 +92,10 @@ export default function PortfolioPage() {
       if (json.success) {
         setToast(`Closed ${json.data.ticker} — ${json.data.realizedPnlPct >= 0 ? '+' : ''}${json.data.realizedPnlPct.toFixed(2)}% (${formatCurrency(json.data.realizedPnl)})`);
         setTimeout(() => setToast(null), 4000);
-        fetchPortfolio();
+        setClosing(null);
+        setCloseConfirm(null);
+        await fetchPortfolio();
+        return;
       }
     } catch { /* handle */ }
     finally {
