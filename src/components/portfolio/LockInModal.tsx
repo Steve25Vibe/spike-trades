@@ -26,6 +26,7 @@ export default function LockInModal({ spike, onConfirm, onCancel }: Props) {
   const [mode] = useState<SizingMode>(config.mode);
   const [manualInput, setManualInput] = useState('');
   const [inputType, setInputType] = useState<'shares' | 'dollars'>('shares');
+  const [fixedInput, setFixedInput] = useState(config.fixedAmount.toString());
   const [confirming, setConfirming] = useState(false);
 
   // Calculate shares/value based on mode
@@ -41,7 +42,8 @@ export default function LockInModal({ spike, onConfirm, onCancel }: Props) {
     shares = Math.floor(posSize / spike.price);
     totalValue = shares * spike.price;
   } else if (mode === 'fixed') {
-    shares = Math.floor(config.fixedAmount / spike.price);
+    const amount = Number(fixedInput) || 0;
+    shares = Math.floor(amount / spike.price);
     totalValue = shares * spike.price;
   } else {
     // manual
@@ -96,6 +98,28 @@ export default function LockInModal({ spike, onConfirm, onCancel }: Props) {
             <p className="text-2xl font-bold mono">{formatCurrency(spike.price)}</p>
           </div>
         </div>
+
+        {/* Fixed dollar input (pre-filled, editable) */}
+        {mode === 'fixed' && (
+          <div className="mb-5">
+            <label className="text-xs text-spike-text-muted uppercase tracking-wider block mb-2">Dollar Amount</label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-spike-text-dim">$</span>
+              <input
+                type="number"
+                value={fixedInput}
+                onChange={(e) => setFixedInput(e.target.value)}
+                className="w-full bg-spike-bg/50 border border-spike-border rounded-lg px-3 py-2.5 pl-7 text-spike-text mono text-lg focus:border-spike-cyan/50 focus:outline-none"
+                min={0}
+                step={100}
+                autoFocus
+              />
+            </div>
+            {shares > 0 && (
+              <p className="text-xs text-spike-text-dim mt-1 mono">= {shares} shares</p>
+            )}
+          </div>
+        )}
 
         {/* Manual input */}
         {mode === 'manual' && (
