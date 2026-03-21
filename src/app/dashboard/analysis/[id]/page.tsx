@@ -7,6 +7,7 @@ import Sidebar from '@/components/layout/Sidebar';
 import ParticleBackground from '@/components/layout/ParticleBackground';
 import LockInModal from '@/components/portfolio/LockInModal';
 import { type SizingMode } from '@/components/portfolio/PortfolioSettings';
+import { usePortfolios } from '@/components/portfolio/usePortfolios';
 import { cn, formatCurrency, formatPercent, formatVolume, formatMarketCap } from '@/lib/utils';
 import {
   RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
@@ -104,6 +105,7 @@ export default function AnalysisPage() {
   const [loading, setLoading] = useState(true);
   const [locking, setLocking] = useState(false);
   const [showLockInModal, setShowLockInModal] = useState(false);
+  const { portfolios, activeId, refresh: refreshPortfolios } = usePortfolios();
 
   useEffect(() => {
     if (params.id) fetchDetail(params.id as string);
@@ -127,7 +129,7 @@ export default function AnalysisPage() {
     setShowLockInModal(true);
   };
 
-  const handleConfirmLockIn = async (params: { spikeId: string; shares?: number; positionSize?: number; portfolioSize?: number; mode: SizingMode }) => {
+  const handleConfirmLockIn = async (params: { spikeId: string; portfolioId: string; shares?: number; positionSize?: number; portfolioSize?: number; mode: SizingMode }) => {
     if (!data) return;
     const res = await fetch('/api/portfolio', {
       method: 'POST',
@@ -141,6 +143,7 @@ export default function AnalysisPage() {
         ...data,
         portfolio: { locked: true, entryPrice: json.data.entryPrice, shares: json.data.shares, entryDate: json.data.entryDate },
       });
+      refreshPortfolios();
     }
   };
 
@@ -542,6 +545,8 @@ export default function AnalysisPage() {
               predicted8Day: spike.predicted8Day,
               atr: spike.technicals?.atr,
             }}
+            portfolios={portfolios}
+            activePortfolioId={activeId}
             onConfirm={handleConfirmLockIn}
             onCancel={() => setShowLockInModal(false)}
           />

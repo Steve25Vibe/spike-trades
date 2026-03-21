@@ -8,7 +8,10 @@ import MarketHeader from '@/components/layout/MarketHeader';
 import SpikeCard from '@/components/spikes/SpikeCard';
 import LockInModal from '@/components/portfolio/LockInModal';
 import BulkLockInModal from '@/components/portfolio/BulkLockInModal';
-import PortfolioSettings, { getPortfolioConfig, type SizingMode } from '@/components/portfolio/PortfolioSettings';
+import PortfolioSettings from '@/components/portfolio/PortfolioSettings';
+import PortfolioSelector from '@/components/portfolio/PortfolioSelector';
+import { usePortfolios } from '@/components/portfolio/usePortfolios';
+import type { SizingMode } from '@/components/portfolio/PortfolioSettings';
 import { cn } from '@/lib/utils';
 
 interface SpikeData {
@@ -75,11 +78,14 @@ function DashboardContent() {
   const [error, setError] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectionMode, setSelectionMode] = useState(false);
-  const [bulkLocking, setBulkLocking] = useState(false);
   const [lockResults, setLockResults] = useState<{ locked: number; skipped: any[] } | null>(null);
   const [lockInSpike, setLockInSpike] = useState<SpikeData | null>(null);
   const [bulkLockInSpikes, setBulkLockInSpikes] = useState<SpikeData[] | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showNewPortfolio, setShowNewPortfolio] = useState(false);
+  const [newPortfolioName, setNewPortfolioName] = useState('');
+
+  const { portfolios, activeId, activePortfolio, selectPortfolio, refresh: refreshPortfolios } = usePortfolios();
 
   useEffect(() => {
     fetchSpikes();
@@ -106,14 +112,12 @@ function DashboardContent() {
     }
   };
 
-  // Single lock-in — opens confirmation modal
   const handleLockIn = (spikeId: string) => {
     const spike = data?.spikes.find((s) => s.id === spikeId);
     if (spike) setLockInSpike(spike);
   };
 
-  // Confirmed lock-in from modal
-  const handleConfirmLockIn = async (params: { spikeId: string; shares?: number; positionSize?: number; portfolioSize?: number; mode: SizingMode }) => {
+  const handleConfirmLockIn = async (params: { spikeId: string; portfolioId: string; shares?: number; positionSize?: number; portfolioSize?: number; mode: SizingMode }) => {
     const res = await fetch('/api/portfolio', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -124,10 +128,10 @@ function DashboardContent() {
       setLockInSpike(null);
       setLockResults({ locked: 1, skipped: [] });
       setTimeout(() => setLockResults(null), 3000);
+      refreshPortfolios();
     }
   };
 
-  // Selection toggle
   const handleSelect = (spikeId: string, isSelected: boolean) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -137,7 +141,6 @@ function DashboardContent() {
     });
   };
 
-  // Select all / deselect all
   const handleSelectAll = () => {
     if (!data) return;
     if (selectedIds.size === data.spikes.length) {
@@ -147,16 +150,15 @@ function DashboardContent() {
     }
   };
 
-  // Bulk lock-in — opens the bulk modal for all modes
   const handleBulkLockIn = () => {
     if (selectedIds.size === 0 || !data) return;
     const selected = data.spikes.filter((s) => selectedIds.has(s.id));
     setBulkLockInSpikes(selected);
   };
 
-  // Confirmed bulk lock-in from BulkLockInModal
   const handleConfirmBulkLockIn = async (params: {
     spikeIds: string[];
+    portfolioId: string;
     mode: SizingMode;
     portfolioSize?: number;
     fixedAmount?: number;
@@ -174,6 +176,23 @@ function DashboardContent() {
       setSelectedIds(new Set());
       setSelectionMode(false);
       setTimeout(() => setLockResults(null), 5000);
+      refreshPortfolios();
+    }
+  };
+
+  const handleCreatePortfolio = async () => {
+    if (!newPortfolioName.trim()) return;
+    const res = await fetch('/api/portfolios', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newPortfolioName.trim() }),
+    });
+    const json = await res.json();
+    if (json.success) {
+      setShowNewPortfolio(false);
+      setNewPortfolioName('');
+      await refreshPortfolios();
+      selectPortfolio(json.data.id);
     }
   };
 
@@ -281,6 +300,15 @@ function DashboardContent() {
             {/* Selection toolbar */}
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
+                {/* Portfolio selector */}
+                <PortfolioSelector
+                  portfolios={portfolios}
+                  activeId={activeId}
+                  onSelect={selectPortfolio}
+                  onCreateNew={() => setShowNewPortfolio(true)}
+                  compact
+                />
+
                 {/* Portfolio settings gear */}
                 <button
                   onClick={() => setShowSettings(true)}
@@ -403,6 +431,8 @@ function DashboardContent() {
         {lockInSpike && (
           <LockInModal
             spike={lockInSpike}
+            portfolios={portfolios}
+            activePortfolioId={activeId}
             onConfirm={handleConfirmLockIn}
             onCancel={() => setLockInSpike(null)}
           />
@@ -419,6 +449,8 @@ function DashboardContent() {
               predicted3Day: s.predicted3Day,
               atr: s.atr,
             }))}
+            portfolios={portfolios}
+            activePortfolioId={activeId}
             onConfirm={handleConfirmBulkLockIn}
             onCancel={() => setBulkLockInSpikes(null)}
           />
@@ -426,7 +458,33 @@ function DashboardContent() {
 
         {/* Portfolio Settings Modal */}
         {showSettings && (
-          <PortfolioSettings onClose={() => setShowSettings(false)} />
+          <PortfolioSettings
+            portfolio={activePortfolio}
+            onClose={() => setShowSettings(false)}
+            onUpdated={refreshPortfolios}
+          />
+        )}
+
+        {/* New Portfolio Modal */}
+        {showNewPortfolio && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center" onClick={() => setShowNewPortfolio(false)}>
+            <div className="glass-card p-6 w-full max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
+              <h2 className="text-lg font-bold text-spike-text mb-4">New Portfolio</h2>
+              <input
+                type="text"
+                value={newPortfolioName}
+                onChange={(e) => setNewPortfolioName(e.target.value)}
+                placeholder="Portfolio name"
+                className="w-full bg-spike-bg/50 border border-spike-border rounded-lg px-3 py-2.5 text-spike-text focus:border-spike-cyan/50 focus:outline-none mb-4"
+                autoFocus
+                onKeyDown={(e) => { if (e.key === 'Enter') handleCreatePortfolio(); }}
+              />
+              <div className="flex gap-3">
+                <button onClick={() => setShowNewPortfolio(false)} className="flex-1 py-2.5 rounded-lg text-sm font-medium text-spike-text-dim border border-spike-border">Cancel</button>
+                <button onClick={handleCreatePortfolio} disabled={!newPortfolioName.trim()} className="flex-1 btn-lock-in py-2.5 disabled:opacity-50">Create</button>
+              </div>
+            </div>
+          </div>
         )}
       </main>
     </div>

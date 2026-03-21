@@ -6,6 +6,8 @@ import Sidebar from '@/components/layout/Sidebar';
 import ParticleBackground from '@/components/layout/ParticleBackground';
 import { cn, formatCurrency, formatPercent } from '@/lib/utils';
 import CsvImportExport from '@/components/portfolio/CsvImportExport';
+import PortfolioSelector from '@/components/portfolio/PortfolioSelector';
+import { usePortfolios } from '@/components/portfolio/usePortfolios';
 
 interface Position {
   id: string;
@@ -67,13 +69,20 @@ export default function PortfolioPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkClosing, setBulkClosing] = useState(false);
   const [bulkCloseConfirm, setBulkCloseConfirm] = useState(false);
+  const [showNewPortfolio, setShowNewPortfolio] = useState(false);
+  const [newPortfolioName, setNewPortfolioName] = useState('');
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
-  useEffect(() => { fetchPortfolio(); }, [filter]);
+  const { portfolios, activeId, selectPortfolio, refresh: refreshPortfolios } = usePortfolios();
+
+  useEffect(() => { fetchPortfolio(); }, [filter, activeId]);
 
   const fetchPortfolio = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/portfolio?status=${filter}&t=${Date.now()}`, { cache: 'no-store' });
+      const params = new URLSearchParams({ status: filter, t: Date.now().toString() });
+      if (activeId) params.set('portfolioId', activeId);
+      const res = await fetch(`/api/portfolio?${params}`, { cache: 'no-store' });
       if (res.status === 401) { window.location.href = '/login'; return; }
       const json = await res.json();
       if (json.success) {
@@ -98,11 +107,11 @@ export default function PortfolioPage() {
         const pnl = json.data.realizedPnl ?? 0;
         setToast(`Closed ${json.data.ticker} — ${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}% (${formatCurrency(pnl)})`);
         setTimeout(() => setToast(null), 4000);
-        // Immediately remove from UI, then refresh from server
         setPositions((prev) => prev.filter((p) => p.id !== positionId));
         setClosing(null);
         setCloseConfirm(null);
         await fetchPortfolio();
+        refreshPortfolios();
         return;
       }
     } catch { /* handle */ }
@@ -156,6 +165,36 @@ export default function PortfolioPage() {
     setToast(`Closed ${closed} position${closed !== 1 ? 's' : ''} — ${totalPnl >= 0 ? '+' : ''}${formatCurrency(totalPnl)} realized`);
     setTimeout(() => setToast(null), 5000);
     await fetchPortfolio();
+    refreshPortfolios();
+  };
+
+  const handleCreatePortfolio = async () => {
+    if (!newPortfolioName.trim()) return;
+    const res = await fetch('/api/portfolios', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newPortfolioName.trim() }),
+    });
+    const json = await res.json();
+    if (json.success) {
+      setShowNewPortfolio(false);
+      setNewPortfolioName('');
+      await refreshPortfolios();
+      selectPortfolio(json.data.id);
+    }
+  };
+
+  const handleDeletePortfolio = async (portfolioId: string) => {
+    const res = await fetch('/api/portfolios', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ portfolioId, force: true }),
+    });
+    const json = await res.json();
+    if (json.success) {
+      setDeleteConfirm(null);
+      await refreshPortfolios();
+    }
   };
 
   const riskColors = {
@@ -172,15 +211,47 @@ export default function PortfolioPage() {
     target_hit: 'Target Hit!',
   };
 
+  const activePortfolio = portfolios.find((p) => p.id === activeId);
+
   return (
     <div className="min-h-screen bg-spike-bg">
       <ParticleBackground />
       <Sidebar />
 
       <main className="ml-64 p-8 relative z-10">
-        <h2 className="text-2xl font-display font-bold text-spike-cyan tracking-wide mb-6">
-          PORTFOLIO
-        </h2>
+        {/* Header with portfolio selector */}
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-2xl font-display font-bold text-spike-cyan tracking-wide">
+            PORTFOLIO
+          </h2>
+          <div className="flex items-center gap-3">
+            <PortfolioSelector
+              portfolios={portfolios}
+              activeId={activeId}
+              onSelect={selectPortfolio}
+              onCreateNew={() => setShowNewPortfolio(true)}
+            />
+            {activePortfolio && (
+              <>
+                {deleteConfirm === activeId ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-spike-red">Delete?</span>
+                    <button onClick={() => handleDeletePortfolio(activeId!)} className="px-2 py-1 rounded text-xs font-bold text-spike-red bg-spike-red/10 border border-spike-red/30">Yes</button>
+                    <button onClick={() => setDeleteConfirm(null)} className="px-2 py-1 rounded text-xs text-spike-text-muted">No</button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setDeleteConfirm(activeId)}
+                    className="text-spike-text-muted hover:text-spike-red text-xs transition-colors"
+                    title="Delete this portfolio"
+                  >
+                    Delete
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        </div>
 
         {/* Toast */}
         {toast && (
@@ -190,7 +261,7 @@ export default function PortfolioPage() {
           </div>
         )}
 
-        {/* Summary — redesigned with live P&L */}
+        {/* Summary */}
         {summary && (
           <div className="grid grid-cols-6 gap-3 mb-6">
             {[
@@ -255,7 +326,7 @@ export default function PortfolioPage() {
             </button>);
           })}
         </div>
-          <CsvImportExport onImportComplete={fetchPortfolio} />
+          <CsvImportExport portfolioId={activeId} onImportComplete={fetchPortfolio} />
         </div>
 
         {/* Selection toolbar (active positions only) */}
@@ -334,7 +405,6 @@ export default function PortfolioPage() {
                   pos.riskStatus === 'target_hit' && !selectedIds.has(pos.id) && 'border-spike-gold/30',
                 )}>
                   <div className="flex items-start justify-between gap-6">
-                    {/* Left: Ticker + meta */}
                     <div className="flex items-center gap-4 min-w-0">
                       <div>
                         <div className="flex items-center gap-2">
@@ -352,7 +422,6 @@ export default function PortfolioPage() {
                       </div>
                     </div>
 
-                    {/* Center: P&L */}
                     <div className="text-center flex-shrink-0">
                       <p className={cn('text-2xl font-bold mono', pos.unrealizedPnl >= 0 ? 'text-spike-green' : 'text-spike-red')}>
                         {pos.unrealizedPnl >= 0 ? '+' : ''}{formatCurrency(pos.unrealizedPnl)}
@@ -362,7 +431,6 @@ export default function PortfolioPage() {
                       </p>
                     </div>
 
-                    {/* Right: Actions */}
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <Link
                         href={`/dashboard/analysis/${pos.spikeId}`}
@@ -396,7 +464,6 @@ export default function PortfolioPage() {
                           Sell / Close
                         </button>
                       )}
-                      {/* Selection checkbox — inline next to Sell/Close */}
                       {selectionMode && (
                         <button
                           onClick={() => handleSelectPosition(pos.id, !selectedIds.has(pos.id))}
@@ -418,7 +485,6 @@ export default function PortfolioPage() {
                     </div>
                   </div>
 
-                  {/* Price details row */}
                   <div className="grid grid-cols-7 gap-3 mt-4 pt-3 border-t border-spike-border/20">
                     {[
                       { label: 'Entry', value: formatCurrency(pos.entryPrice), color: 'text-spike-text' },
@@ -436,7 +502,6 @@ export default function PortfolioPage() {
                     ))}
                   </div>
 
-                  {/* Progress toward 3-day target */}
                   <div className="mt-3">
                     <div className="flex justify-between text-[10px] text-spike-text-muted mb-1">
                       <span>Progress to 3-Day Target</span>
@@ -456,7 +521,6 @@ export default function PortfolioPage() {
                   </div>
                 </div>
               ) : (
-                /* Closed position — compact row */
                 <div key={pos.id} className="glass-card p-4 opacity-70 flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <span className="font-bold text-spike-text-dim">{pos.ticker}</span>
@@ -489,7 +553,6 @@ export default function PortfolioPage() {
             )}
           </div>
         ) : (
-          /* Closed positions table view */
           <div className="glass-card overflow-hidden">
             <table className="w-full spike-table">
               <thead>
@@ -534,6 +597,28 @@ export default function PortfolioPage() {
           <p>For educational and informational purposes only. Not financial advice. Past performance is no guarantee of future results.</p>
           <p className="mt-2">&copy; {new Date().getFullYear()} Spike Trades — spiketrades.ca &middot; Ver 1.0</p>
         </div>
+
+        {/* New Portfolio Modal */}
+        {showNewPortfolio && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center" onClick={() => setShowNewPortfolio(false)}>
+            <div className="glass-card p-6 w-full max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
+              <h2 className="text-lg font-bold text-spike-text mb-4">New Portfolio</h2>
+              <input
+                type="text"
+                value={newPortfolioName}
+                onChange={(e) => setNewPortfolioName(e.target.value)}
+                placeholder="Portfolio name"
+                className="w-full bg-spike-bg/50 border border-spike-border rounded-lg px-3 py-2.5 text-spike-text focus:border-spike-cyan/50 focus:outline-none mb-4"
+                autoFocus
+                onKeyDown={(e) => { if (e.key === 'Enter') handleCreatePortfolio(); }}
+              />
+              <div className="flex gap-3">
+                <button onClick={() => setShowNewPortfolio(false)} className="flex-1 py-2.5 rounded-lg text-sm font-medium text-spike-text-dim border border-spike-border">Cancel</button>
+                <button onClick={handleCreatePortfolio} disabled={!newPortfolioName.trim()} className="flex-1 btn-lock-in py-2.5 disabled:opacity-50">Create</button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );

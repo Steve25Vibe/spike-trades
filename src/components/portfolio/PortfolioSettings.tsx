@@ -2,18 +2,17 @@
 
 import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
+import type { PortfolioInfo } from './usePortfolios';
 
 export type SizingMode = 'auto' | 'fixed' | 'manual';
 
 export interface PortfolioConfig {
   mode: SizingMode;
-  portfolioSize: number;    // used in 'auto' mode
-  fixedAmount: number;      // used in 'fixed' mode
-  kellyMaxPct: number;      // max % per position (default 2)
-  kellyWinRate: number;     // assumed win rate 0-1 (default 0.6)
+  portfolioSize: number;
+  fixedAmount: number;
+  kellyMaxPct: number;
+  kellyWinRate: number;
 }
-
-const STORAGE_KEY = 'spike-portfolio-config';
 
 const DEFAULT_CONFIG: PortfolioConfig = {
   mode: 'manual',
@@ -23,35 +22,70 @@ const DEFAULT_CONFIG: PortfolioConfig = {
   kellyWinRate: 0.6,
 };
 
-export function getPortfolioConfig(): PortfolioConfig {
-  if (typeof window === 'undefined') return DEFAULT_CONFIG;
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) return { ...DEFAULT_CONFIG, ...JSON.parse(stored) };
-  } catch {}
-  return DEFAULT_CONFIG;
-}
-
-function savePortfolioConfig(config: PortfolioConfig) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+/** Build a PortfolioConfig from a DB portfolio record */
+export function configFromPortfolio(p: PortfolioInfo | null): PortfolioConfig {
+  if (!p) return DEFAULT_CONFIG;
+  return {
+    mode: (p.sizingMode as SizingMode) || 'manual',
+    portfolioSize: p.portfolioSize ?? 100000,
+    fixedAmount: p.fixedAmount ?? 2500,
+    kellyMaxPct: p.kellyMaxPct ?? 2,
+    kellyWinRate: p.kellyWinRate ?? 0.6,
+  };
 }
 
 interface Props {
+  portfolio: PortfolioInfo | null;
   onClose: () => void;
+  onUpdated?: () => void;
 }
 
-export default function PortfolioSettings({ onClose }: Props) {
+export default function PortfolioSettings({ portfolio, onClose, onUpdated }: Props) {
   const [config, setConfig] = useState<PortfolioConfig>(DEFAULT_CONFIG);
+  const [saving, setSaving] = useState(false);
+  const [nameInput, setNameInput] = useState('');
 
   useEffect(() => {
-    setConfig(getPortfolioConfig());
-  }, []);
+    if (portfolio) {
+      setConfig(configFromPortfolio(portfolio));
+      setNameInput(portfolio.name);
+    }
+  }, [portfolio]);
 
-  const update = (partial: Partial<PortfolioConfig>) => {
+  const save = async (partial: Partial<PortfolioConfig & { name: string }>) => {
+    if (!portfolio) return;
     const next = { ...config, ...partial };
     setConfig(next);
-    savePortfolioConfig(next);
+
+    setSaving(true);
+    try {
+      await fetch(`/api/portfolios/${portfolio.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sizingMode: next.mode,
+          portfolioSize: next.portfolioSize,
+          fixedAmount: next.fixedAmount,
+          kellyMaxPct: next.kellyMaxPct,
+          kellyWinRate: next.kellyWinRate,
+          ...(partial.name !== undefined ? { name: partial.name } : {}),
+        }),
+      });
+      onUpdated?.();
+    } catch { /* ignore */ }
+    finally { setSaving(false); }
   };
+
+  if (!portfolio) {
+    return (
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center" onClick={onClose}>
+        <div className="glass-card p-6 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+          <p className="text-spike-text-dim text-center">No portfolio selected. Create one first.</p>
+          <button onClick={onClose} className="w-full mt-4 py-2.5 rounded-lg bg-spike-cyan/10 text-spike-cyan font-medium text-sm hover:bg-spike-cyan/20 transition-colors border border-spike-cyan/20">Close</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center" onClick={onClose}>
@@ -59,6 +93,18 @@ export default function PortfolioSettings({ onClose }: Props) {
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-lg font-bold text-spike-text">Portfolio Settings</h2>
           <button onClick={onClose} className="text-spike-text-dim hover:text-spike-text text-xl">&times;</button>
+        </div>
+
+        {/* Portfolio name */}
+        <div className="mb-5">
+          <label className="text-xs text-spike-text-muted uppercase tracking-wider block mb-2">Portfolio Name</label>
+          <input
+            type="text"
+            value={nameInput}
+            onChange={(e) => setNameInput(e.target.value)}
+            onBlur={() => { if (nameInput.trim() && nameInput !== portfolio.name) save({ name: nameInput.trim() }); }}
+            className="w-full bg-spike-bg/50 border border-spike-border rounded-lg px-3 py-2.5 text-spike-text focus:border-spike-cyan/50 focus:outline-none"
+          />
         </div>
 
         <p className="text-sm text-spike-text-dim mb-5">
@@ -69,7 +115,7 @@ export default function PortfolioSettings({ onClose }: Props) {
         <div className="space-y-3 mb-6">
           {/* Auto-Size */}
           <button
-            onClick={() => update({ mode: 'auto' })}
+            onClick={() => save({ mode: 'auto' })}
             className={cn(
               'w-full text-left p-4 rounded-xl border transition-all',
               config.mode === 'auto'
@@ -93,7 +139,7 @@ export default function PortfolioSettings({ onClose }: Props) {
 
           {/* Fixed Dollar */}
           <button
-            onClick={() => update({ mode: 'fixed' })}
+            onClick={() => save({ mode: 'fixed' })}
             className={cn(
               'w-full text-left p-4 rounded-xl border transition-all',
               config.mode === 'fixed'
@@ -117,7 +163,7 @@ export default function PortfolioSettings({ onClose }: Props) {
 
           {/* Manual Shares */}
           <button
-            onClick={() => update({ mode: 'manual' })}
+            onClick={() => save({ mode: 'manual' })}
             className={cn(
               'w-full text-left p-4 rounded-xl border transition-all',
               config.mode === 'manual'
@@ -150,7 +196,8 @@ export default function PortfolioSettings({ onClose }: Props) {
                 <input
                   type="number"
                   value={config.portfolioSize}
-                  onChange={(e) => update({ portfolioSize: Number(e.target.value) || 0 })}
+                  onChange={(e) => setConfig({ ...config, portfolioSize: Number(e.target.value) || 0 })}
+                  onBlur={() => save({ portfolioSize: config.portfolioSize })}
                   className="w-full bg-spike-bg/50 border border-spike-border rounded-lg px-3 py-2.5 pl-7 text-spike-text mono focus:border-spike-cyan/50 focus:outline-none"
                   min={0}
                   step={1000}
@@ -166,7 +213,9 @@ export default function PortfolioSettings({ onClose }: Props) {
               <input
                 type="range"
                 value={config.kellyMaxPct}
-                onChange={(e) => update({ kellyMaxPct: Number(e.target.value) })}
+                onChange={(e) => { const v = Number(e.target.value); setConfig({ ...config, kellyMaxPct: v }); }}
+                onMouseUp={() => save({ kellyMaxPct: config.kellyMaxPct })}
+                onTouchEnd={() => save({ kellyMaxPct: config.kellyMaxPct })}
                 min={0.5}
                 max={10}
                 step={0.5}
@@ -186,7 +235,9 @@ export default function PortfolioSettings({ onClose }: Props) {
               <input
                 type="range"
                 value={config.kellyWinRate}
-                onChange={(e) => update({ kellyWinRate: Number(e.target.value) })}
+                onChange={(e) => { const v = Number(e.target.value); setConfig({ ...config, kellyWinRate: v }); }}
+                onMouseUp={() => save({ kellyWinRate: config.kellyWinRate })}
+                onTouchEnd={() => save({ kellyWinRate: config.kellyWinRate })}
                 min={0.4}
                 max={0.85}
                 step={0.05}
@@ -210,7 +261,8 @@ export default function PortfolioSettings({ onClose }: Props) {
               <input
                 type="number"
                 value={config.fixedAmount}
-                onChange={(e) => update({ fixedAmount: Number(e.target.value) || 0 })}
+                onChange={(e) => setConfig({ ...config, fixedAmount: Number(e.target.value) || 0 })}
+                onBlur={() => save({ fixedAmount: config.fixedAmount })}
                 className="w-full bg-spike-bg/50 border border-spike-border rounded-lg px-3 py-2.5 pl-7 text-spike-text mono focus:border-spike-cyan/50 focus:outline-none"
                 min={0}
                 step={100}
@@ -229,7 +281,7 @@ export default function PortfolioSettings({ onClose }: Props) {
           onClick={onClose}
           className="w-full py-2.5 rounded-lg bg-spike-cyan/10 text-spike-cyan font-medium text-sm hover:bg-spike-cyan/20 transition-colors border border-spike-cyan/20"
         >
-          Done
+          {saving ? 'Saving...' : 'Done'}
         </button>
       </div>
     </div>

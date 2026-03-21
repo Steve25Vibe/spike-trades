@@ -10,10 +10,11 @@ interface ImportResult {
 }
 
 interface Props {
+  portfolioId?: string | null;
   onImportComplete: () => void;
 }
 
-export default function CsvImportExport({ onImportComplete }: Props) {
+export default function CsvImportExport({ portfolioId, onImportComplete }: Props) {
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState('');
@@ -30,6 +31,7 @@ export default function CsvImportExport({ onImportComplete }: Props) {
     try {
       const formData = new FormData();
       formData.append('file', file);
+      if (portfolioId) formData.append('portfolioId', portfolioId);
 
       const res = await fetch('/api/portfolio/csv', {
         method: 'POST',
@@ -78,7 +80,7 @@ export default function CsvImportExport({ onImportComplete }: Props) {
 
       {/* Export button */}
       <a
-        href="/api/portfolio/csv"
+        href={`/api/portfolio/csv${portfolioId ? `?portfolioId=${portfolioId}` : ''}`}
         className="px-3 py-2 rounded-lg text-xs font-medium transition-all border text-spike-green border-spike-green/30 hover:bg-spike-green/10"
         title="Download your portfolio as a Wealthsimple-compatible CSV file"
         download

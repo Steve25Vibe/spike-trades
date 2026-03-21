@@ -2,7 +2,10 @@
 
 import { useState } from 'react';
 import { cn, formatCurrency } from '@/lib/utils';
-import { getPortfolioConfig, type SizingMode } from './PortfolioSettings';
+import type { SizingMode } from './PortfolioSettings';
+import { configFromPortfolio } from './PortfolioSettings';
+import PortfolioSelector from './PortfolioSelector';
+import type { PortfolioInfo } from './usePortfolios';
 
 interface SpikeInfo {
   id: string;
@@ -15,19 +18,27 @@ interface SpikeInfo {
 
 interface Props {
   spikes: SpikeInfo[];
+  portfolios: PortfolioInfo[];
+  activePortfolioId: string | null;
   onConfirm: (params: {
     spikeIds: string[];
+    portfolioId: string;
     mode: SizingMode;
     portfolioSize?: number;
     fixedAmount?: number;
     perSpikeShares?: Record<string, number>;
+    kellyMaxPct?: number;
+    kellyWinRate?: number;
   }) => Promise<void>;
   onCancel: () => void;
 }
 
-export default function BulkLockInModal({ spikes, onConfirm, onCancel }: Props) {
-  const config = getPortfolioConfig();
-  const [mode] = useState<SizingMode>(config.mode);
+export default function BulkLockInModal({ spikes, portfolios, activePortfolioId, onConfirm, onCancel }: Props) {
+  const [selectedPortfolioId, setSelectedPortfolioId] = useState(activePortfolioId || portfolios[0]?.id || '');
+  const selectedPortfolio = portfolios.find((p) => p.id === selectedPortfolioId) || null;
+  const config = configFromPortfolio(selectedPortfolio);
+  const mode = config.mode;
+
   const [fixedPerSpike, setFixedPerSpike] = useState(
     Math.floor(config.fixedAmount / spikes.length).toString()
   );
@@ -37,7 +48,6 @@ export default function BulkLockInModal({ spikes, onConfirm, onCancel }: Props) 
   const [inputType, setInputType] = useState<'shares' | 'dollars'>('shares');
   const [confirming, setConfirming] = useState(false);
 
-  // Calculate shares per spike based on mode
   const getSharesForSpike = (spike: SpikeInfo): number => {
     if (mode === 'auto') {
       const atrPct = spike.atr ? (spike.atr / spike.price) * 100 : 2;
@@ -51,7 +61,6 @@ export default function BulkLockInModal({ spikes, onConfirm, onCancel }: Props) 
       const amount = Number(fixedPerSpike) || 0;
       return Math.floor(amount / spike.price);
     } else {
-      // manual
       const val = Number(manualInputs[spike.id]) || 0;
       if (inputType === 'shares') return Math.floor(val);
       return Math.floor(val / spike.price);
@@ -73,35 +82,36 @@ export default function BulkLockInModal({ spikes, onConfirm, onCancel }: Props) 
   };
 
   const handleConfirm = async () => {
-    if (!allValid) return;
+    if (!allValid || !selectedPortfolioId) return;
     setConfirming(true);
     try {
       if (mode === 'manual') {
-        // Send per-spike shares
         const perSpikeShares: Record<string, number> = {};
         for (const row of spikeRows) {
           perSpikeShares[row.spike.id] = row.shares;
         }
         await onConfirm({
           spikeIds: spikes.map((s) => s.id),
+          portfolioId: selectedPortfolioId,
           mode,
           perSpikeShares,
         });
       } else if (mode === 'fixed') {
         await onConfirm({
           spikeIds: spikes.map((s) => s.id),
+          portfolioId: selectedPortfolioId,
           mode,
           fixedAmount: Number(fixedPerSpike) || 0,
         });
       } else {
-        // auto
         await onConfirm({
           spikeIds: spikes.map((s) => s.id),
+          portfolioId: selectedPortfolioId,
           mode,
           portfolioSize: config.portfolioSize,
           kellyMaxPct: config.kellyMaxPct,
           kellyWinRate: config.kellyWinRate,
-        } as any);
+        });
       }
     } finally {
       setConfirming(false);
@@ -120,6 +130,18 @@ export default function BulkLockInModal({ spikes, onConfirm, onCancel }: Props) 
           </div>
           <button onClick={onCancel} className="text-spike-text-dim hover:text-spike-text text-xl">&times;</button>
         </div>
+
+        {/* Portfolio selector */}
+        {portfolios.length > 1 && (
+          <div className="mb-4">
+            <PortfolioSelector
+              portfolios={portfolios}
+              activeId={selectedPortfolioId}
+              onSelect={setSelectedPortfolioId}
+              compact
+            />
+          </div>
+        )}
 
         {/* Fixed mode: amount per spike input */}
         {mode === 'fixed' && (
@@ -177,7 +199,6 @@ export default function BulkLockInModal({ spikes, onConfirm, onCancel }: Props) 
         <div className="flex-1 overflow-y-auto space-y-2 mb-4">
           {spikeRows.map(({ spike, shares, value }) => (
             <div key={spike.id} className="flex items-center gap-3 p-3 bg-spike-bg/30 rounded-lg border border-spike-border/20">
-              {/* Ticker + price */}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-spike-text text-sm">{spike.ticker}</span>
@@ -186,7 +207,6 @@ export default function BulkLockInModal({ spikes, onConfirm, onCancel }: Props) 
                 <p className="text-xs text-spike-text-dim truncate">{spike.name}</p>
               </div>
 
-              {/* Manual input per spike */}
               {mode === 'manual' && (
                 <div className="w-32">
                   <div className="relative">
@@ -208,7 +228,6 @@ export default function BulkLockInModal({ spikes, onConfirm, onCancel }: Props) 
                 </div>
               )}
 
-              {/* Shares + value result */}
               <div className="text-right w-28 flex-shrink-0">
                 <p className={cn('text-sm font-bold mono', shares > 0 ? 'text-spike-text' : 'text-spike-text-muted')}>
                   {shares > 0 ? `${shares} shares` : '—'}
@@ -240,7 +259,7 @@ export default function BulkLockInModal({ spikes, onConfirm, onCancel }: Props) 
           </button>
           <button
             onClick={handleConfirm}
-            disabled={!allValid || confirming}
+            disabled={!allValid || confirming || !selectedPortfolioId}
             className="flex-1 btn-lock-in py-2.5 disabled:opacity-50"
           >
             {confirming ? 'Locking...' : `Lock In ${spikes.length} Spikes`}

@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import Sidebar from '@/components/layout/Sidebar';
 import ParticleBackground from '@/components/layout/ParticleBackground';
 import { cn, formatPercent } from '@/lib/utils';
+import PortfolioSelector from '@/components/portfolio/PortfolioSelector';
+import { usePortfolios } from '@/components/portfolio/usePortfolios';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, ScatterChart, Scatter, ZAxis, Area, AreaChart,
@@ -76,14 +78,18 @@ export default function AccuracyPage() {
   const [predVsActual, setPredVsActual] = useState<PredVsActualPoint[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const { portfolios, activeId, selectPortfolio } = usePortfolios();
+
   useEffect(() => {
     fetchAccuracy();
-  }, [horizon]);
+  }, [horizon, activeId]);
 
   const fetchAccuracy = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/accuracy?horizon=${horizon}&days=90`);
+      const params = new URLSearchParams({ horizon: String(horizon), days: '90' });
+      if (activeId) params.set('portfolioId', activeId);
+      const res = await fetch(`/api/accuracy?${params}`);
       if (res.status === 401) { window.location.href = '/login'; return; }
       const json = await res.json();
       if (json.success) {
@@ -112,6 +118,13 @@ export default function AccuracyPage() {
           <h2 className="text-2xl font-display font-bold text-spike-cyan tracking-wide">
             ACCURACY ENGINE
           </h2>
+          <div className="flex items-center gap-4">
+          <PortfolioSelector
+            portfolios={portfolios}
+            activeId={activeId}
+            onSelect={selectPortfolio}
+            compact
+          />
           <div className="flex gap-2">
             {([3, 5, 8] as const).map((h) => (
               <button
@@ -128,6 +141,7 @@ export default function AccuracyPage() {
                 {h}-Day
               </button>
             ))}
+          </div>
           </div>
         </div>
 

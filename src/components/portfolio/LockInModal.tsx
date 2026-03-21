@@ -1,8 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { cn, formatCurrency } from '@/lib/utils';
-import { getPortfolioConfig, type SizingMode } from './PortfolioSettings';
+import type { SizingMode } from './PortfolioSettings';
+import { configFromPortfolio, type PortfolioConfig } from './PortfolioSettings';
+import PortfolioSelector from './PortfolioSelector';
+import type { PortfolioInfo } from './usePortfolios';
 
 interface SpikeInfo {
   id: string;
@@ -17,13 +20,18 @@ interface SpikeInfo {
 
 interface Props {
   spike: SpikeInfo;
-  onConfirm: (params: { spikeId: string; shares?: number; positionSize?: number; portfolioSize?: number; mode: SizingMode }) => Promise<void>;
+  portfolios: PortfolioInfo[];
+  activePortfolioId: string | null;
+  onConfirm: (params: { spikeId: string; portfolioId: string; shares?: number; positionSize?: number; portfolioSize?: number; mode: SizingMode; kellyMaxPct?: number; kellyWinRate?: number }) => Promise<void>;
   onCancel: () => void;
 }
 
-export default function LockInModal({ spike, onConfirm, onCancel }: Props) {
-  const config = getPortfolioConfig();
-  const [mode] = useState<SizingMode>(config.mode);
+export default function LockInModal({ spike, portfolios, activePortfolioId, onConfirm, onCancel }: Props) {
+  const [selectedPortfolioId, setSelectedPortfolioId] = useState(activePortfolioId || portfolios[0]?.id || '');
+  const selectedPortfolio = portfolios.find((p) => p.id === selectedPortfolioId) || null;
+  const config = configFromPortfolio(selectedPortfolio);
+  const mode = config.mode;
+
   const [manualInput, setManualInput] = useState('');
   const [inputType, setInputType] = useState<'shares' | 'dollars'>('shares');
   const [fixedInput, setFixedInput] = useState(config.fixedAmount.toString());
@@ -34,7 +42,6 @@ export default function LockInModal({ spike, onConfirm, onCancel }: Props) {
   let totalValue = 0;
 
   if (mode === 'auto') {
-    // Kelly-based — uses configurable win rate and max risk %
     const atrPct = spike.atr ? (spike.atr / spike.price) * 100 : 2;
     const winRate = config.kellyWinRate || 0.6;
     const maxPct = (config.kellyMaxPct || 2) / 100;
@@ -48,7 +55,6 @@ export default function LockInModal({ spike, onConfirm, onCancel }: Props) {
     shares = Math.floor(amount / spike.price);
     totalValue = shares * spike.price;
   } else {
-    // manual
     const val = Number(manualInput) || 0;
     if (inputType === 'shares') {
       shares = Math.floor(val);
@@ -67,18 +73,19 @@ export default function LockInModal({ spike, onConfirm, onCancel }: Props) {
   const stopLossPrice = spike.price * (1 - (atrPct * 2) / 100);
 
   const handleConfirm = async () => {
-    if (shares <= 0) return;
+    if (shares <= 0 || !selectedPortfolioId) return;
     setConfirming(true);
     try {
       await onConfirm({
         spikeId: spike.id,
+        portfolioId: selectedPortfolioId,
         shares: mode === 'auto' ? undefined : shares,
         positionSize: mode === 'auto' ? undefined : totalValue,
         portfolioSize: mode === 'auto' ? config.portfolioSize : undefined,
         mode,
         kellyMaxPct: mode === 'auto' ? config.kellyMaxPct : undefined,
         kellyWinRate: mode === 'auto' ? config.kellyWinRate : undefined,
-      } as any);
+      });
     } finally {
       setConfirming(false);
     }
@@ -91,6 +98,19 @@ export default function LockInModal({ spike, onConfirm, onCancel }: Props) {
           <h2 className="text-lg font-bold text-spike-text">Confirm Lock-In</h2>
           <button onClick={onCancel} className="text-spike-text-dim hover:text-spike-text text-xl">&times;</button>
         </div>
+
+        {/* Portfolio selector */}
+        {portfolios.length > 1 && (
+          <div className="mb-4">
+            <label className="text-xs text-spike-text-muted uppercase tracking-wider block mb-2">Portfolio</label>
+            <PortfolioSelector
+              portfolios={portfolios}
+              activeId={selectedPortfolioId}
+              onSelect={setSelectedPortfolioId}
+              compact
+            />
+          </div>
+        )}
 
         {/* Stock info */}
         <div className="bg-spike-bg/50 rounded-xl p-4 mb-5 border border-spike-border/30">
@@ -222,7 +242,7 @@ export default function LockInModal({ spike, onConfirm, onCancel }: Props) {
           </button>
           <button
             onClick={handleConfirm}
-            disabled={shares <= 0 || confirming}
+            disabled={shares <= 0 || confirming || !selectedPortfolioId}
             className="flex-1 btn-lock-in py-2.5 disabled:opacity-50"
           >
             {confirming ? 'Locking...' : `Lock In ${shares} Shares`}
