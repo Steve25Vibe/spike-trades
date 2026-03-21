@@ -192,9 +192,10 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const existing = await prisma.portfolioEntry.findFirst({
-        where: { spikeId: id, status: 'active' },
-      });
+      // Only check for duplicates within the SAME portfolio (allow same stock in different portfolios)
+      const existingWhere: Record<string, unknown> = { spikeId: id, status: 'active' };
+      if (portfolioId) existingWhere.portfolioId = portfolioId;
+      const existing = await prisma.portfolioEntry.findFirst({ where: existingWhere });
       if (existing) {
         errors.push({ id, ticker: spike.ticker, error: 'Already locked in' });
         continue;

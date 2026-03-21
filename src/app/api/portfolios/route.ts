@@ -80,7 +80,7 @@ export async function DELETE(request: NextRequest) {
   }
 
   try {
-    const { portfolioId, closePositions } = await request.json();
+    const { portfolioId, closePositions, deletePortfolio = true } = await request.json();
 
     if (!portfolioId) {
       return NextResponse.json({ success: false, error: 'portfolioId required' }, { status: 400 });
@@ -118,6 +118,11 @@ export async function DELETE(request: NextRequest) {
           exitReason: 'portfolio_deleted',
         },
       });
+    }
+
+    // If deletePortfolio is false, just close positions and return (step 1 of 2-step delete)
+    if (!deletePortfolio) {
+      return NextResponse.json({ success: true, closedPositions: activeCount });
     }
 
     // Delete all entries

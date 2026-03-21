@@ -73,7 +73,7 @@ export default function PortfolioPage() {
   const [showChoosePortfolio, setShowChoosePortfolio] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteSelectedIds, setDeleteSelectedIds] = useState<Set<string>>(new Set());
-  const [deleteStep, setDeleteStep] = useState<'select' | 'confirm'>('select');
+  const [deleteStep, setDeleteStep] = useState<'select' | 'close_positions' | 'confirm_delete'>('select');
   const [deleting, setDeleting] = useState(false);
 
   const { portfolios, activeId, selectPortfolio, refresh: refreshPortfolios } = usePortfolios();
@@ -207,25 +207,59 @@ export default function PortfolioPage() {
     });
   };
 
-  const handleConfirmDelete = async () => {
+  // Step 2: Close all active positions in selected portfolios
+  const handleClosePositions = async () => {
     if (deleteSelectedIds.size === 0) return;
     setDeleting(true);
     const errors: string[] = [];
     let totalClosed = 0;
     for (const portfolioId of deleteSelectedIds) {
       const portfolio = portfolios.find((p) => p.id === portfolioId);
-      const needsClose = portfolio ? portfolio.activePositions > 0 : false;
+      if (portfolio && portfolio.activePositions > 0) {
+        // Close positions only (don't delete portfolio yet)
+        const res = await fetch('/api/portfolios', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ portfolioId, closePositions: true, deletePortfolio: false }),
+        });
+        const json = await res.json();
+        if (!json.success) {
+          errors.push(`${portfolio.name}: ${json.error}`);
+        } else {
+          totalClosed += json.closedPositions || 0;
+        }
+      }
+    }
+    setDeleting(false);
+    if (errors.length > 0) {
+      setToast({ message: errors.join('; '), type: 'error' });
+      setTimeout(() => setToast(null), 5000);
+    } else {
+      if (totalClosed > 0) {
+        setToast({ message: `Closed ${totalClosed} position${totalClosed > 1 ? 's' : ''}. Now confirm portfolio deletion.`, type: 'success' });
+        setTimeout(() => setToast(null), 5000);
+      }
+      // Move to step 3: confirm delete portfolios
+      setDeleteStep('confirm_delete');
+      await refreshPortfolios();
+    }
+  };
+
+  // Step 3: Delete the portfolio records themselves
+  const handleConfirmDelete = async () => {
+    if (deleteSelectedIds.size === 0) return;
+    setDeleting(true);
+    const errors: string[] = [];
+    for (const portfolioId of deleteSelectedIds) {
       const res = await fetch('/api/portfolios', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ portfolioId, closePositions: needsClose }),
+        body: JSON.stringify({ portfolioId, closePositions: true }),
       });
       const json = await res.json();
       if (!json.success) {
         const p = portfolios.find((x) => x.id === portfolioId);
         errors.push(`${p?.name || portfolioId}: ${json.error}`);
-      } else {
-        totalClosed += json.closedPositions || 0;
       }
     }
     const count = deleteSelectedIds.size;
@@ -235,16 +269,12 @@ export default function PortfolioPage() {
     setDeleteStep('select');
     setPositions([]);
     setSummary(null);
-    // Clear stored selection so refreshPortfolios auto-selects next remaining (or null)
     setActivePortfolioId(null);
     await refreshPortfolios();
     if (errors.length > 0) {
       setToast({ message: errors.join('; '), type: 'error' });
     } else {
-      const msg = totalClosed > 0
-        ? `Deleted ${count} portfolio${count > 1 ? 's' : ''} (${totalClosed} position${totalClosed > 1 ? 's' : ''} closed)`
-        : `Deleted ${count} portfolio${count > 1 ? 's' : ''}`;
-      setToast({ message: msg, type: 'success' });
+      setToast({ message: `Deleted ${count} portfolio${count > 1 ? 's' : ''}`, type: 'success' });
     }
     setTimeout(() => setToast(null), 5000);
   };
@@ -647,7 +677,7 @@ export default function PortfolioPage() {
             <div className="glass-card p-6 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center justify-between mb-5">
                 <h2 className="text-lg font-bold text-spike-text">
-                  {deleteStep === 'select' ? 'Delete Portfolios' : 'Confirm Deletion'}
+                  {deleteStep === 'select' ? 'Delete Portfolios' : deleteStep === 'close_positions' ? 'Close Active Positions' : 'Confirm Portfolio Deletion'}
                 </h2>
                 <button onClick={() => setShowDeleteModal(false)} className="text-spike-text-dim hover:text-spike-text text-xl">&times;</button>
               </div>
@@ -684,43 +714,78 @@ export default function PortfolioPage() {
                       </button>
                     ))}
                   </div>
-                  <div className="flex gap-3">
-                    <button onClick={() => setShowDeleteModal(false)} className="flex-1 py-2.5 rounded-lg text-sm font-medium text-spike-text-dim border border-spike-border">Cancel</button>
-                    <button
-                      onClick={() => setDeleteStep('confirm')}
-                      disabled={deleteSelectedIds.size === 0}
-                      className="flex-1 py-2.5 rounded-lg text-sm font-medium text-spike-red bg-spike-red/10 border border-spike-red/30 hover:bg-spike-red/20 disabled:opacity-50 transition-all"
-                    >
-                      Continue ({deleteSelectedIds.size})
-                    </button>
-                  </div>
+                  {(() => {
+                    const selected = portfolios.filter((p) => deleteSelectedIds.has(p.id));
+                    const totalActive = selected.reduce((sum, p) => sum + p.activePositions, 0);
+                    return (
+                      <div className="flex gap-3">
+                        <button onClick={() => setShowDeleteModal(false)} className="flex-1 py-2.5 rounded-lg text-sm font-medium text-spike-text-dim border border-spike-border">Cancel</button>
+                        <button
+                          onClick={() => {
+                            if (totalActive > 0) {
+                              setDeleteStep('close_positions');
+                            } else {
+                              setDeleteStep('confirm_delete');
+                            }
+                          }}
+                          disabled={deleteSelectedIds.size === 0}
+                          className="flex-1 py-2.5 rounded-lg text-sm font-medium text-spike-red bg-spike-red/10 border border-spike-red/30 hover:bg-spike-red/20 disabled:opacity-50 transition-all"
+                        >
+                          Continue ({deleteSelectedIds.size})
+                        </button>
+                      </div>
+                    );
+                  })()}
                 </>
-              ) : (() => {
+
+              ) : deleteStep === 'close_positions' ? (() => {
                 const selected = portfolios.filter((p) => deleteSelectedIds.has(p.id));
                 const totalActive = selected.reduce((sum, p) => sum + p.activePositions, 0);
                 return (
                 <>
+                  <div className="p-4 rounded-xl bg-spike-amber/10 border border-spike-amber/30 mb-5">
+                    <p className="text-sm text-spike-amber font-medium mb-2">⚠ Active Positions Found</p>
+                    <p className="text-xs text-spike-text-dim">
+                      The selected portfolio{selected.length > 1 ? 's have' : ' has'} <span className="text-spike-amber font-medium">{totalActive} active position{totalActive > 1 ? 's' : ''}</span> that will be closed at current market price before deletion.
+                    </p>
+                  </div>
+                  <div className="space-y-2 mb-5">
+                    {selected.filter((p) => p.activePositions > 0).map((p) => (
+                      <div key={p.id} className="flex items-center justify-between p-3 rounded-lg bg-spike-bg/50 border border-spike-border/30">
+                        <span className="text-sm font-medium text-spike-text">{p.name}</span>
+                        <span className="text-xs text-spike-amber">{p.activePositions} position{p.activePositions > 1 ? 's' : ''} to close</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex gap-3">
+                    <button onClick={() => setDeleteStep('select')} className="flex-1 py-2.5 rounded-lg text-sm font-medium text-spike-text-dim border border-spike-border">Back</button>
+                    <button
+                      onClick={handleClosePositions}
+                      disabled={deleting}
+                      className="flex-1 py-2.5 rounded-lg text-sm font-bold text-white bg-spike-amber hover:bg-spike-amber/80 transition-all disabled:opacity-50"
+                    >
+                      {deleting ? 'Closing Positions...' : `Close ${totalActive} Position${totalActive > 1 ? 's' : ''}`}
+                    </button>
+                  </div>
+                </>
+                );
+              })()
+
+              : (() => {
+                const selected = portfolios.filter((p) => deleteSelectedIds.has(p.id));
+                return (
+                <>
                   <div className="p-4 rounded-xl bg-spike-red/10 border border-spike-red/30 mb-5">
-                    <p className="text-sm text-spike-red font-medium mb-2">This action cannot be undone.</p>
-                    {totalActive > 0 ? (
-                      <p className="text-xs text-spike-text-dim">
-                        {totalActive} active position{totalActive > 1 ? 's' : ''} will be <span className="text-spike-red font-medium">closed at current market price</span> and the portfolio{selected.length > 1 ? 's' : ''} permanently deleted.
-                      </p>
-                    ) : (
-                      <p className="text-xs text-spike-text-dim">
-                        The selected portfolio{selected.length > 1 ? 's' : ''} will be permanently deleted.
-                      </p>
-                    )}
+                    <p className="text-sm text-spike-red font-medium mb-2">⚠ This action cannot be undone.</p>
+                    <p className="text-xs text-spike-text-dim">
+                      {selected.length > 1 ? 'These portfolios' : 'This portfolio'} and all associated data will be permanently deleted.
+                    </p>
                   </div>
                   <div className="space-y-2 mb-5">
                     {selected.map((p) => (
                       <div key={p.id} className="flex items-center justify-between p-3 rounded-lg bg-spike-bg/50 border border-spike-border/30">
                         <span className="text-sm font-medium text-spike-text">{p.name}</span>
-                        {p.activePositions > 0 ? (
-                          <span className="text-xs text-spike-amber">{p.activePositions} position{p.activePositions > 1 ? 's' : ''} will be closed</span>
-                        ) : (
-                          <span className="text-xs text-spike-text-muted">no active positions</span>
-                        )}
+                        <span className="text-xs text-spike-text-muted">will be deleted</span>
                       </div>
                     ))}
                   </div>
@@ -731,9 +796,7 @@ export default function PortfolioPage() {
                       disabled={deleting}
                       className="flex-1 py-2.5 rounded-lg text-sm font-bold text-white bg-spike-red hover:bg-spike-red/80 transition-all disabled:opacity-50"
                     >
-                      {deleting ? 'Deleting...' : totalActive > 0
-                        ? `Close Positions & Delete`
-                        : `Delete ${deleteSelectedIds.size} Portfolio${deleteSelectedIds.size > 1 ? 's' : ''}`}
+                      {deleting ? 'Deleting...' : `Delete ${selected.length} Portfolio${selected.length > 1 ? 's' : ''}`}
                     </button>
                   </div>
                 </>
