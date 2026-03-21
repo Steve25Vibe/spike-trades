@@ -99,8 +99,28 @@ model Spike {
   @@index([spikeScore])
 }
 
+model Portfolio {
+  id            String   @id @default(cuid())
+  name          String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Sizing settings (per-portfolio)
+  sizingMode    String   @default("manual")    // auto, fixed, manual
+  portfolioSize Float    @default(100000)
+  fixedAmount   Float    @default(2500)
+  kellyMaxPct   Float    @default(2)
+  kellyWinRate  Float    @default(0.6)
+
+  entries       PortfolioEntry[]
+
+  @@index([createdAt])
+}
+
 model PortfolioEntry {
   id              String   @id @default(cuid())
+  portfolioId     String?
+  portfolio       Portfolio? @relation(fields: [portfolioId], references: [id])
   spikeId         String
   spike           Spike    @relation(fields: [spikeId], references: [id])
   ticker          String
@@ -139,6 +159,7 @@ model PortfolioEntry {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
+  @@index([portfolioId])
   @@index([status])
   @@index([ticker])
   @@index([entryDate])

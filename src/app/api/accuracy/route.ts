@@ -10,6 +10,7 @@ export async function GET(request: NextRequest) {
 
   const horizon = parseInt(request.nextUrl.searchParams.get('horizon') || '3');
   const days = parseInt(request.nextUrl.searchParams.get('days') || '90');
+  const portfolioId = request.nextUrl.searchParams.get('portfolioId');
   const cutoff = new Date(Date.now() - days * 86400000);
 
   try {
@@ -106,11 +107,14 @@ export async function GET(request: NextRequest) {
     });
 
     // 4. Portfolio closed trades — actual P&L history for the "Your Portfolio" line
+    const closedTradesWhere: Record<string, unknown> = {
+      status: { in: ['closed', 'stopped'] },
+      exitDate: { gte: cutoff },
+    };
+    if (portfolioId) closedTradesWhere.portfolioId = portfolioId;
+
     const closedTrades = await prisma.portfolioEntry.findMany({
-      where: {
-        status: { in: ['closed', 'stopped'] },
-        exitDate: { gte: cutoff },
-      },
+      where: closedTradesWhere,
       orderBy: { exitDate: 'asc' },
       select: {
         ticker: true,

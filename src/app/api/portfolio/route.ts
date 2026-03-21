@@ -11,10 +11,15 @@ export async function GET(request: NextRequest) {
   }
 
   const status = request.nextUrl.searchParams.get('status') || 'active';
+  const portfolioId = request.nextUrl.searchParams.get('portfolioId');
 
   try {
+    const where: Record<string, unknown> = {};
+    if (status !== 'all') where.status = status;
+    if (portfolioId) where.portfolioId = portfolioId;
+
     const positions = await prisma.portfolioEntry.findMany({
-      where: status === 'all' ? {} : { status },
+      where,
       orderBy: { entryDate: 'desc' },
       include: { spike: true },
     });
@@ -158,7 +163,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { spikeId, spikeIds, portfolioSize, mode, shares: manualShares, positionSize: manualPositionSize, fixedAmount, perSpikeShares, kellyMaxPct, kellyWinRate } = body;
+    const { spikeId, spikeIds, portfolioId, portfolioSize, mode, shares: manualShares, positionSize: manualPositionSize, fixedAmount, perSpikeShares, kellyMaxPct, kellyWinRate } = body;
 
     const idsToLock: string[] = spikeIds || (spikeId ? [spikeId] : []);
 
@@ -169,7 +174,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const totalPortfolio = portfolioSize || 100000;
+    // Load portfolio settings if portfolioId provided
+    let portfolio = null;
+    if (portfolioId) {
+      portfolio = await prisma.portfolio.findUnique({ where: { id: portfolioId } });
+    }
+
+    const effectiveMode = mode || portfolio?.sizingMode || 'auto';
+    const totalPortfolio = portfolioSize || portfolio?.portfolioSize || 100000;
     const entries = [];
     const errors = [];
 
@@ -196,18 +208,19 @@ export async function POST(request: NextRequest) {
         // Per-spike shares specified (manual bulk)
         shares = Math.floor(perSpikeShares[id]);
         positionPct = totalPortfolio > 0 ? ((shares * spike.price) / totalPortfolio) * 100 : 0;
-      } else if ((mode === 'manual' || mode === 'fixed') && manualShares) {
+      } else if ((effectiveMode === 'manual' || effectiveMode === 'fixed') && manualShares) {
         // Manual or fixed mode — user specifies shares directly
         shares = Math.floor(manualShares);
         positionPct = totalPortfolio > 0 ? ((shares * spike.price) / totalPortfolio) * 100 : 0;
-      } else if (mode === 'fixed' && fixedAmount) {
+      } else if (effectiveMode === 'fixed' && (fixedAmount || portfolio?.fixedAmount)) {
         // Fixed mode with dollar amount — calculate shares per spike
-        shares = Math.floor(fixedAmount / spike.price);
+        const amount = fixedAmount || portfolio?.fixedAmount || 2500;
+        shares = Math.floor(amount / spike.price);
         positionPct = totalPortfolio > 0 ? ((shares * spike.price) / totalPortfolio) * 100 : 0;
       } else {
         // Auto mode — Kelly Criterion sizing with configurable params
-        const winRate = kellyWinRate || 0.6;
-        const maxPct = (kellyMaxPct || 2) / 100;
+        const winRate = kellyWinRate || portfolio?.kellyWinRate || 0.6;
+        const maxPct = ((kellyMaxPct || portfolio?.kellyMaxPct || 2) / 100);
         const kellyFraction = calculateKellyFraction(winRate, atrPct, atrPct * 0.5);
         positionPct = Math.min(kellyFraction, maxPct) * 100;
         const positionSize = totalPortfolio * (positionPct / 100);
@@ -221,6 +234,7 @@ export async function POST(request: NextRequest) {
 
       const entry = await prisma.portfolioEntry.create({
         data: {
+          portfolioId: portfolioId || null,
           spikeId: spike.id,
           ticker: spike.ticker,
           name: spike.name,

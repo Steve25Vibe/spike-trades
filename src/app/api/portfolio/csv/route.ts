@@ -11,6 +11,7 @@ export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
+    const portfolioId = formData.get('portfolioId') as string | null;
 
     if (!file) {
       return NextResponse.json(
@@ -102,6 +103,7 @@ export async function POST(request: NextRequest) {
 
       const entry = await prisma.portfolioEntry.create({
         data: {
+          portfolioId: portfolioId || null,
           spikeId: spike.id,
           ticker: spike.ticker,
           name: spike.name,
@@ -137,13 +139,18 @@ export async function POST(request: NextRequest) {
 }
 
 // GET /api/portfolio/csv — Export portfolio as Wealthsimple-compatible CSV
-export async function GET() {
+export async function GET(request: NextRequest) {
   if (!(await isAuthenticated())) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   try {
+    const portfolioId = request.nextUrl.searchParams.get('portfolioId');
+    const where: Record<string, unknown> = {};
+    if (portfolioId) where.portfolioId = portfolioId;
+
     const positions = await prisma.portfolioEntry.findMany({
+      where,
       orderBy: { entryDate: 'desc' },
     });
 
