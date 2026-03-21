@@ -334,27 +334,8 @@ export default function PortfolioPage() {
                   pos.riskStatus === 'target_hit' && !selectedIds.has(pos.id) && 'border-spike-gold/30',
                 )}>
                   <div className="flex items-start justify-between gap-6">
-                    {/* Left: Selection checkbox + Ticker + meta */}
+                    {/* Left: Ticker + meta */}
                     <div className="flex items-center gap-4 min-w-0">
-                      {/* Selection checkbox */}
-                      {selectionMode && (
-                        <button
-                          onClick={() => handleSelectPosition(pos.id, !selectedIds.has(pos.id))}
-                          className={cn(
-                            'w-7 h-7 rounded-lg border-2 flex items-center justify-center transition-all flex-shrink-0',
-                            selectedIds.has(pos.id)
-                              ? 'bg-spike-red border-spike-red text-spike-bg'
-                              : 'border-spike-border hover:border-spike-red/50 bg-spike-bg/50'
-                          )}
-                          title={selectedIds.has(pos.id) ? 'Remove from selection' : 'Add to selection'}
-                        >
-                          {selectedIds.has(pos.id) && (
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                              <polyline points="20 6 9 17 4 12" />
-                            </svg>
-                          )}
-                        </button>
-                      )}
                       <div>
                         <div className="flex items-center gap-2">
                           <Link href={`/dashboard/analysis/${pos.spikeId}`} title="See the full AI analysis for this stock" className="text-xl font-bold text-spike-text hover:text-spike-cyan transition-colors">
@@ -413,6 +394,25 @@ export default function PortfolioPage() {
                           title="Close this position and record the result"
                         >
                           Sell / Close
+                        </button>
+                      )}
+                      {/* Selection checkbox — inline next to Sell/Close */}
+                      {selectionMode && (
+                        <button
+                          onClick={() => handleSelectPosition(pos.id, !selectedIds.has(pos.id))}
+                          className={cn(
+                            'w-8 h-8 rounded-lg border-2 flex items-center justify-center transition-all flex-shrink-0',
+                            selectedIds.has(pos.id)
+                              ? 'bg-spike-red border-spike-red text-spike-bg'
+                              : 'border-spike-border hover:border-spike-red/50 bg-spike-bg/50'
+                          )}
+                          title={selectedIds.has(pos.id) ? 'Remove from selection' : 'Add to selection'}
+                        >
+                          {selectedIds.has(pos.id) && (
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                          )}
                         </button>
                       )}
                     </div>
