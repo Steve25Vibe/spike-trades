@@ -287,7 +287,11 @@ export async function DELETE(request: NextRequest) {
           finalExitPrice = quotes[0].price;
         }
       } catch {
-        finalExitPrice = position.entryPrice; // Fallback
+        // Fallback below
+      }
+      // If live quote failed or returned empty, use entry price
+      if (!finalExitPrice) {
+        finalExitPrice = position.entryPrice;
       }
     }
 

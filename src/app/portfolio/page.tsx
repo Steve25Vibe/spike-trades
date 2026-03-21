@@ -90,7 +90,9 @@ export default function PortfolioPage() {
       });
       const json = await res.json();
       if (json.success) {
-        setToast(`Closed ${json.data.ticker} — ${json.data.realizedPnlPct >= 0 ? '+' : ''}${json.data.realizedPnlPct.toFixed(2)}% (${formatCurrency(json.data.realizedPnl)})`);
+        const pnlPct = json.data.realizedPnlPct ?? 0;
+        const pnl = json.data.realizedPnl ?? 0;
+        setToast(`Closed ${json.data.ticker} — ${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}% (${formatCurrency(pnl)})`);
         setTimeout(() => setToast(null), 4000);
         // Immediately remove from UI, then refresh from server
         setPositions((prev) => prev.filter((p) => p.id !== positionId));
