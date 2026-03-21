@@ -72,14 +72,15 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// DELETE /api/portfolios — Delete a portfolio by ID
+// DELETE /api/portfolios — Delete a portfolio and all its closed entries
+// Blocks if active positions exist — user must close them first.
 export async function DELETE(request: NextRequest) {
   if (!(await isAuthenticated())) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   try {
-    const { portfolioId, force } = await request.json();
+    const { portfolioId } = await request.json();
 
     if (!portfolioId) {
       return NextResponse.json({ success: false, error: 'portfolioId required' }, { status: 400 });
@@ -94,20 +95,20 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Portfolio not found' }, { status: 404 });
     }
 
-    if (portfolio._count.entries > 0 && !force) {
+    if (portfolio._count.entries > 0) {
       return NextResponse.json({
         success: false,
-        error: `Portfolio has ${portfolio._count.entries} active position(s). Close them first or use force delete.`,
+        error: `Portfolio has ${portfolio._count.entries} active position(s). Close them before deleting.`,
         activeCount: portfolio._count.entries,
       }, { status: 400 });
     }
 
-    // Unlink entries (don't delete them — preserve history)
-    await prisma.portfolioEntry.updateMany({
+    // Hard delete all closed entries belonging to this portfolio
+    await prisma.portfolioEntry.deleteMany({
       where: { portfolioId },
-      data: { portfolioId: null },
     });
 
+    // Delete the portfolio itself
     await prisma.portfolio.delete({ where: { id: portfolioId } });
 
     return NextResponse.json({ success: true });

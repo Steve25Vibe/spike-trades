@@ -188,12 +188,16 @@ export default function PortfolioPage() {
     const res = await fetch('/api/portfolios', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ portfolioId, force: true }),
+      body: JSON.stringify({ portfolioId }),
     });
     const json = await res.json();
     if (json.success) {
       setDeleteConfirm(null);
       await refreshPortfolios();
+    } else {
+      setToast(json.error || 'Cannot delete portfolio');
+      setTimeout(() => setToast(null), 4000);
+      setDeleteConfirm(null);
     }
   };
 

@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import Sidebar from '@/components/layout/Sidebar';
 import ParticleBackground from '@/components/layout/ParticleBackground';
 import { cn, formatPercent } from '@/lib/utils';
-import PortfolioSelector from '@/components/portfolio/PortfolioSelector';
 import { usePortfolios } from '@/components/portfolio/usePortfolios';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -79,16 +78,17 @@ export default function AccuracyPage() {
   const [loading, setLoading] = useState(true);
 
   const { portfolios, activeId, selectPortfolio } = usePortfolios();
+  const [accuracyScope, setAccuracyScope] = useState<'all' | string>('all');
 
   useEffect(() => {
     fetchAccuracy();
-  }, [horizon, activeId]);
+  }, [horizon, accuracyScope]);
 
   const fetchAccuracy = async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams({ horizon: String(horizon), days: '90' });
-      if (activeId) params.set('portfolioId', activeId);
+      if (accuracyScope !== 'all') params.set('portfolioId', accuracyScope);
       const res = await fetch(`/api/accuracy?${params}`);
       if (res.status === 401) { window.location.href = '/login'; return; }
       const json = await res.json();
@@ -119,12 +119,34 @@ export default function AccuracyPage() {
             ACCURACY ENGINE
           </h2>
           <div className="flex items-center gap-4">
-          <PortfolioSelector
-            portfolios={portfolios}
-            activeId={activeId}
-            onSelect={selectPortfolio}
-            compact
-          />
+          {/* Scope: All Predictions vs per-portfolio */}
+          <div className="flex gap-1 bg-spike-bg/50 rounded-lg border border-spike-border p-0.5">
+            <button
+              onClick={() => setAccuracyScope('all')}
+              className={cn(
+                'px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+                accuracyScope === 'all'
+                  ? 'bg-spike-cyan/10 text-spike-cyan'
+                  : 'text-spike-text-dim hover:text-spike-text'
+              )}
+            >
+              All Predictions
+            </button>
+            {portfolios.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => setAccuracyScope(p.id)}
+                className={cn(
+                  'px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+                  accuracyScope === p.id
+                    ? 'bg-spike-cyan/10 text-spike-cyan'
+                    : 'text-spike-text-dim hover:text-spike-text'
+                )}
+              >
+                {p.name}
+              </button>
+            ))}
+          </div>
           <div className="flex gap-2">
             {([3, 5, 8] as const).map((h) => (
               <button
