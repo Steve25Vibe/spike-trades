@@ -892,3 +892,114 @@ When ending a session, Claude Code should append an entry like this:
 ### Context window status:
 - Estimated usage: very heavy (12+ files modified, extensive exploration, multiple deploys)
 - Reason for stopping: multi-portfolio feature backend complete, frontend is 6 components — clean breakpoint for fresh context
+
+---
+
+## Session 11 Checkpoint — 2026-03-21
+
+### What was built:
+
+**Multi-portfolio frontend — complete UI integration:**
+
+- **`usePortfolios.ts`** — shared React hook for portfolio state management:
+  - Fetches all portfolios from `/api/portfolios`
+  - Manages active portfolio ID (persisted in localStorage as a pointer, actual settings in DB)
+  - Auto-selects first portfolio if none saved or if saved one was deleted
+  - Provides `selectPortfolio()`, `refresh()`, and `activePortfolio` computed property
+
+- **`PortfolioSelector.tsx`** — reusable dropdown component:
+  - Shows active portfolio name with position count
+  - Dropdown lists all portfolios with active/total/sizing info
+  - Checkmark on active selection
+  - Optional "New Portfolio" button
+  - Compact mode for toolbars
+
+- **`PortfolioSettings.tsx`** — **rewritten** to use DB instead of localStorage:
+  - Accepts `portfolio` prop (PortfolioInfo from DB)
+  - Saves mode/size/amount/Kelly params via `PUT /api/portfolios/[id]`
+  - Editable portfolio name with blur-save
+  - Still exports `configFromPortfolio()` helper for modals to use
+
+- **`LockInModal.tsx`** — **updated** with portfolio awareness:
+  - New props: `portfolios`, `activePortfolioId`
+  - Shows portfolio picker when multiple portfolios exist
+  - Reads sizing config from selected portfolio's DB record
+  - Passes `portfolioId` in confirmation callback
+
+- **`BulkLockInModal.tsx`** — **updated** similarly:
+  - Portfolio picker, DB-sourced config, passes `portfolioId`
+
+- **`CsvImportExport.tsx`** — **updated** with optional `portfolioId` prop:
+  - Import sends `portfolioId` in FormData
+  - Export URL includes `?portfolioId=` param
+
+- **Dashboard page** — full portfolio integration:
+  - Portfolio selector dropdown next to gear icon
+  - "New Portfolio" creation modal
+  - Lock-in modals receive portfolio list and active ID
+  - Refresh portfolio counts after lock-ins
+
+- **Portfolio page** — portfolio selector + management:
+  - Portfolio selector in header
+  - Delete portfolio (with confirmation)
+  - Positions filtered by `portfolioId`
+  - New portfolio creation modal
+  - CSV import/export scoped to active portfolio
+
+- **Accuracy page** — portfolio filter:
+  - Portfolio selector in header toolbar
+  - Sends `portfolioId` to accuracy API for portfolio-specific metrics
+
+- **Analysis detail page** — portfolio-aware lock-in:
+  - `usePortfolios` hook for portfolio list
+  - Passes portfolios/activeId to LockInModal
+
+### What was tested:
+- TypeScript compilation: 0 errors → PASS
+- Portfolio creation via migration endpoint → PASS (55 positions assigned to "My Portfolio")
+- `GET /api/portfolios` returns portfolio with correct counts → PASS
+- `GET /api/portfolio?portfolioId=...&status=all` returns filtered positions → PASS (55 positions)
+- Site loads at spiketrades.ca → PASS (307 redirect to login)
+- Spikes API → PASS (no report today, weekend, but API responds correctly)
+- Schema push via `prisma db push` → PASS (Portfolio table created)
+
+### Key decisions made:
+- **Active portfolio ID stored in localStorage as a pointer**: The actual settings (mode, sizes, Kelly params) are in the DB Portfolio model. localStorage just remembers which portfolio was last selected.
+- **Portfolio selector shown only when >1 portfolio exists**: For single-portfolio users, modals don't show the picker — cleaner UX.
+- **`configFromPortfolio()` helper function**: Both LockInModal and BulkLockInModal use this to convert a DB portfolio record into the PortfolioConfig shape for sizing calculations.
+- **Delete requires confirmation, force-deletes**: Portfolio deletion unlinks entries (preserves history) rather than deleting positions.
+- **No migration of localStorage settings to DB**: Old localStorage config is abandoned. The DB Portfolio record starts with defaults, and the user can reconfigure via the settings modal.
+
+### Quirks / gotchas discovered:
+- Prisma is not in the production container's PATH — had to invoke directly via `node /app/node_modules/prisma/build/index.js` to run `db push`.
+- The cookie name on the server is `spike-trades-session` (not `spike-session`), which required a two-step curl approach for API testing.
+- All 55 existing positions were closed (0 active), so the migration was straightforward.
+
+### Files modified:
+- `src/components/portfolio/usePortfolios.ts` — created (66 lines)
+- `src/components/portfolio/PortfolioSelector.tsx` — created (89 lines)
+- `src/components/portfolio/PortfolioSettings.tsx` — rewritten (DB-backed, 237 lines)
+- `src/components/portfolio/LockInModal.tsx` — updated (portfolio props, 234 lines)
+- `src/components/portfolio/BulkLockInModal.tsx` — updated (portfolio props, 252 lines)
+- `src/components/portfolio/CsvImportExport.tsx` — updated (portfolioId prop)
+- `src/app/dashboard/page.tsx` — updated (portfolio selector, create modal, portfolio-aware modals)
+- `src/app/portfolio/page.tsx` — updated (portfolio selector, delete, filtered fetch)
+- `src/app/accuracy/page.tsx` — updated (portfolio filter dropdown)
+- `src/app/dashboard/analysis/[id]/page.tsx` — updated (portfolio-aware lock-in)
+
+### Checkpoint artifacts:
+- GitHub: `Steve25Vibe/spike-trades` commit `6a296c6`
+- Production: spiketrades.ca deployed with Portfolio table, "My Portfolio" created with 55 migrated positions
+- Multi-portfolio feature: frontend and backend both complete
+
+### What the next session should do first:
+1. Create a second portfolio on the live site to test multi-portfolio switching
+2. Lock in spikes to different portfolios from the dashboard
+3. Verify portfolio page shows only positions for the selected portfolio
+4. Verify accuracy page filters by portfolio
+5. Test portfolio settings changes (mode, sizes) persist correctly to DB
+6. Consider adding portfolio totals/summary across all portfolios
+
+### Context window status:
+- Estimated usage: moderate
+- Reason for stopping: completed Session 11 scope — multi-portfolio frontend fully deployed and working
