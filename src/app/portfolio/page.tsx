@@ -5,6 +5,7 @@ import Link from 'next/link';
 import Sidebar from '@/components/layout/Sidebar';
 import ParticleBackground from '@/components/layout/ParticleBackground';
 import { cn, formatCurrency, formatPercent } from '@/lib/utils';
+import CsvImportExport from '@/components/portfolio/CsvImportExport';
 
 interface Position {
   id: string;
@@ -172,8 +173,9 @@ export default function PortfolioPage() {
           </div>
         )}
 
-        {/* Filter tabs */}
-        <div className="flex gap-2 mb-4">
+        {/* Filter tabs + CSV import/export */}
+        <div className="flex items-center justify-between mb-4">
+        <div className="flex gap-2">
           {(['active', 'closed', 'all'] as const).map((f) => {
             const tooltips: Record<string, string> = {
               active: 'Show stocks you currently hold',
@@ -195,6 +197,8 @@ export default function PortfolioPage() {
               {f}
             </button>);
           })}
+        </div>
+          <CsvImportExport onImportComplete={fetchPortfolio} />
         </div>
 
         {/* Position cards (active) or table (closed) */}
