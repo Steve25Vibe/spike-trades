@@ -63,6 +63,8 @@ export default function PortfolioPage() {
   const [loading, setLoading] = useState(true);
   const [closing, setClosing] = useState<string | null>(null);
   const [closeConfirm, setCloseConfirm] = useState<string | null>(null);
+  const [sellModal, setSellModal] = useState<Position | null>(null);
+  const [sellShares, setSellShares] = useState<number>(0);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -102,21 +104,28 @@ export default function PortfolioPage() {
     finally { setLoading(false); }
   };
 
-  const handleClosePosition = async (positionId: string) => {
+  const handleSellPosition = async (positionId: string, sharesToSell?: number) => {
     setClosing(positionId);
     try {
+      const body: Record<string, unknown> = { positionId, exitReason: 'manual' };
+      if (sharesToSell) body.sharesToSell = sharesToSell;
       const res = await fetch('/api/portfolio', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ positionId, exitReason: 'manual' }),
+        body: JSON.stringify(body),
       });
       const json = await res.json();
       if (json.success) {
         const pnlPct = json.data.realizedPnlPct ?? 0;
         const pnl = json.data.realizedPnl ?? 0;
-        setToast({ message: `Closed ${json.data.ticker} — ${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}% (${formatCurrency(pnl)})`, type: 'success' });
+        if (json.partial) {
+          setToast({ message: `Sold ${json.data.sharesSold} shares of ${json.data.ticker} — ${pnl >= 0 ? '+' : ''}${formatCurrency(pnl)} (${json.data.remainingShares} remaining)`, type: 'success' });
+        } else {
+          setToast({ message: `Closed ${json.data.ticker} — ${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}% (${formatCurrency(pnl)})`, type: 'success' });
+        }
         setTimeout(() => setToast(null), 4000);
-        setPositions((prev) => prev.filter((p) => p.id !== positionId));
+        setSellModal(null);
+        setSellShares(0);
         setClosing(null);
         setCloseConfirm(null);
         await fetchPortfolio();
@@ -126,7 +135,6 @@ export default function PortfolioPage() {
     } catch { /* handle */ }
     finally {
       setClosing(null);
-      setCloseConfirm(null);
     }
   };
 
@@ -509,31 +517,13 @@ export default function PortfolioPage() {
                       >
                         View Analysis
                       </Link>
-                      {closeConfirm === pos.id ? (
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => handleClosePosition(pos.id)}
-                            disabled={closing === pos.id}
-                            className="px-3 py-2 rounded-lg text-xs font-bold text-spike-red bg-spike-red/10 border border-spike-red/30 hover:bg-spike-red/20 transition-all disabled:opacity-50"
-                          >
-                            {closing === pos.id ? 'Closing...' : 'Confirm Sell'}
-                          </button>
-                          <button
-                            onClick={() => setCloseConfirm(null)}
-                            className="px-2 py-2 rounded-lg text-xs text-spike-text-muted hover:text-spike-text"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => setCloseConfirm(pos.id)}
-                          className="px-3 py-2 rounded-lg text-xs font-medium text-spike-text-dim bg-spike-bg border border-spike-border hover:border-spike-red/30 hover:text-spike-red transition-all"
-                          title="Close this position and record the result"
-                        >
-                          Sell / Close
-                        </button>
-                      )}
+                      <button
+                        onClick={() => { setSellModal(pos); setSellShares(pos.shares); }}
+                        className="px-3 py-2 rounded-lg text-xs font-medium text-spike-text-dim bg-spike-bg border border-spike-border hover:border-spike-red/30 hover:text-spike-red transition-all"
+                        title="Sell all or part of this position"
+                      >
+                        Sell / Close
+                      </button>
                       {selectionMode && (
                         <button
                           onClick={() => handleSelectPosition(pos.id, !selectedIds.has(pos.id))}
@@ -607,6 +597,114 @@ export default function PortfolioPage() {
           <p className="mt-2">&copy; {new Date().getFullYear()} Spike Trades — spiketrades.ca &middot; Ver 1.0</p>
         </div>
         </>
+        )}
+
+        {/* Sell / Close Modal */}
+        {sellModal && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center" onClick={() => { setSellModal(null); setSellShares(0); }}>
+            <div className="glass-card p-6 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-lg font-bold text-spike-text">Sell {sellModal.ticker}</h2>
+                <button onClick={() => { setSellModal(null); setSellShares(0); }} className="text-spike-text-dim hover:text-spike-text text-xl">&times;</button>
+              </div>
+
+              {/* Position info */}
+              <div className="grid grid-cols-2 gap-3 mb-5">
+                <div className="p-3 rounded-lg bg-spike-bg/50 border border-spike-border/30">
+                  <p className="text-[10px] text-spike-text-muted uppercase">Shares Held</p>
+                  <p className="text-sm font-bold text-spike-text">{sellModal.shares.toLocaleString()}</p>
+                </div>
+                <div className="p-3 rounded-lg bg-spike-bg/50 border border-spike-border/30">
+                  <p className="text-[10px] text-spike-text-muted uppercase">Current Price</p>
+                  <p className="text-sm font-bold text-spike-text">{formatCurrency(sellModal.currentPrice)}</p>
+                </div>
+                <div className="p-3 rounded-lg bg-spike-bg/50 border border-spike-border/30">
+                  <p className="text-[10px] text-spike-text-muted uppercase">Entry Price</p>
+                  <p className="text-sm font-bold text-spike-text">{formatCurrency(sellModal.entryPrice)}</p>
+                </div>
+                <div className="p-3 rounded-lg bg-spike-bg/50 border border-spike-border/30">
+                  <p className="text-[10px] text-spike-text-muted uppercase">Unrealized P&L</p>
+                  <p className={cn('text-sm font-bold', sellModal.unrealizedPnl >= 0 ? 'text-spike-green' : 'text-spike-red')}>
+                    {sellModal.unrealizedPnl >= 0 ? '+' : ''}{formatCurrency(sellModal.unrealizedPnl)}
+                  </p>
+                </div>
+              </div>
+
+              {/* Shares to sell */}
+              <div className="mb-4">
+                <label className="text-xs text-spike-text-muted uppercase tracking-wider block mb-2">Shares to Sell</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    value={sellShares}
+                    onChange={(e) => {
+                      const val = Math.max(0, Math.min(sellModal.shares, parseInt(e.target.value) || 0));
+                      setSellShares(val);
+                    }}
+                    min={1}
+                    max={sellModal.shares}
+                    className="flex-1 bg-spike-bg/50 border border-spike-border rounded-lg px-3 py-2.5 text-spike-text text-center text-lg font-bold focus:border-spike-cyan/50 focus:outline-none"
+                    autoFocus
+                  />
+                  <button
+                    onClick={() => setSellShares(sellModal.shares)}
+                    className={cn(
+                      'px-4 py-2.5 rounded-lg text-sm font-medium border transition-all',
+                      sellShares === sellModal.shares
+                        ? 'bg-spike-red/10 text-spike-red border-spike-red/30'
+                        : 'text-spike-text-dim border-spike-border hover:border-spike-red/30 hover:text-spike-red'
+                    )}
+                  >
+                    Sell All
+                  </button>
+                </div>
+              </div>
+
+              {/* Estimated proceeds */}
+              {sellShares > 0 && (
+                <div className="p-4 rounded-xl bg-spike-bg/50 border border-spike-border/30 mb-5">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs text-spike-text-muted">Est. Proceeds</span>
+                    <span className="text-sm font-bold text-spike-text">{formatCurrency(sellShares * sellModal.currentPrice)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-spike-text-muted">Est. Realized P&L</span>
+                    {(() => {
+                      const pnl = (sellModal.currentPrice - sellModal.entryPrice) * sellShares;
+                      return (
+                        <span className={cn('text-sm font-bold', pnl >= 0 ? 'text-spike-green' : 'text-spike-red')}>
+                          {pnl >= 0 ? '+' : ''}{formatCurrency(pnl)}
+                        </span>
+                      );
+                    })()}
+                  </div>
+                  {sellShares < sellModal.shares && (
+                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-spike-border/30">
+                      <span className="text-xs text-spike-text-muted">Remaining Shares</span>
+                      <span className="text-sm font-medium text-spike-text">{sellModal.shares - sellShares}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Action buttons */}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => { setSellModal(null); setSellShares(0); }}
+                  className="flex-1 py-2.5 rounded-lg text-sm font-medium text-spike-text-dim border border-spike-border"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleSellPosition(sellModal.id, sellShares)}
+                  disabled={sellShares <= 0 || closing === sellModal.id}
+                  className="flex-1 py-2.5 rounded-lg text-sm font-bold text-white bg-spike-red hover:bg-spike-red/80 transition-all disabled:opacity-50"
+                >
+                  {closing === sellModal.id ? 'Selling...' : sellShares === sellModal.shares ? `Sell All ${sellShares} Shares` : `Sell ${sellShares} Share${sellShares !== 1 ? 's' : ''}`}
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Choose Portfolio Modal */}

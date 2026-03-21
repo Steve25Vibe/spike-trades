@@ -276,7 +276,7 @@ export async function DELETE(request: NextRequest) {
   }
 
   try {
-    const { positionId, exitPrice, exitReason } = await request.json();
+    const { positionId, exitPrice, exitReason, sharesToSell } = await request.json();
 
     if (!positionId) {
       return NextResponse.json(
@@ -320,9 +320,42 @@ export async function DELETE(request: NextRequest) {
       }
     }
 
-    const realizedPnl = (finalExitPrice - position.entryPrice) * position.shares;
+    // Determine how many shares to sell
+    const sellShares = sharesToSell ? Math.min(Math.floor(sharesToSell), position.shares) : position.shares;
+    if (sellShares <= 0) {
+      return NextResponse.json({ success: false, error: 'Must sell at least 1 share' }, { status: 400 });
+    }
+
+    const isPartialSell = sellShares < position.shares;
+    const realizedPnl = (finalExitPrice - position.entryPrice) * sellShares;
     const realizedPnlPct = ((finalExitPrice - position.entryPrice) / position.entryPrice) * 100;
 
+    if (isPartialSell) {
+      // Partial sell: reduce shares, keep position active
+      const remainingShares = position.shares - sellShares;
+      const updated = await prisma.portfolioEntry.update({
+        where: { id: positionId },
+        data: {
+          shares: remainingShares,
+          positionSize: remainingShares * position.entryPrice,
+        },
+      });
+
+      return NextResponse.json({
+        success: true,
+        partial: true,
+        data: {
+          ...updated,
+          sharesSold: sellShares,
+          remainingShares,
+          realizedPnl,
+          realizedPnlPct,
+          exitPrice: finalExitPrice,
+        },
+      });
+    }
+
+    // Full close: sell all shares
     const updated = await prisma.portfolioEntry.update({
       where: { id: positionId },
       data: {
@@ -337,6 +370,7 @@ export async function DELETE(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      partial: false,
       data: {
         ...updated,
         realizedPnl,
