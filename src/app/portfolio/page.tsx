@@ -231,6 +231,7 @@ export default function PortfolioPage() {
     // Clear positions immediately so stale data doesn't show
     setPositions([]);
     setSummary(null);
+    // refreshPortfolios will clear activeId if the active one was deleted
     await refreshPortfolios();
     if (errors.length > 0) {
       setToast({ message: errors.join('; '), type: 'error' });
