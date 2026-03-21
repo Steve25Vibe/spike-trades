@@ -802,3 +802,93 @@ When ending a session, Claude Code should append an entry like this:
 ### Context window status:
 - Estimated usage: very heavy (SSH debugging, multiple deploys, data restoration, feature development)
 - Reason for stopping: user requested session transition for continued feature development
+
+---
+
+## Session 10 Checkpoint — 2026-03-21
+
+### What was built:
+
+**Tooltips across the site:**
+- Added `title` attributes to all navigation buttons and links (sidebar, dashboard, spike cards, analysis, reports, portfolio, accuracy, login)
+
+**CSV Import/Export for Portfolio:**
+- `POST /api/portfolio/csv` — import from Wealthsimple CSV (only matching Spike Trades picks)
+- `GET /api/portfolio/csv` — export as Wealthsimple-compatible CSV
+- `CsvImportExport` component with import/export buttons on portfolio page
+
+**Portfolio close fix:**
+- Root cause: VLE.TO returns 403 from FMP, leaving `exitPrice` undefined → `null.toFixed(2)` crashed silently in catch block
+- Fix: API falls back to entry price when quote unavailable, client-side toast is null-safe
+
+**Version number:**
+- "Ver 1.0" added to login page and all page footers
+
+**Portfolio sizing overhaul:**
+- Fixed Kelly double-cap in API (was capping twice, producing tiny positions)
+- LockInModal: Fixed mode shows editable dollar input, Manual mode prompts each time
+- New `BulkLockInModal` for multi-spike lock-in with proper per-mode UX:
+  - Auto: shows Kelly-calculated shares per spike
+  - Fixed: editable per-spike dollar amount with total
+  - Manual: individual input per spike
+- Configurable Kelly controls: Max Risk slider (0.5-10%), Win Rate slider (40-85%)
+
+**Bulk close for portfolio positions:**
+- Selection mode with checkboxes (inline next to Sell/Close button)
+- Select All, bulk Sell/Close with two-step confirmation
+- Mirrors dashboard selection pattern
+
+**Multi-portfolio backend (IN PROGRESS — frontend pending):**
+- New `Portfolio` model in Prisma schema (name, per-portfolio sizing settings)
+- `PortfolioEntry` gains `portfolioId` foreign key
+- CRUD API: `GET/POST/DELETE /api/portfolios`, `PUT /api/portfolios/[id]`
+- Migration endpoint: `POST /api/portfolios/migrate` (creates "My Portfolio", assigns orphaned entries)
+- All position/accuracy/CSV APIs updated with `?portfolioId` filtering
+- Portfolio sizing read from DB record instead of request body
+
+### Key decisions made:
+- **Dropdown in Lock-In modal** for portfolio selection (defaults to most recent)
+- **Independent sizing per portfolio** (each portfolio has its own mode, amounts, Kelly params)
+- **Existing positions auto-assigned** to "My Portfolio" via migration
+- **portfolioId is nullable** on PortfolioEntry for backward compatibility during migration
+
+### Files modified:
+- `prisma/schema.prisma` — added Portfolio model, updated PortfolioEntry
+- `src/app/api/portfolios/route.ts` — new (CRUD)
+- `src/app/api/portfolios/[id]/route.ts` — new (update)
+- `src/app/api/portfolios/migrate/route.ts` — new (one-time migration)
+- `src/app/api/portfolio/route.ts` — portfolioId filtering, sizing from DB
+- `src/app/api/portfolio/csv/route.ts` — portfolioId on import/export
+- `src/app/api/accuracy/route.ts` — portfolioId filter on closed trades
+- `src/components/portfolio/BulkLockInModal.tsx` — new (multi-spike lock-in)
+- `src/components/portfolio/CsvImportExport.tsx` — new
+- `src/components/portfolio/LockInModal.tsx` — fixed mode editable, Kelly params
+- `src/components/portfolio/PortfolioSettings.tsx` — Kelly sliders added
+- `src/app/portfolio/page.tsx` — bulk close, CSV buttons, close refresh fix
+- `src/app/dashboard/page.tsx` — BulkLockInModal wired, tooltips
+- `src/app/dashboard/analysis/[id]/page.tsx` — tooltips
+- `src/app/accuracy/page.tsx` — tooltips
+- `src/app/reports/page.tsx` — tooltips, version
+- `src/app/login/page.tsx` — tooltips, version
+- `src/components/layout/Sidebar.tsx` — tooltips
+- `src/components/spikes/SpikeCard.tsx` — tooltips
+
+### Checkpoint artifacts:
+- GitHub: `Steve25Vibe/spike-trades` commit `cbf6cef`
+- Backend API complete for multi-portfolio
+- Frontend NOT yet updated (modals, portfolio page, accuracy page still use single-portfolio)
+
+### What the next session should do first:
+1. **DO NOT DEPLOY** the current code to server yet — the Portfolio table doesn't exist in production DB
+2. Update `PortfolioSettings` component to read/write from Portfolio DB record instead of localStorage
+3. Add portfolio dropdown to `LockInModal` and `BulkLockInModal`
+4. Rebuild portfolio page with portfolio selector (newest first, expandable, delete support)
+5. Add portfolio filter dropdown to accuracy page
+6. Update dashboard gear icon to be portfolio-aware
+7. TypeScript compile check
+8. Deploy to server: `prisma db push` to create Portfolio table, then `POST /api/portfolios/migrate` to create "My Portfolio" and assign existing entries
+9. Test full flow: create portfolio, lock in spikes to it, view on portfolio page, filter on accuracy page
+
+### Context window status:
+- Estimated usage: very heavy (12+ files modified, extensive exploration, multiple deploys)
+- Reason for stopping: multi-portfolio feature backend complete, frontend is 6 components — clean breakpoint for fresh context
