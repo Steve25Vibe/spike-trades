@@ -63,7 +63,7 @@ export default function PortfolioPage() {
   const [loading, setLoading] = useState(true);
   const [closing, setClosing] = useState<string | null>(null);
   const [closeConfirm, setCloseConfirm] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkClosing, setBulkClosing] = useState(false);
@@ -81,10 +81,16 @@ export default function PortfolioPage() {
   useEffect(() => { fetchPortfolio(); }, [filter, activeId]);
 
   const fetchPortfolio = async () => {
+    if (!activeId) {
+      setPositions([]);
+      setSummary(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const params = new URLSearchParams({ status: filter, t: Date.now().toString() });
-      if (activeId) params.set('portfolioId', activeId);
+      params.set('portfolioId', activeId);
       const res = await fetch(`/api/portfolio?${params}`, { cache: 'no-store' });
       if (res.status === 401) { window.location.href = '/login'; return; }
       const json = await res.json();
@@ -108,7 +114,7 @@ export default function PortfolioPage() {
       if (json.success) {
         const pnlPct = json.data.realizedPnlPct ?? 0;
         const pnl = json.data.realizedPnl ?? 0;
-        setToast(`Closed ${json.data.ticker} — ${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}% (${formatCurrency(pnl)})`);
+        setToast({ message: `Closed ${json.data.ticker} — ${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}% (${formatCurrency(pnl)})`, type: 'success' });
         setTimeout(() => setToast(null), 4000);
         setPositions((prev) => prev.filter((p) => p.id !== positionId));
         setClosing(null);
@@ -165,7 +171,7 @@ export default function PortfolioPage() {
     setSelectionMode(false);
     setBulkCloseConfirm(false);
     setBulkClosing(false);
-    setToast(`Closed ${closed} position${closed !== 1 ? 's' : ''} — ${totalPnl >= 0 ? '+' : ''}${formatCurrency(totalPnl)} realized`);
+    setToast({ message: `Closed ${closed} position${closed !== 1 ? 's' : ''} — ${totalPnl >= 0 ? '+' : ''}${formatCurrency(totalPnl)} realized`, type: 'success' });
     setTimeout(() => setToast(null), 5000);
     await fetchPortfolio();
     refreshPortfolios();
@@ -218,16 +224,20 @@ export default function PortfolioPage() {
         errors.push(`${p?.name || portfolioId}: ${json.error}`);
       }
     }
+    const count = deleteSelectedIds.size;
     setDeleting(false);
     setShowDeleteModal(false);
     setDeleteSelectedIds(new Set());
+    // Clear positions immediately so stale data doesn't show
+    setPositions([]);
+    setSummary(null);
     await refreshPortfolios();
     if (errors.length > 0) {
-      setToast(errors.join('; '));
+      setToast({ message: errors.join('; '), type: 'error' });
     } else {
-      setToast(`Deleted ${deleteSelectedIds.size} portfolio${deleteSelectedIds.size > 1 ? 's' : ''}`);
+      setToast({ message: `Deleted ${count} portfolio${count > 1 ? 's' : ''}`, type: 'success' });
     }
-    setTimeout(() => setToast(null), 4000);
+    setTimeout(() => setToast(null), 5000);
   };
 
   const riskColors = {
@@ -268,9 +278,18 @@ export default function PortfolioPage() {
 
         {/* Toast */}
         {toast && (
-          <div className="mb-4 p-4 rounded-xl bg-spike-green/10 border border-spike-green/30 text-spike-green font-medium text-sm animate-fade-in flex items-center gap-2">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg>
-            {toast}
+          <div className={cn(
+            'mb-4 p-4 rounded-xl font-medium text-sm animate-fade-in flex items-center gap-2',
+            toast.type === 'error'
+              ? 'bg-spike-red/10 border border-spike-red/30 text-spike-red'
+              : 'bg-spike-green/10 border border-spike-green/30 text-spike-green'
+          )}>
+            {toast.type === 'error' ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" /></svg>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg>
+            )}
+            {toast.message}
           </div>
         )}
 
