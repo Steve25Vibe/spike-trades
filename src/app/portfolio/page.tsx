@@ -59,7 +59,7 @@ interface Summary {
 export default function PortfolioPage() {
   const [positions, setPositions] = useState<Position[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
-  const [filter, setFilter] = useState<'active' | 'closed' | 'all'>('active');
+  const filter = 'active' as const;
   const [loading, setLoading] = useState(true);
   const [closing, setClosing] = useState<string | null>(null);
   const [closeConfirm, setCloseConfirm] = useState<string | null>(null);
@@ -71,7 +71,10 @@ export default function PortfolioPage() {
   const [showNewPortfolio, setShowNewPortfolio] = useState(false);
   const [newPortfolioName, setNewPortfolioName] = useState('');
   const [showChoosePortfolio, setShowChoosePortfolio] = useState(false);
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteSelectedIds, setDeleteSelectedIds] = useState<Set<string>>(new Set());
+  const [deleteStep, setDeleteStep] = useState<'select' | 'confirm'>('select');
+  const [deleting, setDeleting] = useState(false);
 
   const { portfolios, activeId, selectPortfolio, refresh: refreshPortfolios } = usePortfolios();
 
@@ -184,21 +187,47 @@ export default function PortfolioPage() {
     }
   };
 
-  const handleDeletePortfolio = async (portfolioId: string) => {
-    const res = await fetch('/api/portfolios', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ portfolioId }),
+  const handleOpenDeleteModal = () => {
+    // Pre-select current portfolio
+    setDeleteSelectedIds(activeId ? new Set([activeId]) : new Set());
+    setDeleteStep('select');
+    setShowDeleteModal(true);
+  };
+
+  const handleToggleDeleteSelection = (id: string) => {
+    setDeleteSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
     });
-    const json = await res.json();
-    if (json.success) {
-      setDeleteConfirm(null);
-      await refreshPortfolios();
-    } else {
-      setToast(json.error || 'Cannot delete portfolio');
-      setTimeout(() => setToast(null), 4000);
-      setDeleteConfirm(null);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (deleteSelectedIds.size === 0) return;
+    setDeleting(true);
+    const errors: string[] = [];
+    for (const portfolioId of deleteSelectedIds) {
+      const res = await fetch('/api/portfolios', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ portfolioId }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        const p = portfolios.find((x) => x.id === portfolioId);
+        errors.push(`${p?.name || portfolioId}: ${json.error}`);
+      }
     }
+    setDeleting(false);
+    setShowDeleteModal(false);
+    setDeleteSelectedIds(new Set());
+    await refreshPortfolios();
+    if (errors.length > 0) {
+      setToast(errors.join('; '));
+    } else {
+      setToast(`Deleted ${deleteSelectedIds.size} portfolio${deleteSelectedIds.size > 1 ? 's' : ''}`);
+    }
+    setTimeout(() => setToast(null), 4000);
   };
 
   const riskColors = {
@@ -223,24 +252,19 @@ export default function PortfolioPage() {
       <Sidebar />
 
       <main className="ml-64 p-8 relative z-10">
-        {/* Header: portfolio name or empty state */}
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-2xl font-display font-bold text-spike-cyan tracking-wide">
+            {activePortfolio ? activePortfolio.name : 'Portfolios'}
+          </h2>
+        </div>
+
         {!activePortfolio ? (
           <div className="glass-card p-12 text-center mb-6">
             <p className="text-spike-text-dim text-lg mb-4">No portfolios yet.</p>
-            <button
-              onClick={() => setShowNewPortfolio(true)}
-              className="btn-lock-in px-6 py-2.5"
-            >
-              + Create Your First Portfolio
-            </button>
+            <p className="text-spike-text-muted text-sm mb-6">Lock in spikes from the dashboard to create your first portfolio.</p>
           </div>
         ) : (
         <>
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-display font-bold text-spike-cyan tracking-wide">
-            {activePortfolio.name}
-          </h2>
-        </div>
 
         {/* Toast */}
         {toast && (
@@ -290,31 +314,8 @@ export default function PortfolioPage() {
           </div>
         )}
 
-        {/* Filter tabs + CSV import/export */}
-        <div className="flex items-center justify-between mb-4">
-        <div className="flex gap-2">
-          {(['active', 'closed', 'all'] as const).map((f) => {
-            const tooltips: Record<string, string> = {
-              active: 'Show stocks you currently hold',
-              closed: 'Show positions you\'ve sold',
-              all: 'Show all positions, active and closed',
-            };
-            return (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              title={tooltips[f]}
-              className={cn(
-                'px-4 py-2 rounded-lg text-sm font-medium transition-all capitalize',
-                filter === f
-                  ? 'bg-spike-cyan/10 text-spike-cyan border border-spike-cyan/20'
-                  : 'text-spike-text-dim hover:text-spike-text hover:bg-spike-bg-hover'
-              )}
-            >
-              {f}
-            </button>);
-          })}
-        </div>
+        {/* CSV import/export */}
+        <div className="flex items-center justify-end mb-4">
           <CsvImportExport portfolioId={activeId} onImportComplete={fetchPortfolio} />
         </div>
 
@@ -331,7 +332,7 @@ export default function PortfolioPage() {
             </button>
 
             {/* Select Positions to Close — only when active positions exist */}
-            {filter !== 'closed' && positions.some((p) => p.status === 'active') && (
+            {positions.some((p) => p.status === 'active') && (
               <>
               <button
                 onClick={() => { setSelectionMode(!selectionMode); if (selectionMode) { setSelectedIds(new Set()); setBulkCloseConfirm(false); } }}
@@ -394,38 +395,18 @@ export default function PortfolioPage() {
           </div>
 
           {/* Delete Portfolio — far right */}
-          {deleteConfirm === activeId ? (
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-spike-red">Delete this portfolio?</span>
-              <button
-                onClick={() => handleDeletePortfolio(activeId!)}
-                className="px-3 py-2 rounded-lg text-xs font-bold text-spike-red bg-spike-red/10 border border-spike-red/30 hover:bg-spike-red/20 transition-all"
-              >
-                Confirm Delete
-              </button>
-              <button
-                onClick={() => setDeleteConfirm(null)}
-                className="px-2 py-2 rounded-lg text-xs text-spike-text-muted hover:text-spike-text"
-              >
-                Cancel
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setDeleteConfirm(activeId)}
-              className="px-3 py-2 rounded-lg text-xs font-medium text-spike-text-dim bg-spike-bg border border-spike-border hover:border-spike-red/30 hover:text-spike-red transition-all"
-              title="Delete this portfolio and all its closed positions"
-            >
-              Delete Portfolio
-            </button>
-          )}
+          <button
+            onClick={handleOpenDeleteModal}
+            className="px-3 py-2 rounded-lg text-xs font-medium text-spike-text-dim bg-spike-bg border border-spike-border hover:border-spike-red/30 hover:text-spike-red transition-all"
+            title="Delete portfolios"
+          >
+            Delete Portfolio
+          </button>
         </div>
 
-        {/* Position cards (active) or table (closed) */}
-        {filter !== 'closed' ? (
-          <div className="space-y-3">
-            {positions.filter((p) => filter === 'all' || p.status === 'active').map((pos) => (
-              pos.status === 'active' ? (
+        {/* Active position cards */}
+        <div className="space-y-3">
+            {positions.filter((p) => p.status === 'active').map((pos) => (
                 <div key={pos.id} className={cn(
                   'glass-card p-5 transition-all',
                   selectedIds.has(pos.id) && 'ring-2 ring-spike-red/50 border-spike-red/30',
@@ -548,78 +529,17 @@ export default function PortfolioPage() {
                     </div>
                   </div>
                 </div>
-              ) : (
-                <div key={pos.id} className="glass-card p-4 opacity-70 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className="font-bold text-spike-text-dim">{pos.ticker}</span>
-                    <span className="text-xs text-spike-text-muted">{pos.name}</span>
-                    <span className="text-xs text-spike-text-muted">Closed {pos.exitDate ? new Date(pos.exitDate).toLocaleDateString('en-CA') : ''}</span>
-                    <span className="text-xs text-spike-text-muted italic capitalize">{pos.exitReason}</span>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <span className="mono text-sm text-spike-text-muted">{formatCurrency(pos.entryPrice)} → {formatCurrency(pos.exitPrice || 0)}</span>
-                    <span className={cn('mono text-sm font-bold', (pos.realizedPnlPct || 0) >= 0 ? 'text-spike-green' : 'text-spike-red')}>
-                      {formatPercent(pos.realizedPnlPct || 0)}
-                    </span>
-                    <span className={cn('mono text-sm', (pos.realizedPnl || 0) >= 0 ? 'text-spike-green' : 'text-spike-red')}>
-                      {formatCurrency(pos.realizedPnl || 0)}
-                    </span>
-                  </div>
-                </div>
-              )
             ))}
 
-            {positions.length === 0 && !loading && (
+            {positions.filter((p) => p.status === 'active').length === 0 && !loading && (
               <div className="glass-card p-12 text-center">
-                <p className="text-spike-text-dim">
-                  {filter === 'active' ? 'No active positions.' : 'No closed positions yet.'}
-                </p>
+                <p className="text-spike-text-dim">No active positions.</p>
                 <Link href="/dashboard" className="text-spike-cyan text-sm mt-3 inline-block hover:underline">
                   ← Go pick some spikes
                 </Link>
               </div>
             )}
           </div>
-        ) : (
-          <div className="glass-card overflow-hidden">
-            <table className="w-full spike-table">
-              <thead>
-                <tr className="border-b border-spike-border">
-                  {['Ticker', 'Entry', 'Exit', 'Shares', 'P&L ($)', 'P&L (%)', 'Reason', 'Held', 'Closed'].map((h) => (
-                    <th key={h} className="px-4 py-3 text-left text-[10px] text-spike-text-muted uppercase tracking-wider font-medium">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {positions.map((pos) => (
-                  <tr key={pos.id} className="border-b border-spike-border/30 hover:bg-spike-bg-hover/30 transition-colors">
-                    <td className="px-4 py-3">
-                      <div className="font-bold text-spike-text">{pos.ticker}</div>
-                      <div className="text-xs text-spike-text-dim">{pos.name}</div>
-                    </td>
-                    <td className="px-4 py-3 mono text-sm">{formatCurrency(pos.entryPrice)}</td>
-                    <td className="px-4 py-3 mono text-sm">{formatCurrency(pos.exitPrice || 0)}</td>
-                    <td className="px-4 py-3 mono text-sm">{pos.shares}</td>
-                    <td className={cn('px-4 py-3 mono text-sm font-bold', (pos.realizedPnl || 0) >= 0 ? 'text-spike-green' : 'text-spike-red')}>
-                      {(pos.realizedPnl || 0) >= 0 ? '+' : ''}{formatCurrency(pos.realizedPnl || 0)}
-                    </td>
-                    <td className={cn('px-4 py-3 mono text-sm font-bold', (pos.realizedPnlPct || 0) >= 0 ? 'text-spike-green' : 'text-spike-red')}>
-                      {formatPercent(pos.realizedPnlPct || 0)}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-spike-text-dim capitalize">{pos.exitReason || '—'}</td>
-                    <td className="px-4 py-3 mono text-xs text-spike-text-dim">{pos.daysHeld}d</td>
-                    <td className="px-4 py-3 text-xs text-spike-text-dim">
-                      {pos.exitDate ? new Date(pos.exitDate).toLocaleDateString('en-CA') : '—'}
-                    </td>
-                  </tr>
-                ))}
-                {positions.length === 0 && !loading && (
-                  <tr><td colSpan={9} className="px-4 py-12 text-center text-spike-text-dim">No closed trades yet.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
 
         <div className="legal-footer">
           <p>For educational and informational purposes only. Not financial advice. Past performance is no guarantee of future results.</p>
@@ -686,6 +606,99 @@ export default function PortfolioPage() {
                 <button onClick={() => setShowNewPortfolio(false)} className="flex-1 py-2.5 rounded-lg text-sm font-medium text-spike-text-dim border border-spike-border">Cancel</button>
                 <button onClick={handleCreatePortfolio} disabled={!newPortfolioName.trim()} className="flex-1 btn-lock-in py-2.5 disabled:opacity-50">Create</button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Delete Portfolio Modal */}
+        {showDeleteModal && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center" onClick={() => setShowDeleteModal(false)}>
+            <div className="glass-card p-6 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-lg font-bold text-spike-text">
+                  {deleteStep === 'select' ? 'Delete Portfolios' : 'Confirm Deletion'}
+                </h2>
+                <button onClick={() => setShowDeleteModal(false)} className="text-spike-text-dim hover:text-spike-text text-xl">&times;</button>
+              </div>
+
+              {deleteStep === 'select' ? (
+                <>
+                  <p className="text-sm text-spike-text-dim mb-4">Select which portfolios to delete:</p>
+                  <div className="space-y-2 mb-5">
+                    {portfolios.map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => handleToggleDeleteSelection(p.id)}
+                        className={cn(
+                          'w-full text-left p-4 rounded-xl border transition-all flex items-center justify-between',
+                          deleteSelectedIds.has(p.id)
+                            ? 'bg-spike-red/10 border-spike-red/30'
+                            : 'border-spike-border hover:border-spike-red/20 bg-spike-bg/50'
+                        )}
+                      >
+                        <div>
+                          <p className={cn('font-semibold text-sm', deleteSelectedIds.has(p.id) ? 'text-spike-red' : 'text-spike-text')}>{p.name}</p>
+                          <p className="text-xs text-spike-text-muted mt-0.5">{p.activePositions} active · {p.totalPositions} total</p>
+                        </div>
+                        <div className={cn(
+                          'w-6 h-6 rounded border-2 flex items-center justify-center transition-all',
+                          deleteSelectedIds.has(p.id)
+                            ? 'bg-spike-red border-spike-red'
+                            : 'border-spike-border'
+                        )}>
+                          {deleteSelectedIds.has(p.id) && (
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><polyline points="20 6 9 17 4 12" /></svg>
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex gap-3">
+                    <button onClick={() => setShowDeleteModal(false)} className="flex-1 py-2.5 rounded-lg text-sm font-medium text-spike-text-dim border border-spike-border">Cancel</button>
+                    <button
+                      onClick={() => setDeleteStep('confirm')}
+                      disabled={deleteSelectedIds.size === 0}
+                      className="flex-1 py-2.5 rounded-lg text-sm font-medium text-spike-red bg-spike-red/10 border border-spike-red/30 hover:bg-spike-red/20 disabled:opacity-50 transition-all"
+                    >
+                      Continue ({deleteSelectedIds.size})
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="p-4 rounded-xl bg-spike-red/10 border border-spike-red/30 mb-5">
+                    <p className="text-sm text-spike-red font-medium mb-2">This action cannot be undone.</p>
+                    <p className="text-xs text-spike-text-dim">
+                      The following portfolio{deleteSelectedIds.size > 1 ? 's' : ''} and all {deleteSelectedIds.size > 1 ? 'their' : 'its'} closed positions will be permanently deleted.
+                      {portfolios.some((p) => deleteSelectedIds.has(p.id) && p.activePositions > 0) && (
+                        <span className="text-spike-red font-medium"> Portfolios with active positions cannot be deleted — close them first.</span>
+                      )}
+                    </p>
+                  </div>
+                  <div className="space-y-2 mb-5">
+                    {portfolios.filter((p) => deleteSelectedIds.has(p.id)).map((p) => (
+                      <div key={p.id} className="flex items-center justify-between p-3 rounded-lg bg-spike-bg/50 border border-spike-border/30">
+                        <span className="text-sm font-medium text-spike-text">{p.name}</span>
+                        {p.activePositions > 0 ? (
+                          <span className="text-xs text-spike-red">{p.activePositions} active — will be blocked</span>
+                        ) : (
+                          <span className="text-xs text-spike-text-muted">will be deleted</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex gap-3">
+                    <button onClick={() => setDeleteStep('select')} className="flex-1 py-2.5 rounded-lg text-sm font-medium text-spike-text-dim border border-spike-border">Back</button>
+                    <button
+                      onClick={handleConfirmDelete}
+                      disabled={deleting}
+                      className="flex-1 py-2.5 rounded-lg text-sm font-bold text-white bg-spike-red hover:bg-spike-red/80 transition-all disabled:opacity-50"
+                    >
+                      {deleting ? 'Deleting...' : `Delete ${deleteSelectedIds.size} Portfolio${deleteSelectedIds.size > 1 ? 's' : ''}`}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}

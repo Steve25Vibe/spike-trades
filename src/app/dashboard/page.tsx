@@ -82,9 +82,6 @@ function DashboardContent() {
   const [lockInSpike, setLockInSpike] = useState<SpikeData | null>(null);
   const [bulkLockInSpikes, setBulkLockInSpikes] = useState<SpikeData[] | null>(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [showNewPortfolio, setShowNewPortfolio] = useState(false);
-  const [newPortfolioName, setNewPortfolioName] = useState('');
-  const [showChoosePortfolio, setShowChoosePortfolio] = useState(false);
   // Portfolio choice flow: pending spikes wait for portfolio selection before showing lock-in modal
   const [pendingSingleSpike, setPendingSingleSpike] = useState<SpikeData | null>(null);
   const [pendingBulkSpikes, setPendingBulkSpikes] = useState<SpikeData[] | null>(null);
@@ -203,22 +200,6 @@ function DashboardContent() {
       setSelectionMode(false);
       setTimeout(() => setLockResults(null), 5000);
       refreshPortfolios();
-    }
-  };
-
-  const handleCreatePortfolio = async () => {
-    if (!newPortfolioName.trim()) return;
-    const res = await fetch('/api/portfolios', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newPortfolioName.trim() }),
-    });
-    const json = await res.json();
-    if (json.success) {
-      setShowNewPortfolio(false);
-      setNewPortfolioName('');
-      await refreshPortfolios();
-      selectPortfolio(json.data.id);
     }
   };
 
@@ -376,23 +357,6 @@ function DashboardContent() {
                 )}
               </div>
 
-              {/* Portfolio buttons — far right */}
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setShowNewPortfolio(true)}
-                  className="px-4 py-2 rounded-lg text-sm font-medium transition-all border border-spike-cyan/30 text-spike-cyan hover:bg-spike-cyan/10"
-                  title="Create a new portfolio"
-                >
-                  + New Portfolio
-                </button>
-                <button
-                  onClick={() => setShowChoosePortfolio(true)}
-                  className="px-4 py-2 rounded-lg text-sm font-medium transition-all border border-spike-border text-spike-text-dim hover:border-spike-cyan/30 hover:text-spike-text"
-                  title="Switch to a different portfolio"
-                >
-                  Choose Portfolio
-                </button>
-              </div>
             </div>
 
             {/* Lock-in confirmation toast */}
@@ -511,67 +475,6 @@ function DashboardContent() {
           />
         )}
 
-        {/* Choose Portfolio Modal */}
-        {showChoosePortfolio && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center" onClick={() => setShowChoosePortfolio(false)}>
-            <div className="glass-card p-6 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-center justify-between mb-5">
-                <h2 className="text-lg font-bold text-spike-text">Choose Portfolio</h2>
-                <button onClick={() => setShowChoosePortfolio(false)} className="text-spike-text-dim hover:text-spike-text text-xl">&times;</button>
-              </div>
-              {portfolios.length === 0 ? (
-                <p className="text-sm text-spike-text-dim text-center py-6">No portfolios yet. Create one first.</p>
-              ) : (
-                <div className="space-y-2">
-                  {portfolios.map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => { selectPortfolio(p.id); setShowChoosePortfolio(false); }}
-                      className={cn(
-                        'w-full text-left p-4 rounded-xl border transition-all flex items-center justify-between group',
-                        p.id === activeId
-                          ? 'bg-spike-cyan/10 border-spike-cyan/30'
-                          : 'border-spike-border hover:border-spike-cyan/30 bg-spike-bg/50 hover:bg-spike-cyan/5'
-                      )}
-                    >
-                      <div>
-                        <p className={cn('font-semibold text-sm', p.id === activeId ? 'text-spike-cyan' : 'text-spike-text')}>{p.name}</p>
-                        <p className="text-xs text-spike-text-muted mt-0.5">{p.activePositions} active · {p.sizingMode}</p>
-                      </div>
-                      {p.id === activeId && (
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-spike-cyan">
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* New Portfolio Modal (from top-right selector) */}
-        {showNewPortfolio && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center" onClick={() => setShowNewPortfolio(false)}>
-            <div className="glass-card p-6 w-full max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
-              <h2 className="text-lg font-bold text-spike-text mb-4">New Portfolio</h2>
-              <input
-                type="text"
-                value={newPortfolioName}
-                onChange={(e) => setNewPortfolioName(e.target.value)}
-                placeholder="Portfolio name"
-                className="w-full bg-spike-bg/50 border border-spike-border rounded-lg px-3 py-2.5 text-spike-text focus:border-spike-cyan/50 focus:outline-none mb-4"
-                autoFocus
-                onKeyDown={(e) => { if (e.key === 'Enter') handleCreatePortfolio(); }}
-              />
-              <div className="flex gap-3">
-                <button onClick={() => setShowNewPortfolio(false)} className="flex-1 py-2.5 rounded-lg text-sm font-medium text-spike-text-dim border border-spike-border">Cancel</button>
-                <button onClick={handleCreatePortfolio} disabled={!newPortfolioName.trim()} className="flex-1 btn-lock-in py-2.5 disabled:opacity-50">Create</button>
-              </div>
-            </div>
-          </div>
-        )}
       </main>
     </div>
   );
