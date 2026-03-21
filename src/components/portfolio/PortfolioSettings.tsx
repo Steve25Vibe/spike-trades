@@ -9,6 +9,8 @@ export interface PortfolioConfig {
   mode: SizingMode;
   portfolioSize: number;    // used in 'auto' mode
   fixedAmount: number;      // used in 'fixed' mode
+  kellyMaxPct: number;      // max % per position (default 2)
+  kellyWinRate: number;     // assumed win rate 0-1 (default 0.6)
 }
 
 const STORAGE_KEY = 'spike-portfolio-config';
@@ -17,6 +19,8 @@ const DEFAULT_CONFIG: PortfolioConfig = {
   mode: 'manual',
   portfolioSize: 100000,
   fixedAmount: 2500,
+  kellyMaxPct: 2,
+  kellyWinRate: 0.6,
 };
 
 export function getPortfolioConfig(): PortfolioConfig {
@@ -138,20 +142,63 @@ export default function PortfolioSettings({ onClose }: Props) {
 
         {/* Mode-specific inputs */}
         {config.mode === 'auto' && (
-          <div className="mb-5">
-            <label className="text-xs text-spike-text-muted uppercase tracking-wider block mb-2">Total Portfolio Value</label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-spike-text-dim">$</span>
-              <input
-                type="number"
-                value={config.portfolioSize}
-                onChange={(e) => update({ portfolioSize: Number(e.target.value) || 0 })}
-                className="w-full bg-spike-bg/50 border border-spike-border rounded-lg px-3 py-2.5 pl-7 text-spike-text mono focus:border-spike-cyan/50 focus:outline-none"
-                min={0}
-                step={1000}
-              />
+          <div className="mb-5 space-y-4">
+            <div>
+              <label className="text-xs text-spike-text-muted uppercase tracking-wider block mb-2">Total Portfolio Value</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-spike-text-dim">$</span>
+                <input
+                  type="number"
+                  value={config.portfolioSize}
+                  onChange={(e) => update({ portfolioSize: Number(e.target.value) || 0 })}
+                  className="w-full bg-spike-bg/50 border border-spike-border rounded-lg px-3 py-2.5 pl-7 text-spike-text mono focus:border-spike-cyan/50 focus:outline-none"
+                  min={0}
+                  step={1000}
+                />
+              </div>
             </div>
-            <p className="text-[10px] text-spike-text-muted mt-1">Max 2% per position using Kelly Criterion</p>
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs text-spike-text-muted uppercase tracking-wider">Max Risk Per Position</label>
+                <span className="text-sm mono text-spike-cyan font-bold">{config.kellyMaxPct}%</span>
+              </div>
+              <input
+                type="range"
+                value={config.kellyMaxPct}
+                onChange={(e) => update({ kellyMaxPct: Number(e.target.value) })}
+                min={0.5}
+                max={10}
+                step={0.5}
+                className="w-full accent-spike-cyan"
+              />
+              <div className="flex justify-between text-[10px] text-spike-text-muted mt-1">
+                <span>0.5% (conservative)</span>
+                <span>10% (aggressive)</span>
+              </div>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs text-spike-text-muted uppercase tracking-wider">Assumed Win Rate</label>
+                <span className="text-sm mono text-spike-cyan font-bold">{Math.round(config.kellyWinRate * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                value={config.kellyWinRate}
+                onChange={(e) => update({ kellyWinRate: Number(e.target.value) })}
+                min={0.4}
+                max={0.85}
+                step={0.05}
+                className="w-full accent-spike-cyan"
+              />
+              <div className="flex justify-between text-[10px] text-spike-text-muted mt-1">
+                <span>40%</span>
+                <span>85%</span>
+              </div>
+            </div>
+
+            <p className="text-[10px] text-spike-text-muted">Kelly sizes each position based on win rate and the stock&apos;s volatility, capped at your max risk %.</p>
           </div>
         )}
 

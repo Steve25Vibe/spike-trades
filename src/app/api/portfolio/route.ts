@@ -158,7 +158,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { spikeId, spikeIds, portfolioSize, mode, shares: manualShares, positionSize: manualPositionSize, fixedAmount, perSpikeShares } = body;
+    const { spikeId, spikeIds, portfolioSize, mode, shares: manualShares, positionSize: manualPositionSize, fixedAmount, perSpikeShares, kellyMaxPct, kellyWinRate } = body;
 
     const idsToLock: string[] = spikeIds || (spikeId ? [spikeId] : []);
 
@@ -205,9 +205,11 @@ export async function POST(request: NextRequest) {
         shares = Math.floor(fixedAmount / spike.price);
         positionPct = totalPortfolio > 0 ? ((shares * spike.price) / totalPortfolio) * 100 : 0;
       } else {
-        // Auto mode — Kelly Criterion sizing
-        const kellyFraction = calculateKellyFraction(0.6, atrPct, atrPct * 0.5);
-        positionPct = kellyFraction * 100; // kellyFraction already capped at 2% by util
+        // Auto mode — Kelly Criterion sizing with configurable params
+        const winRate = kellyWinRate || 0.6;
+        const maxPct = (kellyMaxPct || 2) / 100;
+        const kellyFraction = calculateKellyFraction(winRate, atrPct, atrPct * 0.5);
+        positionPct = Math.min(kellyFraction, maxPct) * 100;
         const positionSize = totalPortfolio * (positionPct / 100);
         shares = Math.floor(positionSize / spike.price);
       }

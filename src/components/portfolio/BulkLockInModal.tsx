@@ -41,8 +41,10 @@ export default function BulkLockInModal({ spikes, onConfirm, onCancel }: Props) 
   const getSharesForSpike = (spike: SpikeInfo): number => {
     if (mode === 'auto') {
       const atrPct = spike.atr ? (spike.atr / spike.price) * 100 : 2;
-      const kellyRaw = (0.6 / (atrPct * 0.5)) - ((1 - 0.6) / atrPct);
-      const kelly = Math.min(Math.max(kellyRaw * 0.5, 0), 0.02);
+      const winRate = config.kellyWinRate || 0.6;
+      const maxPct = (config.kellyMaxPct || 2) / 100;
+      const kellyRaw = (winRate / (atrPct * 0.5)) - ((1 - winRate) / atrPct);
+      const kelly = Math.min(Math.max(kellyRaw * 0.5, 0), maxPct);
       const posSize = config.portfolioSize * kelly;
       return Math.floor(posSize / spike.price);
     } else if (mode === 'fixed') {
@@ -97,7 +99,9 @@ export default function BulkLockInModal({ spikes, onConfirm, onCancel }: Props) 
           spikeIds: spikes.map((s) => s.id),
           mode,
           portfolioSize: config.portfolioSize,
-        });
+          kellyMaxPct: config.kellyMaxPct,
+          kellyWinRate: config.kellyWinRate,
+        } as any);
       }
     } finally {
       setConfirming(false);

@@ -34,10 +34,12 @@ export default function LockInModal({ spike, onConfirm, onCancel }: Props) {
   let totalValue = 0;
 
   if (mode === 'auto') {
-    // Kelly-based — let the API calculate, but show estimate
+    // Kelly-based — uses configurable win rate and max risk %
     const atrPct = spike.atr ? (spike.atr / spike.price) * 100 : 2;
-    const kellyRaw = (0.6 / (atrPct * 0.5)) - ((1 - 0.6) / atrPct);
-    const kelly = Math.min(Math.max(kellyRaw, 0), 0.02);
+    const winRate = config.kellyWinRate || 0.6;
+    const maxPct = (config.kellyMaxPct || 2) / 100;
+    const kellyRaw = (winRate / (atrPct * 0.5)) - ((1 - winRate) / atrPct);
+    const kelly = Math.min(Math.max(kellyRaw * 0.5, 0), maxPct);
     const posSize = config.portfolioSize * kelly;
     shares = Math.floor(posSize / spike.price);
     totalValue = shares * spike.price;
@@ -74,7 +76,9 @@ export default function LockInModal({ spike, onConfirm, onCancel }: Props) {
         positionSize: mode === 'auto' ? undefined : totalValue,
         portfolioSize: mode === 'auto' ? config.portfolioSize : undefined,
         mode,
-      });
+        kellyMaxPct: mode === 'auto' ? config.kellyMaxPct : undefined,
+        kellyWinRate: mode === 'auto' ? config.kellyWinRate : undefined,
+      } as any);
     } finally {
       setConfirming(false);
     }
