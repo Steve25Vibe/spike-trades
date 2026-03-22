@@ -127,12 +127,14 @@ export default function SpikeCard({ spike, selected, onSelect, onLockIn, selecti
         </div>
         <div className="h-1.5 bg-spike-bg rounded-full overflow-hidden">
           <div
-            className={cn(
-              'h-full rounded-full transition-all duration-1000',
-              spike.confidence >= 80 ? 'bg-spike-green' :
-              spike.confidence >= 60 ? 'bg-spike-amber' :
-              'bg-spike-red'
-            )}
+            className="h-full rounded-full transition-all duration-1000"
+            style={{
+              background: spike.confidence >= 80
+                ? 'linear-gradient(90deg, rgba(0,255,136,0.3), #00FF88)'
+                : spike.confidence >= 60
+                ? 'linear-gradient(90deg, rgba(255,184,0,0.3), #FFB800)'
+                : 'linear-gradient(90deg, rgba(255,51,102,0.3), #FF3366)',
+            }}
             style={{ width: `${spike.confidence}%` }}
           />
         </div>
