@@ -133,6 +133,22 @@ export default function Sidebar() {
           Settings
         </Link>
 
+        {/* Logout */}
+        <button
+          onClick={logout}
+          title="Log out"
+          className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all text-spike-text-dim hover:text-spike-red hover:bg-spike-red/5 w-full text-left"
+        >
+          <span className="text-spike-text-muted">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
+          </span>
+          Logout
+        </button>
+
         {/* Admin section */}
         {role === 'admin' && (
           <>
@@ -162,26 +178,8 @@ export default function Sidebar() {
         )}
       </nav>
 
-      {/* User section + Market status */}
+      {/* Market status */}
       <div className="p-4 border-t border-spike-border space-y-3">
-        {email && (
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-spike-text-dim truncate max-w-[140px]" title={email}>
-              {email}
-            </p>
-            <button
-              onClick={logout}
-              title="Log out"
-              className="text-spike-text-muted hover:text-spike-red transition-colors"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                <polyline points="16 17 21 12 16 7" />
-                <line x1="21" y1="12" x2="9" y2="12" />
-              </svg>
-            </button>
-          </div>
-        )}
         <div className="flex items-center gap-2 text-xs text-spike-text-dim">
           <div className={marketOpen ? 'live-dot' : 'live-dot-closed'} />
           <span>{marketOpen ? 'Live — TSX Open' : 'Closed — TSX Closed'}</span>
