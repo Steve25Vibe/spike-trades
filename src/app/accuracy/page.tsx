@@ -1,8 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Sidebar from '@/components/layout/Sidebar';
-import ParticleBackground from '@/components/layout/ParticleBackground';
+import ResponsiveLayout from '@/components/layout/ResponsiveLayout';
 import { cn, formatPercent, formatCurrency } from '@/lib/utils';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -110,11 +109,7 @@ export default function AccuracyPage() {
   const outperformance = latestPerf ? latestPerf.allPicks - latestPerf.tsx : 0;
 
   return (
-    <div className="min-h-screen bg-spike-bg">
-      <ParticleBackground />
-      <Sidebar />
-
-      <main className="ml-64 p-8 relative z-10">
+    <ResponsiveLayout>
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-display font-bold text-spike-cyan tracking-wide">
             ACCURACY ENGINE
@@ -537,7 +532,6 @@ export default function AccuracyPage() {
           </p>
           <p className="mt-2">&copy; {new Date().getFullYear()} Spike Trades — spiketrades.ca &middot; Ver 2.0</p>
         </div>
-      </main>
-    </div>
+    </ResponsiveLayout>
   );
 }

@@ -2,8 +2,7 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import Sidebar from '@/components/layout/Sidebar';
-import ParticleBackground from '@/components/layout/ParticleBackground';
+import ResponsiveLayout from '@/components/layout/ResponsiveLayout';
 import MarketHeader from '@/components/layout/MarketHeader';
 import SpikeCard from '@/components/spikes/SpikeCard';
 import LockInModal from '@/components/portfolio/LockInModal';
@@ -240,11 +239,7 @@ function DashboardContent() {
   });
 
   return (
-    <div className="min-h-screen bg-spike-bg">
-      <ParticleBackground />
-      <Sidebar />
-
-      <main className="ml-64 p-8 relative z-10">
+    <ResponsiveLayout>
         {loading ? (
           <div className="flex items-center justify-center h-[60vh]">
             <div className="text-center">
@@ -475,7 +470,6 @@ function DashboardContent() {
           />
         )}
 
-      </main>
-    </div>
+    </ResponsiveLayout>
   );
 }

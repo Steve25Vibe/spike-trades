@@ -2,8 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import Sidebar from '@/components/layout/Sidebar';
-import ParticleBackground from '@/components/layout/ParticleBackground';
+import ResponsiveLayout from '@/components/layout/ResponsiveLayout';
 import { cn, formatCurrency, formatPercent } from '@/lib/utils';
 import CsvImportExport from '@/components/portfolio/CsvImportExport';
 import { usePortfolios, setActivePortfolioId } from '@/components/portfolio/usePortfolios';
@@ -313,11 +312,7 @@ export default function PortfolioPage() {
   const activePortfolio = portfolios.find((p) => p.id === activeId);
 
   return (
-    <div className="min-h-screen bg-spike-bg">
-      <ParticleBackground />
-      <Sidebar />
-
-      <main className="ml-64 p-8 relative z-10">
+    <ResponsiveLayout>
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-display font-bold text-spike-cyan tracking-wide">
             {activePortfolio ? activePortfolio.name : 'Portfolios'}
@@ -933,7 +928,6 @@ export default function PortfolioPage() {
             </div>
           </div>
         )}
-      </main>
-    </div>
+    </ResponsiveLayout>
   );
 }

@@ -2,8 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import Sidebar from '@/components/layout/Sidebar';
-import ParticleBackground from '@/components/layout/ParticleBackground';
+import ResponsiveLayout from '@/components/layout/ResponsiveLayout';
 import { cn } from '@/lib/utils';
 
 interface Report {
@@ -50,11 +49,7 @@ export default function ReportsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-spike-bg">
-      <ParticleBackground />
-      <Sidebar />
-
-      <main className="ml-64 p-8 relative z-10">
+    <ResponsiveLayout>
         <h2 className="text-2xl font-display font-bold text-spike-cyan tracking-wide mb-6">
           REPORT ARCHIVES
         </h2>
@@ -142,7 +137,6 @@ export default function ReportsPage() {
           <p>For educational and informational purposes only. Not financial advice. Past performance is no guarantee of future results.</p>
           <p className="mt-2">&copy; {new Date().getFullYear()} Spike Trades — spiketrades.ca &middot; Ver 2.0</p>
         </div>
-      </main>
-    </div>
+    </ResponsiveLayout>
   );
 }

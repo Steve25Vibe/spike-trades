@@ -3,8 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import Sidebar from '@/components/layout/Sidebar';
-import ParticleBackground from '@/components/layout/ParticleBackground';
+import ResponsiveLayout from '@/components/layout/ResponsiveLayout';
 import LockInModal from '@/components/portfolio/LockInModal';
 import PortfolioChoiceModal from '@/components/portfolio/PortfolioChoiceModal';
 import { type SizingMode } from '@/components/portfolio/PortfolioSettings';
@@ -213,11 +212,8 @@ export default function AnalysisPage() {
   }));
 
   return (
-    <div className="min-h-screen bg-spike-bg">
-      <ParticleBackground />
-      <Sidebar />
-
-      <main className="ml-64 p-8 relative z-10 max-w-6xl">
+    <ResponsiveLayout>
+      <div className="max-w-6xl">
         {/* Back link */}
         <Link
           href="/dashboard"
@@ -578,7 +574,7 @@ export default function AnalysisPage() {
             onCancel={() => { setShowLockInModal(false); setChosenPortfolioId(null); }}
           />
         )}
-      </main>
-    </div>
+      </div>
+    </ResponsiveLayout>
   );
 }

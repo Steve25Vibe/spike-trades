@@ -1,8 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Sidebar from '@/components/layout/Sidebar';
-import ParticleBackground from '@/components/layout/ParticleBackground';
+import ResponsiveLayout from '@/components/layout/ResponsiveLayout';
 import { cn } from '@/lib/utils';
 
 type Tab = 'users' | 'invitations' | 'activity';
@@ -143,10 +142,7 @@ export default function AdminPage() {
   };
 
   return (
-    <div className="min-h-screen bg-spike-bg">
-      <ParticleBackground />
-      <Sidebar />
-      <main className="ml-64 p-8 relative z-10">
+    <ResponsiveLayout>
         <h2 className="text-2xl font-display font-bold text-spike-cyan tracking-wide mb-6">
           ADMIN PANEL
         </h2>
@@ -364,7 +360,6 @@ export default function AdminPage() {
         <div className="legal-footer">
           <p className="mt-2">&copy; {new Date().getFullYear()} Spike Trades — spiketrades.ca &middot; Ver 2.0</p>
         </div>
-      </main>
-    </div>
+    </ResponsiveLayout>
   );
 }
