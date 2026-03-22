@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import ParticleBackground from '@/components/layout/ParticleBackground';
 
 export default function ChangePasswordPage() {
   const [currentPassword, setCurrentPassword] = useState('');
@@ -43,6 +44,7 @@ export default function ChangePasswordPage() {
 
   return (
     <div className="min-h-screen bg-spike-bg flex items-center justify-center px-4 relative overflow-hidden">
+      <ParticleBackground />
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(0,240,255,0.05)_0%,transparent_70%)]" />
 
       <div className="relative z-10 w-full max-w-md">

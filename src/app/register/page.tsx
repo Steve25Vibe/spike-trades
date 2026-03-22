@@ -3,6 +3,7 @@
 import { useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import ParticleBackground from '@/components/layout/ParticleBackground';
 
 export default function RegisterPage() {
   return (
@@ -75,6 +76,7 @@ function RegisterForm() {
 
   return (
     <div className="min-h-screen bg-spike-bg flex items-center justify-center px-4 relative overflow-hidden">
+      <ParticleBackground />
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(0,240,255,0.05)_0%,transparent_70%)]" />
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_80%_20%,rgba(168,85,247,0.05)_0%,transparent_50%)]" />
       <div className="absolute inset-0 opacity-[0.03]"

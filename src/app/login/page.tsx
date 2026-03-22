@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import ParticleBackground from '@/components/layout/ParticleBackground';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -44,6 +45,7 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-spike-bg flex items-center justify-center px-4 relative overflow-hidden">
+      <ParticleBackground />
       {/* Background effects */}
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(0,240,255,0.05)_0%,transparent_70%)]" />
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_80%_20%,rgba(168,85,247,0.05)_0%,transparent_50%)]" />
