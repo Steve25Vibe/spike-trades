@@ -112,8 +112,8 @@ export default function SpikeCard({ spike, selected, onSelect, onLockIn, selecti
         ].map((pred) => (
           <div key={pred.label} className="bg-spike-bg/50 rounded-lg p-3 text-center">
             <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">{pred.label}</p>
-            <p className={cn('text-lg font-bold mono', pred.color)}>
-              {formatPercent(pred.value)}
+            <p className={cn('text-lg font-bold mono', pred.value ? pred.color : 'text-spike-text-muted')}>
+              {pred.value ? formatPercent(pred.value) : '--'}
             </p>
           </div>
         ))}

@@ -279,13 +279,17 @@ export default function AnalysisPage() {
             ].map((p) => (
               <div key={p.label} className="bg-spike-bg/50 rounded-xl p-4 text-center">
                 <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">{p.label}</p>
-                <p className={`text-2xl font-bold mono text-${p.color}`}>{formatPercent(p.value)}</p>
+                <p className={`text-2xl font-bold mono ${p.value ? `text-${p.color}` : 'text-spike-text-muted'}`}>{p.value ? formatPercent(p.value) : '--'}</p>
                 {p.actual !== null && p.actual !== undefined && (
                   <p className={cn('text-xs mono mt-1', p.actual >= 0 ? 'text-spike-green' : 'text-spike-red')}>
                     Actual: {formatPercent(p.actual)}
                   </p>
                 )}
-                <p className="text-[10px] text-spike-text-muted mt-1">{formatCurrency(spike.price * (1 + p.value / 100))} target</p>
+                {p.value ? (
+                  <p className="text-[10px] text-spike-text-muted mt-1">{formatCurrency(spike.price * (1 + p.value / 100))} target</p>
+                ) : (
+                  <p className="text-[10px] text-spike-text-muted mt-1">Not available</p>
+                )}
               </div>
             ))}
           </div>
