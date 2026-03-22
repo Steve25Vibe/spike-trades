@@ -29,8 +29,8 @@ interface Props {
 export default function LockInModal({ spike, portfolios, activePortfolioId, onConfirm, onCancel }: Props) {
   const [selectedPortfolioId, setSelectedPortfolioId] = useState(activePortfolioId || portfolios[0]?.id || '');
   const selectedPortfolio = portfolios.find((p) => p.id === selectedPortfolioId) || null;
-  // Use portfolio DB settings if available, otherwise fall back to localStorage (gear settings)
-  const config = selectedPortfolio ? configFromPortfolio(selectedPortfolio) : getLocalConfig();
+  // Always use gear settings (localStorage) — the gear is the single source of truth for sizing
+  const config = getLocalConfig();
   const mode = config.mode;
 
   const [manualInput, setManualInput] = useState('');

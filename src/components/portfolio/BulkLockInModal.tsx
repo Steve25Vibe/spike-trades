@@ -36,7 +36,8 @@ interface Props {
 export default function BulkLockInModal({ spikes, portfolios, activePortfolioId, onConfirm, onCancel }: Props) {
   const [selectedPortfolioId, setSelectedPortfolioId] = useState(activePortfolioId || portfolios[0]?.id || '');
   const selectedPortfolio = portfolios.find((p) => p.id === selectedPortfolioId) || null;
-  const config = selectedPortfolio ? configFromPortfolio(selectedPortfolio) : getLocalConfig();
+  // Always use gear settings (localStorage) — the gear is the single source of truth for sizing
+  const config = getLocalConfig();
   const mode = config.mode;
 
   const [fixedPerSpike, setFixedPerSpike] = useState(
