@@ -16,6 +16,14 @@ import {
 } from 'recharts';
 
 // Plain-language labels for each scoring factor
+// Max weight contribution per factor (weight × 100), shown as "Max X" in the UI
+// Uses bull regime as reference; actual weights vary by market regime
+const FACTOR_MAX_WEIGHTS: Record<string, number> = {
+  momentum: 15, volumeSurge: 11, technical: 11, macroSensitivity: 8,
+  sentiment: 7, shortInterest: 5, volatilityAdj: 8, sectorRotation: 7,
+  patternMatch: 8, liquidityDepth: 7, insiderSignal: 7, gapPotential: 6,
+};
+
 const FACTOR_EXPLANATIONS: Record<string, { label: string; plain: string }> = {
   momentum: {
     label: 'Momentum',
@@ -301,65 +309,38 @@ export default function AnalysisPage() {
             </div>
           )}
 
-          {/* Key reasons in bullet format */}
-          <div className="space-y-4">
-            <h3 className="text-sm font-semibold text-spike-text uppercase tracking-wider">Key Factors Driving This Pick</h3>
+          {/* Weighted Analysis — all 12 factors with max weights and color coding */}
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-spike-text uppercase tracking-wider">Weighted Analysis</h3>
+            <p className="text-xs text-spike-text-muted mb-2">Each factor is scored out of 100 and weighted toward the overall Spike Score. Green indicates strong performance (80%+), red indicates below threshold.</p>
 
             {Object.entries(spike.scoreBreakdown)
-              .filter(([_, v]) => v !== null && v !== undefined && (v as number) >= 60)
+              .filter(([_, v]) => v !== null && v !== undefined)
               .sort(([, a], [, b]) => (b as number) - (a as number))
               .map(([key, value]) => {
                 const info = FACTOR_EXPLANATIONS[key];
                 if (!info) return null;
                 const score = value as number;
+                const maxWeight = FACTOR_MAX_WEIGHTS[key] || 10;
+                const isStrong = score >= 80;
                 return (
                   <div key={key} className="flex gap-4 items-start">
                     <div className={cn(
                       'w-12 h-12 rounded-xl flex items-center justify-center font-bold text-sm mono flex-shrink-0',
-                      score >= 80 ? 'bg-spike-green/10 text-spike-green' :
-                      score >= 60 ? 'bg-spike-cyan/10 text-spike-cyan' :
-                      'bg-spike-amber/10 text-spike-amber'
+                      isStrong ? 'bg-spike-green/10 text-spike-green' : 'bg-spike-red/10 text-spike-red'
                     )}>
                       {score.toFixed(0)}
                     </div>
-                    <div>
-                      <p className="font-semibold text-spike-text text-sm">{info.label}</p>
+                    <div className="flex-1 min-w-0">
+                      <p className={cn('font-semibold text-sm', isStrong ? 'text-spike-green' : 'text-spike-red')}>
+                        {info.label} <span className="text-spike-text-muted font-normal text-xs">(Max {maxWeight})</span>
+                      </p>
                       <p className="text-spike-text-dim text-sm leading-relaxed mt-0.5">{info.plain}</p>
                     </div>
                   </div>
                 );
               })}
           </div>
-
-          {/* Weak factors / risks */}
-          {Object.entries(spike.scoreBreakdown).filter(([_, v]) => v !== null && (v as number) < 40).length > 0 && (
-            <div className="mt-6 pt-5 border-t border-spike-border/30">
-              <h3 className="text-sm font-semibold text-spike-red uppercase tracking-wider mb-3 flex items-center gap-2">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                  <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
-                </svg>
-                Areas of Caution
-              </h3>
-              {Object.entries(spike.scoreBreakdown)
-                .filter(([_, v]) => v !== null && (v as number) < 40)
-                .map(([key, value]) => {
-                  const info = FACTOR_EXPLANATIONS[key];
-                  if (!info) return null;
-                  return (
-                    <div key={key} className="flex gap-3 items-start mb-3">
-                      <div className="w-10 h-10 rounded-lg flex items-center justify-center font-bold text-xs mono bg-spike-red/10 text-spike-red flex-shrink-0">
-                        {(value as number).toFixed(0)}
-                      </div>
-                      <div>
-                        <p className="font-semibold text-spike-text text-sm">{info.label}</p>
-                        <p className="text-spike-text-dim text-sm">{info.plain}</p>
-                      </div>
-                    </div>
-                  );
-                })}
-            </div>
-          )}
         </div>
 
         {/* ===== SCORE BREAKDOWN RADAR + TECHNICALS ===== */}
