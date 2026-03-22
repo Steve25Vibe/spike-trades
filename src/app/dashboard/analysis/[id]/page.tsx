@@ -309,30 +309,51 @@ export default function AnalysisPage() {
             </div>
           )}
 
-          {/* Weighted Analysis — all 12 factors with max weights and color coding */}
+          {/* Weighted Analysis — all 12 factors scored as weighted contributions (Max 100) */}
           <div className="space-y-3">
-            <h3 className="text-sm font-semibold text-spike-text uppercase tracking-wider">Weighted Analysis</h3>
-            <p className="text-xs text-spike-text-muted mb-2">Each factor is scored out of 100 and weighted toward the overall Spike Score. Green indicates strong performance (80%+), red indicates below threshold.</p>
+            <h3 className="text-sm font-semibold text-spike-text uppercase tracking-wider">Weighted Analysis <span className="text-spike-text-muted font-normal text-xs">(Max 100)</span></h3>
+            <p className="text-xs text-spike-text-muted mb-2">Each factor&apos;s raw score is weighted toward the overall Spike Score. Green = 80%+ of max, yellow = 60–79%, red = below 60%.</p>
 
             {Object.entries(spike.scoreBreakdown)
               .filter(([_, v]) => v !== null && v !== undefined)
-              .sort(([, a], [, b]) => (b as number) - (a as number))
               .map(([key, value]) => {
                 const info = FACTOR_EXPLANATIONS[key];
                 if (!info) return null;
-                const score = value as number;
+                const rawScore = value as number;
                 const maxWeight = FACTOR_MAX_WEIGHTS[key] || 10;
-                const isStrong = score >= 80;
+                // Weighted contribution: raw score (0-100) × weight fraction
+                const weighted = (rawScore / 100) * maxWeight;
+                const pctOfMax = maxWeight > 0 ? (weighted / maxWeight) * 100 : 0;
+
+                let colorClass: string;
+                let bgClass: string;
+                if (pctOfMax >= 80) {
+                  colorClass = 'text-spike-green';
+                  bgClass = 'bg-spike-green/10 text-spike-green';
+                } else if (pctOfMax >= 60) {
+                  colorClass = 'text-spike-amber';
+                  bgClass = 'bg-spike-amber/10 text-spike-amber';
+                } else {
+                  colorClass = 'text-spike-red';
+                  bgClass = 'bg-spike-red/10 text-spike-red';
+                }
+
+                return { key, info, weighted, maxWeight, colorClass, bgClass };
+              })
+              .filter(Boolean)
+              .sort((a, b) => b!.weighted - a!.weighted)
+              .map((item) => {
+                const { key, info, weighted, maxWeight, colorClass, bgClass } = item!;
                 return (
                   <div key={key} className="flex gap-4 items-start">
                     <div className={cn(
                       'w-12 h-12 rounded-xl flex items-center justify-center font-bold text-sm mono flex-shrink-0',
-                      isStrong ? 'bg-spike-green/10 text-spike-green' : 'bg-spike-red/10 text-spike-red'
+                      bgClass
                     )}>
-                      {score.toFixed(0)}
+                      {weighted.toFixed(1)}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className={cn('font-semibold text-sm', isStrong ? 'text-spike-green' : 'text-spike-red')}>
+                      <p className={cn('font-semibold text-sm', colorClass)}>
                         {info.label} <span className="text-spike-text-muted font-normal text-xs">(Max {maxWeight})</span>
                       </p>
                       <p className="text-spike-text-dim text-sm leading-relaxed mt-0.5">{info.plain}</p>
