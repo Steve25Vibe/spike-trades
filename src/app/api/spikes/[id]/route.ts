@@ -185,7 +185,7 @@ export async function GET(
           technicals: 'Calculated in-house from historical OHLCV data (RSI-14, MACD 12/26/9, ADX-14, Bollinger 20/2, EMA 3/8/21)',
           sentiment: 'Finnhub News Sentiment API + FMP Stock News',
           shortInterest: 'Finnhub Short Interest Data',
-          commodities: 'FMP Commodities & FX — WTI Crude, Gold, CAD/USD',
+          commodities: 'FMP Commodities & FX — USO Oil, Gold, CAD/USD',
           analysis: 'Spike Trades 4-Stage LLM Council — Sonnet (screen) → Gemini (re-score) → Opus (challenge) → Grok (final verdict)',
         },
       },
