@@ -45,14 +45,8 @@ export function usePortfolios() {
         const list: PortfolioInfo[] = json.data;
         setPortfolios(list);
 
-        // Resolve active portfolio
-        const storedId = getActivePortfolioId();
-        const exists = list.some((p) => p.id === storedId);
-
-        if (exists && storedId) {
-          setActiveId(storedId);
-        } else if (list.length > 0) {
-          // Stored one was deleted or never set — pick first
+        // Always default to most recently created portfolio (first in list, ordered by createdAt desc)
+        if (list.length > 0) {
           setActiveId(list[0].id);
           setActivePortfolioId(list[0].id);
         } else {

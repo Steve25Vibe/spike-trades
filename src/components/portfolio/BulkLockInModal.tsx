@@ -41,7 +41,7 @@ export default function BulkLockInModal({ spikes, portfolios, activePortfolioId,
   const mode = config.mode;
 
   const [fixedPerSpike, setFixedPerSpike] = useState(
-    config.fixedAmount.toString()
+    Math.floor(config.fixedAmount / spikes.length).toString()
   );
   const [manualInputs, setManualInputs] = useState<Record<string, string>>(
     () => Object.fromEntries(spikes.map((s) => [s.id, '']))
