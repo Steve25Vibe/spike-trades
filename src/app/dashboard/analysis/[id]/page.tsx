@@ -305,8 +305,8 @@ export default function AnalysisPage() {
             {Object.entries(COUNCIL_FACTORS)
               .map(([key, maxWeight]) => {
                 const info = FACTOR_EXPLANATIONS[key];
-                const score = spike.scoreBreakdown[key] as number | null | undefined;
-                if (!info || score === null || score === undefined) return null;
+                if (!info) return null;
+                const score = (spike.scoreBreakdown[key] as number | null | undefined) ?? 0;
 
                 const pctOfMax = maxWeight > 0 ? (score / maxWeight) * 100 : 0;
 
