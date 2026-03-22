@@ -72,16 +72,16 @@ export default function SpikeCard({ spike, selected, onSelect, onLockIn, selecti
 
         {/* Main info */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <a href={`https://finance.yahoo.com/quote/${spike.ticker}`} target="_blank" rel="noopener noreferrer" title={`View ${spike.ticker} on Yahoo Finance`} className="text-lg font-bold text-spike-text hover:text-spike-cyan transition-colors truncate">{spike.ticker}</a>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-spike-border/50 text-spike-text-dim">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <a href={`https://finance.yahoo.com/quote/${spike.ticker}`} target="_blank" rel="noopener noreferrer" title={`View ${spike.ticker} on Yahoo Finance`} className="text-lg font-bold text-spike-text hover:text-spike-cyan transition-colors">{spike.ticker}</a>
+            <span className="text-xs px-2 py-0.5 rounded-full bg-spike-border/50 text-spike-text-dim flex-shrink-0">
               {spike.exchange}
             </span>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-spike-violet/10 text-spike-violet">
+            <span className="text-xs px-2 py-0.5 rounded-full bg-spike-violet/10 text-spike-violet flex-shrink-0">
               {spike.sector}
             </span>
           </div>
-          <p className="text-sm text-spike-text-dim truncate">{spike.name}</p>
+          <p className="text-sm text-spike-text-dim line-clamp-2">{spike.name}</p>
 
           {/* Price */}
           <div className="flex items-baseline gap-3 mt-2">
@@ -156,14 +156,14 @@ export default function SpikeCard({ spike, selected, onSelect, onLockIn, selecti
       )}
 
       {/* Actions row */}
-      <div className="flex items-center justify-between mt-4 pt-3 border-t border-spike-border/30">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mt-4 pt-3 border-t border-spike-border/30 gap-3">
         <div className="flex gap-4 text-xs text-spike-text-muted mono">
           <span>Vol: {formatVolume(spike.technicals?.obv || 0)}</span>
           <span>RSI: {spike.technicals?.rsi?.toFixed(0) || '--'}</span>
           <span>ADX: {spike.technicals?.adx?.toFixed(0) || '--'}</span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-shrink-0">
           {/* View Full Analysis link */}
           <Link
             href={`/dashboard/analysis/${spike.id}`}
