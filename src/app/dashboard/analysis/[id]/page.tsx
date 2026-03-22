@@ -248,27 +248,12 @@ export default function AnalysisPage() {
               </div>
             </div>
 
+            {/* Score badge */}
             <div className="text-right">
-              {data.portfolio.locked ? (
-                <div className="glass-card p-4 border-spike-green/30">
-                  <p className="text-spike-green font-bold text-sm flex items-center gap-2">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 6 9 17 4 12" /></svg>
-                    Locked In
-                  </p>
-                  <p className="text-xs text-spike-text-dim mono mt-1">
-                    {data.portfolio.shares} shares @ {formatCurrency(data.portfolio.entryPrice || 0)}
-                  </p>
-                </div>
-              ) : (
-                <button
-                  onClick={handleLockIn}
-                  disabled={locking}
-                  className="btn-lock-in text-base px-8 py-3 disabled:opacity-50"
-                  title="Add this stock to your portfolio"
-                >
-                  {locking ? 'Locking...' : '⚡ Lock In This Spike'}
-                </button>
-              )}
+              <div className="glass-card p-4">
+                <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">Spike Score</p>
+                <p className="text-3xl font-bold mono text-spike-cyan">{spike.spikeScore.toFixed(1)}</p>
+              </div>
             </div>
           </div>
 
