@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { cn, formatCurrency } from '@/lib/utils';
 import type { SizingMode } from './PortfolioSettings';
-import { configFromPortfolio } from './PortfolioSettings';
+import { configFromPortfolio, getLocalConfig } from './PortfolioSettings';
 import PortfolioSelector from './PortfolioSelector';
 import type { PortfolioInfo } from './usePortfolios';
 
@@ -36,7 +36,7 @@ interface Props {
 export default function BulkLockInModal({ spikes, portfolios, activePortfolioId, onConfirm, onCancel }: Props) {
   const [selectedPortfolioId, setSelectedPortfolioId] = useState(activePortfolioId || portfolios[0]?.id || '');
   const selectedPortfolio = portfolios.find((p) => p.id === selectedPortfolioId) || null;
-  const config = configFromPortfolio(selectedPortfolio);
+  const config = selectedPortfolio ? configFromPortfolio(selectedPortfolio) : getLocalConfig();
   const mode = config.mode;
 
   const [fixedPerSpike, setFixedPerSpike] = useState(

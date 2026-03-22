@@ -25,7 +25,7 @@ const DEFAULT_CONFIG: PortfolioConfig = {
 const LOCAL_CONFIG_KEY = 'spike-sizing-config';
 
 /** Read saved config from localStorage (fallback when no portfolio) */
-function getLocalConfig(): PortfolioConfig {
+export function getLocalConfig(): PortfolioConfig {
   if (typeof window === 'undefined') return DEFAULT_CONFIG;
   try {
     const stored = localStorage.getItem(LOCAL_CONFIG_KEY);

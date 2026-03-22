@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { cn, formatCurrency } from '@/lib/utils';
 import type { SizingMode } from './PortfolioSettings';
-import { configFromPortfolio, type PortfolioConfig } from './PortfolioSettings';
+import { configFromPortfolio, getLocalConfig, type PortfolioConfig } from './PortfolioSettings';
 import PortfolioSelector from './PortfolioSelector';
 import type { PortfolioInfo } from './usePortfolios';
 
@@ -29,7 +29,8 @@ interface Props {
 export default function LockInModal({ spike, portfolios, activePortfolioId, onConfirm, onCancel }: Props) {
   const [selectedPortfolioId, setSelectedPortfolioId] = useState(activePortfolioId || portfolios[0]?.id || '');
   const selectedPortfolio = portfolios.find((p) => p.id === selectedPortfolioId) || null;
-  const config = configFromPortfolio(selectedPortfolio);
+  // Use portfolio DB settings if available, otherwise fall back to localStorage (gear settings)
+  const config = selectedPortfolio ? configFromPortfolio(selectedPortfolio) : getLocalConfig();
   const mode = config.mode;
 
   const [manualInput, setManualInput] = useState('');

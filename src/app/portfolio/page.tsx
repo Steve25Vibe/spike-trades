@@ -7,6 +7,7 @@ import ParticleBackground from '@/components/layout/ParticleBackground';
 import { cn, formatCurrency, formatPercent } from '@/lib/utils';
 import CsvImportExport from '@/components/portfolio/CsvImportExport';
 import { usePortfolios, setActivePortfolioId } from '@/components/portfolio/usePortfolios';
+import { getLocalConfig } from '@/components/portfolio/PortfolioSettings';
 
 interface Position {
   id: string;
@@ -187,10 +188,18 @@ export default function PortfolioPage() {
 
   const handleCreatePortfolio = async () => {
     if (!newPortfolioName.trim()) return;
+    const savedConfig = getLocalConfig();
     const res = await fetch('/api/portfolios', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newPortfolioName.trim() }),
+      body: JSON.stringify({
+        name: newPortfolioName.trim(),
+        sizingMode: savedConfig.mode,
+        portfolioSize: savedConfig.portfolioSize,
+        fixedAmount: savedConfig.fixedAmount,
+        kellyMaxPct: savedConfig.kellyMaxPct,
+        kellyWinRate: savedConfig.kellyWinRate,
+      }),
     });
     const json = await res.json();
     if (json.success) {
