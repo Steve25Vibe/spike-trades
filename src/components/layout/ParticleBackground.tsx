@@ -61,7 +61,7 @@ export default function ParticleBackground() {
           y: Math.random() * c.height,
           size: Math.random() * 1.8 + 0.3,
           baseOpacity: Math.random() * 0.5 + 0.15,
-          twinkleSpeed: Math.random() * 0.008 + 0.002,
+          twinkleSpeed: Math.random() * 0.004 + 0.001,
           twinkleOffset: Math.random() * Math.PI * 2,
         });
       }
