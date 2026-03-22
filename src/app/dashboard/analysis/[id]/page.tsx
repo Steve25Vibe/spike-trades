@@ -18,10 +18,15 @@ import {
 // Plain-language labels for each scoring factor
 // Max weight contribution per factor (weight × 100), shown as "Max X" in the UI
 // Uses bull regime as reference; actual weights vary by market regime
+// Max values from the Python council's ScoreBreakdown rubric (sums to 100)
 const FACTOR_MAX_WEIGHTS: Record<string, number> = {
-  momentum: 15, volumeSurge: 11, technical: 11, macroSensitivity: 8,
-  sentiment: 7, shortInterest: 5, volatilityAdj: 8, sectorRotation: 7,
-  patternMatch: 8, liquidityDepth: 7, insiderSignal: 7, gapPotential: 6,
+  momentum: 30,         // technical_momentum (0-30)
+  sentiment: 25,        // sentiment_catalysts (0-25)
+  macroSensitivity: 20, // options_volatility (0-20)
+  patternMatch: 15,     // risk_reward (0-15)
+  // volumeSurge & volatilityAdj are computed, not rubric-scored — shown without max
+  // technical is duplicate of momentum — hidden
+  // shortInterest, sectorRotation, liquidityDepth, insiderSignal, gapPotential — typically null
 };
 
 const FACTOR_EXPLANATIONS: Record<string, { label: string; plain: string }> = {
@@ -309,52 +314,57 @@ export default function AnalysisPage() {
             </div>
           )}
 
-          {/* Weighted Analysis — all 12 factors scored as weighted contributions (Max 100) */}
+          {/* Weighted Analysis — council rubric scores (Max 100) */}
           <div className="space-y-3">
             <h3 className="text-sm font-semibold text-spike-text uppercase tracking-wider">Weighted Analysis <span className="text-spike-text-muted font-normal text-xs">(Max 100)</span></h3>
-            <p className="text-xs text-spike-text-muted mb-2">Each factor&apos;s raw score is weighted toward the overall Spike Score. Green = 80%+ of max, yellow = 60–79%, red = below 60%.</p>
+            <p className="text-xs text-spike-text-muted mb-2">Each factor is scored by the AI council and contributes to the overall Spike Score. Green = 80%+ of max, yellow = 60–79%, red = below 60%.</p>
 
             {Object.entries(spike.scoreBreakdown)
-              .filter(([_, v]) => v !== null && v !== undefined)
+              .filter(([key, v]) => v !== null && v !== undefined && key !== 'technical') // skip technical (duplicate of momentum)
               .map(([key, value]) => {
                 const info = FACTOR_EXPLANATIONS[key];
                 if (!info) return null;
-                const rawScore = value as number;
-                const maxWeight = FACTOR_MAX_WEIGHTS[key] || 10;
-                // Weighted contribution: raw score (0-100) × weight fraction
-                const weighted = (rawScore / 100) * maxWeight;
-                const pctOfMax = maxWeight > 0 ? (weighted / maxWeight) * 100 : 0;
+                const score = value as number;
+                const maxWeight = FACTOR_MAX_WEIGHTS[key];
+                const hasMax = maxWeight !== undefined;
+                const pctOfMax = hasMax && maxWeight > 0 ? (score / maxWeight) * 100 : null;
 
                 let colorClass: string;
                 let bgClass: string;
-                if (pctOfMax >= 80) {
-                  colorClass = 'text-spike-green';
-                  bgClass = 'bg-spike-green/10 text-spike-green';
-                } else if (pctOfMax >= 60) {
-                  colorClass = 'text-spike-amber';
-                  bgClass = 'bg-spike-amber/10 text-spike-amber';
+                if (pctOfMax !== null) {
+                  if (pctOfMax >= 80) {
+                    colorClass = 'text-spike-green';
+                    bgClass = 'bg-spike-green/10 text-spike-green';
+                  } else if (pctOfMax >= 60) {
+                    colorClass = 'text-spike-amber';
+                    bgClass = 'bg-spike-amber/10 text-spike-amber';
+                  } else {
+                    colorClass = 'text-spike-red';
+                    bgClass = 'bg-spike-red/10 text-spike-red';
+                  }
                 } else {
-                  colorClass = 'text-spike-red';
-                  bgClass = 'bg-spike-red/10 text-spike-red';
+                  // No max defined (computed factors like volumeSurge, volatilityAdj)
+                  colorClass = 'text-spike-cyan';
+                  bgClass = 'bg-spike-cyan/10 text-spike-cyan';
                 }
 
-                return { key, info, weighted, maxWeight, colorClass, bgClass };
+                return { key, info, score, maxWeight: hasMax ? maxWeight : null, colorClass, bgClass };
               })
               .filter(Boolean)
-              .sort((a, b) => b!.weighted - a!.weighted)
+              .sort((a, b) => (b!.score) - (a!.score))
               .map((item) => {
-                const { key, info, weighted, maxWeight, colorClass, bgClass } = item!;
+                const { key, info, score, maxWeight, colorClass, bgClass } = item!;
                 return (
                   <div key={key} className="flex gap-4 items-start">
                     <div className={cn(
                       'w-12 h-12 rounded-xl flex items-center justify-center font-bold text-sm mono flex-shrink-0',
                       bgClass
                     )}>
-                      {weighted.toFixed(1)}
+                      {score % 1 === 0 ? score.toFixed(0) : score.toFixed(1)}
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className={cn('font-semibold text-sm', colorClass)}>
-                        {info.label} <span className="text-spike-text-muted font-normal text-xs">(Max {maxWeight})</span>
+                        {info.label} {maxWeight !== null && <span className="text-spike-text-muted font-normal text-xs">(Max {maxWeight})</span>}
                       </p>
                       <p className="text-spike-text-dim text-sm leading-relaxed mt-0.5">{info.plain}</p>
                     </div>
