@@ -167,10 +167,14 @@ def _map_to_prisma(council_output: dict) -> dict:
             narrative_parts.append(f"Worst case: {pick['worst_case_scenario']}")
         narrative = " | ".join(narrative_parts) if narrative_parts else ""
 
-        # Map the 4-stage scores to 12-factor breakdown
-        # The Python brain uses a 5-category rubric per stage;
-        # we map the Stage 4 (final authority) scores as the primary breakdown
-        s4 = pick.get("stage_scores", {}).get("stage4", {})
+        # Map rubric scores — use the best available stage (prefer 4 > 3 > 2 > 1)
+        # Not all stocks appear in every stage; fall back to earlier stages
+        stage_scores = pick.get("stage_scores", {})
+        best_stage = {}
+        for stage_key in ["stage1", "stage2", "stage3", "stage4"]:
+            s = stage_scores.get(stage_key, {})
+            if s and s.get("total", 0) > 0:
+                best_stage = s  # later stages overwrite earlier ones
         consensus = pick.get("consensus_score", 0)
 
         mapped_spikes.append({
@@ -184,21 +188,20 @@ def _map_to_prisma(council_output: dict) -> dict:
             "avgVolume": int(technicals.get("volume_sma_20", 0)),
             "marketCap": None,  # Not in brain output; frontend handles
             "spikeScore": consensus,
-            # Map 5-category rubric to 12-factor breakdown
-            # Distribute the 100-pt score across the 12 factors proportionally
-            "momentumScore": s4.get("technical_momentum", 0),
+            # Map 5-category rubric from best available stage
+            "momentumScore": best_stage.get("technical_momentum", 0),
             "volumeScore": technicals.get("relative_volume", 0) * 10,
-            "technicalScore": s4.get("technical_momentum", 0),
-            "macroScore": s4.get("options_volatility", 0),
-            "sentimentScore": s4.get("sentiment_catalysts", 0),
+            "technicalScore": best_stage.get("technical_momentum", 0),
+            "macroScore": best_stage.get("options_volatility", 0),
+            "sentimentScore": best_stage.get("sentiment_catalysts", 0),
             "shortInterest": None,
             "volatilityAdj": technicals.get("atr_14", 0) / max(pick.get("price", 1), 0.01) * 100,
             "sectorRotation": None,
-            "patternMatch": s4.get("risk_reward", 0),
+            "patternMatch": best_stage.get("risk_reward", 0),
             "liquidityDepth": None,
             "insiderSignal": None,
             "gapPotential": None,
-            "convictionScore": s4.get("conviction", 0),
+            "convictionScore": best_stage.get("conviction", 0),
             "predicted3Day": pred_3d,
             "predicted5Day": pred_5d,
             "predicted8Day": pred_8d,
