@@ -41,7 +41,7 @@ export default function BulkLockInModal({ spikes, portfolios, activePortfolioId,
   const mode = config.mode;
 
   const [fixedPerSpike, setFixedPerSpike] = useState(
-    Math.floor(config.fixedAmount / spikes.length).toString()
+    config.fixedAmount.toString()
   );
   const [manualInputs, setManualInputs] = useState<Record<string, string>>(
     () => Object.fromEntries(spikes.map((s) => [s.id, '']))
@@ -74,39 +74,41 @@ export default function BulkLockInModal({ spikes, portfolios, activePortfolioId,
     return { spike, shares, value };
   });
 
+  const validRows = spikeRows.filter((r) => r.shares > 0);
   const totalShares = spikeRows.reduce((s, r) => s + r.shares, 0);
   const totalValue = spikeRows.reduce((s, r) => s + r.value, 0);
-  const allValid = spikeRows.every((r) => r.shares > 0);
+  const hasValid = validRows.length > 0;
 
   const handleManualInput = (spikeId: string, val: string) => {
     setManualInputs((prev) => ({ ...prev, [spikeId]: val }));
   };
 
   const handleConfirm = async () => {
-    if (!allValid || !selectedPortfolioId) return;
+    if (!hasValid || !selectedPortfolioId) return;
     setConfirming(true);
     try {
+      const validSpikeIds = validRows.map((r) => r.spike.id);
       if (mode === 'manual') {
         const perSpikeShares: Record<string, number> = {};
-        for (const row of spikeRows) {
+        for (const row of validRows) {
           perSpikeShares[row.spike.id] = row.shares;
         }
         await onConfirm({
-          spikeIds: spikes.map((s) => s.id),
+          spikeIds: validSpikeIds,
           portfolioId: selectedPortfolioId,
           mode,
           perSpikeShares,
         });
       } else if (mode === 'fixed') {
         await onConfirm({
-          spikeIds: spikes.map((s) => s.id),
+          spikeIds: validSpikeIds,
           portfolioId: selectedPortfolioId,
           mode,
           fixedAmount: Number(fixedPerSpike) || 0,
         });
       } else {
         await onConfirm({
-          spikeIds: spikes.map((s) => s.id),
+          spikeIds: validSpikeIds,
           portfolioId: selectedPortfolioId,
           mode,
           portfolioSize: config.portfolioSize,
@@ -260,10 +262,10 @@ export default function BulkLockInModal({ spikes, portfolios, activePortfolioId,
           </button>
           <button
             onClick={handleConfirm}
-            disabled={!allValid || confirming || !selectedPortfolioId}
+            disabled={!hasValid || confirming || !selectedPortfolioId}
             className="flex-1 btn-lock-in py-2.5 disabled:opacity-50"
           >
-            {confirming ? 'Locking...' : `Lock In ${spikes.length} Spikes`}
+            {confirming ? 'Locking...' : `Lock In ${validRows.length} Spike${validRows.length !== 1 ? 's' : ''}`}
           </button>
         </div>
       </div>
