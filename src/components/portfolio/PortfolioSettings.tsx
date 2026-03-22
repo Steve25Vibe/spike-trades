@@ -22,9 +22,27 @@ const DEFAULT_CONFIG: PortfolioConfig = {
   kellyWinRate: 0.6,
 };
 
+const LOCAL_CONFIG_KEY = 'spike-sizing-config';
+
+/** Read saved config from localStorage (fallback when no portfolio) */
+function getLocalConfig(): PortfolioConfig {
+  if (typeof window === 'undefined') return DEFAULT_CONFIG;
+  try {
+    const stored = localStorage.getItem(LOCAL_CONFIG_KEY);
+    if (stored) return { ...DEFAULT_CONFIG, ...JSON.parse(stored) };
+  } catch { /* ignore */ }
+  return DEFAULT_CONFIG;
+}
+
+/** Save config to localStorage */
+function setLocalConfig(config: PortfolioConfig) {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(LOCAL_CONFIG_KEY, JSON.stringify(config));
+}
+
 /** Build a PortfolioConfig from a DB portfolio record */
 export function configFromPortfolio(p: PortfolioInfo | null): PortfolioConfig {
-  if (!p) return DEFAULT_CONFIG;
+  if (!p) return getLocalConfig();
   return {
     mode: (p.sizingMode as SizingMode) || 'manual',
     portfolioSize: p.portfolioSize ?? 100000,
@@ -49,43 +67,39 @@ export default function PortfolioSettings({ portfolio, onClose, onUpdated }: Pro
     if (portfolio) {
       setConfig(configFromPortfolio(portfolio));
       setNameInput(portfolio.name);
+    } else {
+      setConfig(getLocalConfig());
     }
   }, [portfolio]);
 
   const save = async (partial: Partial<PortfolioConfig & { name: string }>) => {
-    if (!portfolio) return;
     const next = { ...config, ...partial };
     setConfig(next);
 
-    setSaving(true);
-    try {
-      await fetch(`/api/portfolios/${portfolio.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sizingMode: next.mode,
-          portfolioSize: next.portfolioSize,
-          fixedAmount: next.fixedAmount,
-          kellyMaxPct: next.kellyMaxPct,
-          kellyWinRate: next.kellyWinRate,
-          ...(partial.name !== undefined ? { name: partial.name } : {}),
-        }),
-      });
-      onUpdated?.();
-    } catch { /* ignore */ }
-    finally { setSaving(false); }
-  };
+    // Always persist to localStorage so config survives without a portfolio
+    setLocalConfig(next);
 
-  if (!portfolio) {
-    return (
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center" onClick={onClose}>
-        <div className="glass-card p-6 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
-          <p className="text-spike-text-dim text-center">No portfolio selected. Create one first.</p>
-          <button onClick={onClose} className="w-full mt-4 py-2.5 rounded-lg bg-spike-cyan/10 text-spike-cyan font-medium text-sm hover:bg-spike-cyan/20 transition-colors border border-spike-cyan/20">Close</button>
-        </div>
-      </div>
-    );
-  }
+    // If a portfolio exists, also persist to DB
+    if (portfolio) {
+      setSaving(true);
+      try {
+        await fetch(`/api/portfolios/${portfolio.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sizingMode: next.mode,
+            portfolioSize: next.portfolioSize,
+            fixedAmount: next.fixedAmount,
+            kellyMaxPct: next.kellyMaxPct,
+            kellyWinRate: next.kellyWinRate,
+            ...(partial.name !== undefined ? { name: partial.name } : {}),
+          }),
+        });
+        onUpdated?.();
+      } catch { /* ignore */ }
+      finally { setSaving(false); }
+    }
+  };
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center" onClick={onClose}>
@@ -95,17 +109,19 @@ export default function PortfolioSettings({ portfolio, onClose, onUpdated }: Pro
           <button onClick={onClose} className="text-spike-text-dim hover:text-spike-text text-xl">&times;</button>
         </div>
 
-        {/* Portfolio name */}
-        <div className="mb-5">
-          <label className="text-xs text-spike-text-muted uppercase tracking-wider block mb-2">Portfolio Name</label>
-          <input
-            type="text"
-            value={nameInput}
-            onChange={(e) => setNameInput(e.target.value)}
-            onBlur={() => { if (nameInput.trim() && nameInput !== portfolio.name) save({ name: nameInput.trim() }); }}
-            className="w-full bg-spike-bg/50 border border-spike-border rounded-lg px-3 py-2.5 text-spike-text focus:border-spike-cyan/50 focus:outline-none"
-          />
-        </div>
+        {/* Portfolio name — only show when a portfolio exists */}
+        {portfolio && (
+          <div className="mb-5">
+            <label className="text-xs text-spike-text-muted uppercase tracking-wider block mb-2">Portfolio Name</label>
+            <input
+              type="text"
+              value={nameInput}
+              onChange={(e) => setNameInput(e.target.value)}
+              onBlur={() => { if (nameInput.trim() && nameInput !== portfolio.name) save({ name: nameInput.trim() }); }}
+              className="w-full bg-spike-bg/50 border border-spike-border rounded-lg px-3 py-2.5 text-spike-text focus:border-spike-cyan/50 focus:outline-none"
+            />
+          </div>
+        )}
 
         <p className="text-sm text-spike-text-dim mb-5">
           Choose how position sizes are calculated when you lock in spikes.
