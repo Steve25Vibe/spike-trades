@@ -324,6 +324,27 @@ export default function PortfolioPage() {
           </h2>
         </div>
 
+        {/* Portfolio tabs — visible when multiple portfolios exist */}
+        {portfolios.length > 1 && (
+          <div className="flex gap-2 mb-6 flex-wrap">
+            {portfolios.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => selectPortfolio(p.id)}
+                className={cn(
+                  'px-4 py-2 rounded-lg text-sm font-medium transition-all border',
+                  p.id === activeId
+                    ? 'bg-spike-cyan/10 text-spike-cyan border-spike-cyan/30'
+                    : 'text-spike-text-dim border-spike-border hover:border-spike-cyan/20 hover:text-spike-text'
+                )}
+              >
+                {p.name}
+                <span className="ml-2 text-xs text-spike-text-muted">({p.activePositions})</span>
+              </button>
+            ))}
+          </div>
+        )}
+
         {!activePortfolio ? (
           <div className="glass-card p-12 text-center mb-6">
             <p className="text-spike-text-dim text-lg mb-4">No portfolios yet.</p>
