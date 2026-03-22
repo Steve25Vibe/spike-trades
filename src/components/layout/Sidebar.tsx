@@ -56,10 +56,15 @@ const navItems = [
   },
 ];
 
-export default function Sidebar() {
+interface SidebarProps {
+  open?: boolean;
+  onClose?: () => void;
+}
+
+export default function Sidebar({ open = true, onClose }: SidebarProps) {
   const pathname = usePathname();
   const [marketOpen, setMarketOpen] = useState(false);
-  const { email, role, logout } = useAuth();
+  const { role, logout } = useAuth();
 
   useEffect(() => {
     setMarketOpen(isMarketOpen());
@@ -67,11 +72,20 @@ export default function Sidebar() {
     return () => clearInterval(interval);
   }, []);
 
+  const handleNavClick = () => {
+    onClose?.();
+  };
+
   return (
-    <aside className="fixed left-0 top-0 h-full w-64 bg-spike-bg-light border-r border-spike-border z-40 flex flex-col">
+    <aside className={cn(
+      'fixed left-0 top-0 h-full w-64 bg-spike-bg-light border-r border-spike-border z-50 flex flex-col',
+      'transition-transform duration-300 ease-in-out',
+      'lg:translate-x-0',
+      open ? 'translate-x-0' : '-translate-x-full'
+    )}>
       {/* Logo */}
       <div className="p-6 border-b border-spike-border">
-        <Link href="/dashboard" className="flex items-center gap-3" title="Go to today's top stock picks">
+        <Link href="/dashboard" className="flex items-center gap-3" title="Go to today's top stock picks" onClick={handleNavClick}>
           <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-spike-cyan to-spike-violet flex items-center justify-center flex-shrink-0">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0A1428" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
@@ -98,6 +112,7 @@ export default function Sidebar() {
               key={item.href}
               href={item.href}
               title={item.tooltip}
+              onClick={handleNavClick}
               className={cn(
                 'flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all',
                 isActive
@@ -117,6 +132,7 @@ export default function Sidebar() {
         <Link
           href="/settings"
           title="Email notification preferences"
+          onClick={handleNavClick}
           className={cn(
             'flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all',
             pathname === '/settings'
@@ -135,7 +151,7 @@ export default function Sidebar() {
 
         {/* Logout */}
         <button
-          onClick={logout}
+          onClick={() => { onClose?.(); logout(); }}
           title="Log out"
           className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all text-spike-text-dim hover:text-spike-red hover:bg-spike-red/5 w-full text-left"
         >
@@ -160,6 +176,7 @@ export default function Sidebar() {
             <Link
               href="/admin"
               title="Manage users, invitations, and activity"
+              onClick={handleNavClick}
               className={cn(
                 'flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all',
                 pathname === '/admin'

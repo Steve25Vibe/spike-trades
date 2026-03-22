@@ -442,7 +442,7 @@ export default function AnalysisPage() {
               'text-spike-amber'
             )}>{marketContext.regime?.toUpperCase()}</span> regime.
           </p>
-          <div className="grid grid-cols-6 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 lg:gap-4">
             {[
               { label: 'TSX Composite', value: marketContext.tsxLevel?.toFixed(0), sub: `${marketContext.tsxChange >= 0 ? '+' : ''}${marketContext.tsxChange?.toFixed(2)}%`, color: marketContext.tsxChange >= 0 ? 'text-spike-green' : 'text-spike-red' },
               { label: 'USO Oil', value: `$${marketContext.oilPrice?.toFixed(2)}`, sub: 'USD/barrel', color: 'text-spike-text' },

@@ -370,7 +370,7 @@ export default function PortfolioPage() {
 
         {/* Summary */}
         {summary && (
-          <div className="grid grid-cols-6 gap-3 mb-6">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
             {[
               { label: 'Active Positions', value: summary.activePositions.toString(), color: 'text-spike-cyan' },
               { label: 'Total Invested', value: formatCurrency(summary.totalInvested), color: 'text-spike-text' },
@@ -570,7 +570,7 @@ export default function PortfolioPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-7 gap-3 mt-4 pt-3 border-t border-spike-border/20">
+                  <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-7 gap-3 mt-4 pt-3 border-t border-spike-border/20">
                     {[
                       { label: 'Entry', value: formatCurrency(pos.entryPrice), color: 'text-spike-text' },
                       { label: 'Current', value: formatCurrency(pos.currentPrice), color: pos.currentPrice >= pos.entryPrice ? 'text-spike-green' : 'text-spike-red' },

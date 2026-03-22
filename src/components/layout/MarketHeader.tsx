@@ -58,7 +58,7 @@ export default function MarketHeader({ date, regime, tsxLevel, tsxChange, oilPri
         </div>
 
         {/* Market indicators */}
-        <div className="flex items-center gap-6 text-sm">
+        <div className="grid grid-cols-2 gap-3 sm:flex sm:items-center sm:gap-6 text-sm w-full sm:w-auto">
           <div className="text-center">
             <p className="text-[10px] text-spike-text-muted uppercase tracking-wider">TSX (XIU)</p>
             <p className="font-bold mono">
@@ -68,7 +68,7 @@ export default function MarketHeader({ date, regime, tsxLevel, tsxChange, oilPri
               </span>
             </p>
           </div>
-          <div className="w-px h-8 bg-spike-border" />
+          <div className="w-px h-8 bg-spike-border hidden sm:block" />
           <div className="text-center">
             <p className="text-[10px] text-spike-text-muted uppercase tracking-wider">USO Oil</p>
             <p className="font-bold mono">${oilPrice.toFixed(2)}<PulseArrow current={oilPrice} previous={prevOilPrice} /></p>

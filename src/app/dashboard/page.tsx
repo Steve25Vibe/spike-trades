@@ -284,7 +284,7 @@ function DashboardContent() {
             />
 
             {/* Summary stats */}
-            <div className="grid grid-cols-5 gap-4 mb-6">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 lg:gap-4 mb-6">
               {[
                 { label: 'Stocks Analyzed', value: data.report.stocksAnalyzed?.toLocaleString() || '--', color: 'text-spike-amber' },
                 { label: 'Total Spikes', value: data.spikes.length, color: 'text-spike-cyan' },

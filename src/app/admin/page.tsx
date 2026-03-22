@@ -170,7 +170,8 @@ export default function AdminPage() {
             {loading ? (
               <p className="text-spike-text-muted">Loading...</p>
             ) : (
-              <table className="w-full text-sm">
+              <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[600px]">
                 <thead>
                   <tr className="text-spike-text-muted text-xs uppercase border-b border-spike-border">
                     <th className="text-left py-3 px-2">Email</th>
@@ -223,6 +224,7 @@ export default function AdminPage() {
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
         )}
@@ -257,7 +259,8 @@ export default function AdminPage() {
               ) : invites.length === 0 ? (
                 <p className="text-spike-text-muted text-sm">No invitations sent yet.</p>
               ) : (
-                <table className="w-full text-sm">
+                <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[600px]">
                   <thead>
                     <tr className="text-spike-text-muted text-xs uppercase border-b border-spike-border">
                       <th className="text-left py-3 px-2">Email</th>
@@ -301,6 +304,7 @@ export default function AdminPage() {
                     ))}
                   </tbody>
                 </table>
+                </div>
               )}
             </div>
           </div>
@@ -311,7 +315,7 @@ export default function AdminPage() {
           <div className="space-y-6">
             {activity && (
               <>
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="glass-card p-4 text-center">
                     <p className="text-[9px] text-spike-text-muted uppercase tracking-wider mb-1">Total Users</p>
                     <p className="text-xl font-bold text-spike-cyan mono">{activity.totalUsers}</p>
@@ -328,7 +332,8 @@ export default function AdminPage() {
 
                 <div className="glass-card p-6">
                   <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-4">Per-User Activity</h3>
-                  <table className="w-full text-sm">
+                  <div className="overflow-x-auto">
+                  <table className="w-full text-sm min-w-[600px]">
                     <thead>
                       <tr className="text-spike-text-muted text-xs uppercase border-b border-spike-border">
                         <th className="text-left py-3 px-2">Email</th>
@@ -350,6 +355,7 @@ export default function AdminPage() {
                       ))}
                     </tbody>
                   </table>
+                  </div>
                 </div>
               </>
             )}

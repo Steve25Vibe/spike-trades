@@ -110,8 +110,8 @@ export default function AccuracyPage() {
 
   return (
     <ResponsiveLayout>
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-display font-bold text-spike-cyan tracking-wide">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+          <h2 className="text-xl sm:text-2xl font-display font-bold text-spike-cyan tracking-wide">
             ACCURACY ENGINE
           </h2>
           <div className="flex items-center gap-4">
@@ -137,7 +137,7 @@ export default function AccuracyPage() {
 
         {/* Summary metrics */}
         {summary && (
-          <div className="grid grid-cols-6 gap-3 mb-6">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
             {[
               { label: 'Hit Rate', value: `${summary.hitRate.toFixed(1)}%`, color: summary.hitRate >= 55 ? 'text-spike-green' : 'text-spike-amber' },
               { label: 'MAE', value: `${summary.mae.toFixed(2)}%`, color: 'text-spike-cyan' },
