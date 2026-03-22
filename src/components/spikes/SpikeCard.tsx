@@ -94,8 +94,7 @@ export default function SpikeCard({ spike, selected, onSelect, onLockIn, selecti
           <div className={cn(
             'w-16 h-16 rounded-xl flex items-center justify-center font-bold text-xl mono',
             spike.spikeScore >= 80 ? 'bg-spike-green/15 text-spike-green border border-spike-green/30' :
-            spike.spikeScore >= 60 ? 'bg-spike-cyan/15 text-spike-cyan border border-spike-cyan/30' :
-            spike.spikeScore >= 40 ? 'bg-spike-amber/15 text-spike-amber border border-spike-amber/30' :
+            spike.spikeScore >= 60 ? 'bg-spike-amber/15 text-spike-amber border border-spike-amber/30' :
             'bg-spike-red/15 text-spike-red border border-spike-red/30'
           )}>
             {spike.spikeScore.toFixed(0)}
@@ -128,7 +127,12 @@ export default function SpikeCard({ spike, selected, onSelect, onLockIn, selecti
         </div>
         <div className="h-1.5 bg-spike-bg rounded-full overflow-hidden">
           <div
-            className="h-full rounded-full bg-gradient-to-r from-spike-cyan to-spike-violet transition-all duration-1000"
+            className={cn(
+              'h-full rounded-full transition-all duration-1000',
+              spike.confidence >= 80 ? 'bg-spike-green' :
+              spike.confidence >= 60 ? 'bg-spike-amber' :
+              'bg-spike-red'
+            )}
             style={{ width: `${spike.confidence}%` }}
           />
         </div>

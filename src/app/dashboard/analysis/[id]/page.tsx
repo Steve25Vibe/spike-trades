@@ -237,8 +237,8 @@ export default function AnalysisPage() {
               <div className={cn(
                 'w-20 h-20 rounded-2xl flex items-center justify-center font-bold text-3xl mono',
                 spike.spikeScore >= 80 ? 'bg-spike-green/15 text-spike-green border border-spike-green/30' :
-                spike.spikeScore >= 60 ? 'bg-spike-cyan/15 text-spike-cyan border border-spike-cyan/30' :
-                'bg-spike-amber/15 text-spike-amber border border-spike-amber/30'
+                spike.spikeScore >= 60 ? 'bg-spike-amber/15 text-spike-amber border border-spike-amber/30' :
+                'bg-spike-red/15 text-spike-red border border-spike-red/30'
               )}>
                 {spike.spikeScore.toFixed(0)}
               </div>
@@ -257,15 +257,15 @@ export default function AnalysisPage() {
             <div className={cn(
               'px-4 py-2 rounded-xl text-center',
               spike.confidence >= 80 ? 'bg-spike-green/10 border border-spike-green/30' :
-              spike.confidence >= 60 ? 'bg-spike-cyan/10 border border-spike-cyan/30' :
-              'bg-spike-amber/10 border border-spike-amber/30'
+              spike.confidence >= 60 ? 'bg-spike-amber/10 border border-spike-amber/30' :
+              'bg-spike-red/10 border border-spike-red/30'
             )}>
               <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-0.5">Confidence</p>
               <p className={cn(
                 'text-2xl font-bold mono',
                 spike.confidence >= 80 ? 'text-spike-green' :
-                spike.confidence >= 60 ? 'text-spike-cyan' :
-                'text-spike-amber'
+                spike.confidence >= 60 ? 'text-spike-amber' :
+                'text-spike-red'
               )}>{spike.confidence.toFixed(0)}%</p>
             </div>
           </div>
