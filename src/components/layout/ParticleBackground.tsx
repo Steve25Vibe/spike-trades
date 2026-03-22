@@ -89,7 +89,7 @@ export default function ParticleBackground() {
         y,
         angle,
         speed: randomBetween(4, 8),
-        length: randomBetween(80, 180),
+        length: randomBetween(400, 900),
         opacity: randomBetween(0.3, 0.6),
         life: 0,
         maxLife: randomBetween(120, 200),
