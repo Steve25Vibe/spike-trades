@@ -18,15 +18,15 @@ import {
 // Plain-language labels for each scoring factor
 // Max weight contribution per factor (weight × 100), shown as "Max X" in the UI
 // Uses bull regime as reference; actual weights vary by market regime
-// Max values from the Python council's ScoreBreakdown rubric (sums to 100)
-const FACTOR_MAX_WEIGHTS: Record<string, number> = {
+// Council rubric factors with their max weighted contributions
+// The council scores 5 categories (total 100): technical_momentum(30), sentiment_catalysts(25),
+// options_volatility(20), risk_reward(15), conviction(10). Conviction is not stored in DB.
+// Only show the 4 stored rubric factors. Others (volumeSurge, volatilityAdj, technical) are excluded.
+const COUNCIL_FACTORS: Record<string, number> = {
   momentum: 30,         // technical_momentum (0-30)
   sentiment: 25,        // sentiment_catalysts (0-25)
   macroSensitivity: 20, // options_volatility (0-20)
   patternMatch: 15,     // risk_reward (0-15)
-  // volumeSurge & volatilityAdj are computed, not rubric-scored — shown without max
-  // technical is duplicate of momentum — hidden
-  // shortInterest, sectorRotation, liquidityDepth, insiderSignal, gapPotential — typically null
 };
 
 const FACTOR_EXPLANATIONS: Record<string, { label: string; plain: string }> = {
@@ -304,39 +304,31 @@ export default function AnalysisPage() {
             <h3 className="text-sm font-semibold text-spike-text uppercase tracking-wider">Weighted Analysis <span className="text-spike-text-muted font-normal text-xs">(Max 100)</span></h3>
             <p className="text-xs text-spike-text-muted mb-2">Each factor is scored by the AI council and contributes to the overall Spike Score. Green = 80%+ of max, yellow = 60–79%, red = below 60%.</p>
 
-            {Object.entries(spike.scoreBreakdown)
-              .filter(([key, v]) => v !== null && v !== undefined && key !== 'technical') // skip technical (duplicate of momentum)
-              .map(([key, value]) => {
+            {Object.entries(COUNCIL_FACTORS)
+              .map(([key, maxWeight]) => {
                 const info = FACTOR_EXPLANATIONS[key];
-                if (!info) return null;
-                const score = value as number;
-                const maxWeight = FACTOR_MAX_WEIGHTS[key];
-                const hasMax = maxWeight !== undefined;
-                const pctOfMax = hasMax && maxWeight > 0 ? (score / maxWeight) * 100 : null;
+                const score = spike.scoreBreakdown[key] as number | null | undefined;
+                if (!info || score === null || score === undefined) return null;
+
+                const pctOfMax = maxWeight > 0 ? (score / maxWeight) * 100 : 0;
 
                 let colorClass: string;
                 let bgClass: string;
-                if (pctOfMax !== null) {
-                  if (pctOfMax >= 80) {
-                    colorClass = 'text-spike-green';
-                    bgClass = 'bg-spike-green/10 text-spike-green';
-                  } else if (pctOfMax >= 60) {
-                    colorClass = 'text-spike-amber';
-                    bgClass = 'bg-spike-amber/10 text-spike-amber';
-                  } else {
-                    colorClass = 'text-spike-red';
-                    bgClass = 'bg-spike-red/10 text-spike-red';
-                  }
+                if (pctOfMax >= 80) {
+                  colorClass = 'text-spike-green';
+                  bgClass = 'bg-spike-green/10 text-spike-green';
+                } else if (pctOfMax >= 60) {
+                  colorClass = 'text-spike-amber';
+                  bgClass = 'bg-spike-amber/10 text-spike-amber';
                 } else {
-                  // No max defined (computed factors like volumeSurge, volatilityAdj)
-                  colorClass = 'text-spike-cyan';
-                  bgClass = 'bg-spike-cyan/10 text-spike-cyan';
+                  colorClass = 'text-spike-red';
+                  bgClass = 'bg-spike-red/10 text-spike-red';
                 }
 
-                return { key, info, score, maxWeight: hasMax ? maxWeight : null, colorClass, bgClass };
+                return { key, info, score, maxWeight, colorClass, bgClass };
               })
               .filter(Boolean)
-              .sort((a, b) => (b!.score) - (a!.score))
+              .sort((a, b) => b!.score - a!.score)
               .map((item) => {
                 const { key, info, score, maxWeight, colorClass, bgClass } = item!;
                 return (
@@ -349,7 +341,7 @@ export default function AnalysisPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className={cn('font-semibold text-sm', colorClass)}>
-                        {info.label} {maxWeight !== null && <span className="text-spike-text-muted font-normal text-xs">(Max {maxWeight})</span>}
+                        {info.label} <span className="text-spike-text-muted font-normal text-xs">(Max {maxWeight})</span>
                       </p>
                       <p className="text-spike-text-dim text-sm leading-relaxed mt-0.5">{info.plain}</p>
                     </div>
