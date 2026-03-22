@@ -198,6 +198,7 @@ def _map_to_prisma(council_output: dict) -> dict:
             "liquidityDepth": None,
             "insiderSignal": None,
             "gapPotential": None,
+            "convictionScore": s4.get("conviction", 0),
             "predicted3Day": pred_3d,
             "predicted5Day": pred_5d,
             "predicted8Day": pred_8d,

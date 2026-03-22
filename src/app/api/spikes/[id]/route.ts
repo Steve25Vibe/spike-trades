@@ -116,6 +116,7 @@ export async function GET(
             liquidityDepth: spike.liquidityDepth,
             insiderSignal: spike.insiderSignal,
             gapPotential: spike.gapPotential,
+            conviction: spike.convictionScore,
           },
 
           // Technical indicators

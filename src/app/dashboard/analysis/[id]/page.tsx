@@ -27,6 +27,7 @@ const COUNCIL_FACTORS: Record<string, number> = {
   sentiment: 25,        // sentiment_catalysts (0-25)
   macroSensitivity: 20, // options_volatility (0-20)
   patternMatch: 15,     // risk_reward (0-15)
+  conviction: 10,       // conviction (0-10)
 };
 
 const FACTOR_EXPLANATIONS: Record<string, { label: string; plain: string }> = {
@@ -77,6 +78,10 @@ const FACTOR_EXPLANATIONS: Record<string, { label: string; plain: string }> = {
   gapPotential: {
     label: 'Overnight Gap Potential',
     plain: 'The likelihood of a significant price jump when the market opens tomorrow, based on the stock\'s history of overnight gaps and current compression patterns.',
+  },
+  conviction: {
+    label: 'Conviction',
+    plain: 'The AI council\'s overall confidence in this pick — how strongly the combined analysis supports a short-term move in the predicted direction.',
   },
 };
 
@@ -248,13 +253,6 @@ export default function AnalysisPage() {
               </div>
             </div>
 
-            {/* Score badge */}
-            <div className="text-right">
-              <div className="glass-card p-4">
-                <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">Spike Score</p>
-                <p className="text-3xl font-bold mono text-spike-cyan">{spike.spikeScore.toFixed(1)}</p>
-              </div>
-            </div>
           </div>
 
           {/* Predicted returns */}

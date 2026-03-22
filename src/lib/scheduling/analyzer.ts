@@ -44,6 +44,7 @@ interface CouncilMappedResponse {
     liquidityDepth: number | null;
     insiderSignal: number | null;
     gapPotential: number | null;
+    convictionScore: number | null;
     predicted3Day: number;
     predicted5Day: number;
     predicted8Day: number;
@@ -233,6 +234,7 @@ export async function runDailyAnalysis(useCached = false): Promise<{
       liquidityDepth: spike.liquidityDepth,
       insiderSignal: spike.insiderSignal,
       gapPotential: spike.gapPotential,
+      convictionScore: spike.convictionScore,
       predicted3Day: spike.predicted3Day,
       predicted5Day: spike.predicted5Day,
       predicted8Day: spike.predicted8Day,

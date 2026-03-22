@@ -117,6 +117,7 @@ model Spike {
   liquidityDepth  Float?   // Creative factor 1
   insiderSignal   Float?   // Creative factor 2
   gapPotential    Float?   // Creative factor 3
+  convictionScore Float?   // Council conviction (0-10)
 
   // Predictions
   predicted3Day   Float    // % return
