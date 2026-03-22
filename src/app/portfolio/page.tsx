@@ -507,10 +507,10 @@ export default function PortfolioPage() {
                   pos.riskStatus === 'danger' && !selectedIds.has(pos.id) && 'border-spike-red/30',
                   pos.riskStatus === 'target_hit' && !selectedIds.has(pos.id) && 'border-spike-gold/30',
                 )}>
-                  <div className="flex items-start justify-between gap-6">
-                    <div className="flex items-center gap-4 min-w-0">
-                      <div>
-                        <div className="flex items-center gap-2">
+                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-6">
+                    <div className="flex items-start justify-between sm:flex-1 min-w-0">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <Link href={`/dashboard/analysis/${pos.spikeId}`} title="See the full AI analysis for this stock" className="text-xl font-bold text-spike-text hover:text-spike-cyan transition-colors">
                             {pos.ticker}
                           </Link>
@@ -518,14 +518,25 @@ export default function PortfolioPage() {
                             <span className={riskColors[pos.riskStatus]}>{riskLabels[pos.riskStatus]}</span>
                           </span>
                         </div>
-                        <p className="text-sm text-spike-text-dim">{pos.name}</p>
+                        <p className="text-sm text-spike-text-dim line-clamp-1">{pos.name}</p>
                         <p className="text-xs text-spike-text-muted mt-0.5">
                           Entered {new Date(pos.entryDate).toLocaleDateString('en-CA')} &middot; {pos.daysHeld} day{pos.daysHeld !== 1 ? 's' : ''} held &middot; Score: {pos.spikeScore?.toFixed(0)}
                         </p>
                       </div>
+
+                      {/* P&L — shown inline on mobile, separate column on desktop */}
+                      <div className="text-right sm:hidden flex-shrink-0">
+                        <p className={cn('text-xl font-bold mono', pos.unrealizedPnl >= 0 ? 'text-spike-green' : 'text-spike-red')}>
+                          {pos.unrealizedPnl >= 0 ? '+' : ''}{formatCurrency(pos.unrealizedPnl)}
+                        </p>
+                        <p className={cn('text-sm mono', pos.unrealizedPnlPct >= 0 ? 'text-spike-green' : 'text-spike-red')}>
+                          {formatPercent(pos.unrealizedPnlPct)}
+                        </p>
+                      </div>
                     </div>
 
-                    <div className="text-center flex-shrink-0">
+                    {/* P&L — desktop only */}
+                    <div className="text-center flex-shrink-0 hidden sm:block">
                       <p className={cn('text-2xl font-bold mono', pos.unrealizedPnl >= 0 ? 'text-spike-green' : 'text-spike-red')}>
                         {pos.unrealizedPnl >= 0 ? '+' : ''}{formatCurrency(pos.unrealizedPnl)}
                       </p>
