@@ -466,10 +466,10 @@ function DashboardContent() {
           />
         )}
 
-        {/* Portfolio Settings Modal */}
+        {/* Sizing Mode Settings — no portfolio name on dashboard */}
         {showSettings && (
           <PortfolioSettings
-            portfolio={activePortfolio}
+            portfolio={null}
             onClose={() => setShowSettings(false)}
             onUpdated={refreshPortfolios}
           />
