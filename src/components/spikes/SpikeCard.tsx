@@ -119,25 +119,52 @@ export default function SpikeCard({ spike, selected, onSelect, onLockIn, selecti
         ))}
       </div>
 
-      {/* Confidence bar */}
+      {/* Dual confidence meter */}
       <div className="mt-3">
         <div className="flex justify-between items-center mb-1">
           <span className="text-[10px] text-spike-text-muted uppercase tracking-wider">Confidence</span>
-          <span className="text-xs mono text-spike-text-dim">{spike.confidence.toFixed(0)}%</span>
+          {spike.overconfidenceFlag && (
+            <span className="text-[9px] text-spike-amber" title="Council confidence exceeds historical base rate by &gt;10 points">Council optimistic</span>
+          )}
         </div>
-        <div className="h-1.5 bg-spike-bg rounded-full overflow-hidden">
-          <div
-            className="h-full rounded-full transition-all duration-1000"
-            style={{
-              width: `${spike.confidence}%`,
-              background: spike.confidence >= 80
-                ? 'linear-gradient(90deg, rgba(0,255,136,0.3), #00FF88)'
-                : spike.confidence >= 60
-                ? 'linear-gradient(90deg, rgba(255,184,0,0.3), #FFB800)'
-                : 'linear-gradient(90deg, rgba(255,51,102,0.3), #FF3366)',
-            }}
-          />
+        {/* Council bar */}
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-[9px] text-spike-text-muted w-12">{spike.historicalConfidence != null ? 'Council' : ''}</span>
+          <div className="flex-1 h-1.5 bg-spike-bg rounded-full overflow-hidden">
+            <div
+              className="h-full rounded-full transition-all duration-1000"
+              style={{
+                width: `${spike.confidence}%`,
+                background: spike.confidence >= 80
+                  ? 'linear-gradient(90deg, rgba(0,255,136,0.3), #00FF88)'
+                  : spike.confidence >= 60
+                  ? 'linear-gradient(90deg, rgba(255,184,0,0.3), #FFB800)'
+                  : 'linear-gradient(90deg, rgba(255,51,102,0.3), #FF3366)',
+              }}
+            />
+          </div>
+          <span className="text-[10px] mono text-spike-text-dim w-8 text-right">{spike.confidence.toFixed(0)}%</span>
         </div>
+        {/* History bar (only shown when calibration data exists) */}
+        {spike.historicalConfidence != null && (
+          <div className="flex items-center gap-2" title={`Based on ${spike.calibrationSamples?.toLocaleString() || '?'} similar historical setups`}>
+            <span className="text-[9px] text-spike-text-muted w-12">History</span>
+            <div className="flex-1 h-1.5 bg-spike-bg rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-1000 opacity-60"
+                style={{
+                  width: `${spike.historicalConfidence}%`,
+                  background: spike.historicalConfidence >= 80
+                    ? 'linear-gradient(90deg, rgba(0,255,136,0.3), #00FF88)'
+                    : spike.historicalConfidence >= 60
+                    ? 'linear-gradient(90deg, rgba(255,184,0,0.3), #FFB800)'
+                    : 'linear-gradient(90deg, rgba(255,51,102,0.3), #FF3366)',
+                }}
+              />
+            </div>
+            <span className="text-[10px] mono text-spike-text-dim w-8 text-right">{spike.historicalConfidence.toFixed(0)}%</span>
+          </div>
+        )}
       </div>
 
       {/* Plain-language reasoning summary (always visible) */}

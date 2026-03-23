@@ -133,6 +133,11 @@ model Spike {
   // Narrative
   narrative       String?  @db.Text // LLM-generated analysis
 
+  // Historical calibration
+  historicalConfidence Float?   // calibrated confidence from backtest (0-100)
+  calibrationSamples  Int?     // number of historical samples
+  overconfidenceFlag  Boolean? // true if council >> history
+
   // Technical indicators snapshot
   rsi             Float?
   macd            Float?

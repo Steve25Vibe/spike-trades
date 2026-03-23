@@ -227,6 +227,10 @@ def _map_to_prisma(council_output: dict) -> dict:
             "killCondition": pick.get("kill_condition"),
             "worstCase": pick.get("worst_case_scenario"),
             "forecasts": forecasts,
+            # Calibration data (from HistoricalCalibrationEngine)
+            "historicalConfidence": round(cal.get("calibrated_confidence", 0) * 100, 1) if (cal := pick.get("calibration")) else None,
+            "calibrationSamples": cal.get("sample_count") if (cal := pick.get("calibration")) else None,
+            "overconfidenceFlag": cal.get("overconfidence_flag") if (cal := pick.get("calibration")) else None,
         })
 
     # Build council log
@@ -301,6 +305,30 @@ async def stage_analytics():
     except Exception as e:
         logger.error(f"Stage analytics failed: {e}", exc_info=True)
         raise HTTPException(500, f"Stage analytics failed: {e}")
+
+
+@app.post("/run-backtest")
+async def run_backtest():
+    """Trigger a 6-month historical backtest for calibration base rates.
+    Takes ~10-20 minutes. Returns summary stats."""
+    try:
+        brain = _get_brain()
+        result = await brain.calibration_engine.run_historical_backtest(brain.fetcher)
+        return result
+    except Exception as e:
+        logger.error(f"Backtest failed: {e}", exc_info=True)
+        raise HTTPException(500, f"Backtest failed: {e}")
+
+
+@app.get("/calibration-status")
+async def calibration_status():
+    """Return calibration engine status."""
+    try:
+        brain = _get_brain()
+        return brain.calibration_engine.get_calibration_status()
+    except Exception as e:
+        logger.error(f"Calibration status failed: {e}", exc_info=True)
+        raise HTTPException(500, f"Calibration status failed: {e}")
 
 
 @app.post("/run-council")

@@ -199,6 +199,7 @@ class FinalHotPick(BaseModel):
     reasoning_summary: str = ""
     technicals: Optional[TechnicalIndicators] = None
     historical_edge_multiplier: float = Field(default=1.0, ge=0)
+    calibration: Optional[dict] = Field(default=None, description="Historical calibration data")
     as_of: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -2408,6 +2409,389 @@ class HistoricalPerformanceAnalyzer:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# HISTORICAL CALIBRATION ENGINE (Session 13)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class HistoricalCalibrationEngine:
+    """Builds base rates from 6 months of TSX history and calibrates
+    council confidence against observed outcomes.
+
+    Two data sources:
+    1. Generic TSX base rates — 6-month backtest of technical profiles vs 3/5/8 day outcomes
+    2. Council-specific calibration — Spike's own pick history (grows daily)
+
+    The blend shifts from generic→specific as council data accumulates.
+    """
+
+    MIN_COUNCIL_SAMPLES = 5  # Need at least N council picks before using council calibration
+    BACKTEST_TICKERS_LIMIT = 100  # Top N liquid tickers for backtest
+    BACKTEST_DAYS = 126  # ~6 months of trading days
+
+    def __init__(self, db_path: str = DB_PATH):
+        self.db_path = db_path
+        self._init_tables()
+
+    def _init_tables(self):
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS calibration_base_rates (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    rsi_bucket TEXT NOT NULL,
+                    macd_direction TEXT NOT NULL,
+                    adx_bucket TEXT NOT NULL,
+                    rel_volume_bucket TEXT NOT NULL,
+                    horizon_days INTEGER NOT NULL,
+                    sample_count INTEGER NOT NULL,
+                    up_probability REAL NOT NULL,
+                    avg_move_pct REAL NOT NULL,
+                    median_move_pct REAL,
+                    stddev_move_pct REAL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(rsi_bucket, macd_direction, adx_bucket, rel_volume_bucket, horizon_days)
+                );
+
+                CREATE TABLE IF NOT EXISTS calibration_council (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    confidence_bucket TEXT NOT NULL,
+                    horizon_days INTEGER NOT NULL,
+                    sample_count INTEGER NOT NULL,
+                    actual_hit_rate REAL NOT NULL,
+                    avg_predicted_move REAL,
+                    avg_actual_move REAL,
+                    bias REAL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(confidence_bucket, horizon_days)
+                );
+            """)
+            conn.commit()
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _bucket_rsi(rsi: float) -> str:
+        if rsi < 20: return "0-20"
+        if rsi < 30: return "20-30"
+        if rsi < 40: return "30-40"
+        if rsi < 50: return "40-50"
+        if rsi < 60: return "50-60"
+        if rsi < 70: return "60-70"
+        if rsi < 80: return "70-80"
+        return "80+"
+
+    @staticmethod
+    def _bucket_adx(adx: float) -> str:
+        if adx < 15: return "0-15"
+        if adx < 25: return "15-25"
+        return "25+"
+
+    @staticmethod
+    def _bucket_volume(rel_vol: float) -> str:
+        if rel_vol < 0.5: return "low"
+        if rel_vol < 1.5: return "normal"
+        return "high"
+
+    @staticmethod
+    def _bucket_confidence(confidence: float) -> str:
+        if confidence < 50: return "<50"
+        bucket_low = int(confidence // 5) * 5
+        return f"{bucket_low}-{bucket_low + 5}"
+
+    async def run_historical_backtest(self, fetcher: "LiveDataFetcher") -> dict:
+        """Run 6-month backtest on liquid TSX tickers. Offline job (~10-20 min).
+        Returns summary stats."""
+        logger.info("Calibration: Starting 6-month historical backtest")
+        start_time = time.time()
+
+        # Get liquid TSX tickers
+        universe = await fetcher.fetch_tsx_universe()
+        quotes = await fetcher.fetch_quotes(universe[:500])
+        # Sort by dollar volume, take top N
+        liquid = sorted(
+            [(t, q) for t, q in quotes.items() if q.get("price", 0) > 2 and q.get("volume", 0) > 0],
+            key=lambda x: x[1].get("price", 0) * x[1].get("volume", 0),
+            reverse=True,
+        )[:self.BACKTEST_TICKERS_LIMIT]
+
+        logger.info(f"Calibration: Backtesting {len(liquid)} liquid tickers")
+
+        # Collect all data points
+        data_points = []  # (rsi_bucket, macd_dir, adx_bucket, vol_bucket, horizon, actual_move_pct, went_up)
+        tickers_processed = 0
+
+        for ticker, _ in liquid:
+            try:
+                bars = await fetcher.fetch_historical(ticker, self.BACKTEST_DAYS + 60)
+                if not bars or len(bars) < 80:
+                    continue
+
+                closes = [b["close"] for b in bars]
+
+                # For each day (with enough lookback for technicals + enough lookahead)
+                for day_idx in range(50, len(bars) - 8):
+                    sub_bars = bars[:day_idx + 1]
+                    techs = LiveDataFetcher.compute_technicals(sub_bars)
+                    if not techs:
+                        continue
+
+                    current_close = closes[day_idx]
+                    if current_close <= 0:
+                        continue
+
+                    # Compute relative volume
+                    vol_sma_20 = sum(b.get("volume", 0) for b in sub_bars[-20:]) / 20 if len(sub_bars) >= 20 else 1
+                    current_vol = bars[day_idx].get("volume", 0)
+                    rel_vol = current_vol / vol_sma_20 if vol_sma_20 > 0 else 1.0
+
+                    rsi_b = self._bucket_rsi(techs.rsi)
+                    macd_dir = "positive" if techs.macd > 0 else "negative"
+                    adx_b = self._bucket_adx(techs.adx)
+                    vol_b = self._bucket_volume(rel_vol)
+
+                    # Look ahead 3, 5, 8 trading days
+                    for horizon in [3, 5, 8]:
+                        future_idx = day_idx
+                        trading_days_ahead = 0
+                        while trading_days_ahead < horizon and future_idx + 1 < len(bars):
+                            future_idx += 1
+                            # Bars are already trading days only (no weekends in OHLCV data)
+                            trading_days_ahead += 1
+
+                        if trading_days_ahead < horizon:
+                            continue
+
+                        future_close = closes[future_idx]
+                        move_pct = ((future_close - current_close) / current_close) * 100
+                        went_up = 1 if future_close > current_close else 0
+
+                        data_points.append((rsi_b, macd_dir, adx_b, vol_b, horizon, move_pct, went_up))
+
+                tickers_processed += 1
+                if tickers_processed % 10 == 0:
+                    logger.info(f"Calibration: {tickers_processed}/{len(liquid)} tickers processed, {len(data_points)} data points")
+
+                # Rate limit
+                if tickers_processed % 5 == 0:
+                    await asyncio.sleep(1)
+
+            except Exception as e:
+                logger.warning(f"Calibration: Failed to process {ticker}: {e}")
+
+        logger.info(f"Calibration: Collected {len(data_points)} data points from {tickers_processed} tickers")
+
+        if not data_points:
+            return {"error": "No data points collected", "tickers_processed": 0}
+
+        # Aggregate into base rates
+        from collections import defaultdict
+        buckets: dict[tuple, list[tuple[float, int]]] = defaultdict(list)
+        for rsi_b, macd_dir, adx_b, vol_b, horizon, move_pct, went_up in data_points:
+            key = (rsi_b, macd_dir, adx_b, vol_b, horizon)
+            buckets[key].append((move_pct, went_up))
+
+        conn = sqlite3.connect(self.db_path)
+        now = datetime.now(timezone.utc).isoformat()
+        inserted = 0
+        try:
+            for (rsi_b, macd_dir, adx_b, vol_b, horizon), samples in buckets.items():
+                if len(samples) < 3:
+                    continue
+                moves = [s[0] for s in samples]
+                ups = [s[1] for s in samples]
+                sorted_moves = sorted(moves)
+                median = sorted_moves[len(sorted_moves) // 2]
+                stddev = statistics.stdev(moves) if len(moves) >= 2 else 0
+
+                conn.execute("""
+                    INSERT OR REPLACE INTO calibration_base_rates
+                    (rsi_bucket, macd_direction, adx_bucket, rel_volume_bucket, horizon_days,
+                     sample_count, up_probability, avg_move_pct, median_move_pct, stddev_move_pct, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    rsi_b, macd_dir, adx_b, vol_b, horizon,
+                    len(samples), sum(ups) / len(ups), sum(moves) / len(moves),
+                    median, round(stddev, 4), now,
+                ))
+                inserted += 1
+
+            conn.commit()
+        finally:
+            conn.close()
+
+        elapsed = time.time() - start_time
+        result = {
+            "tickers_processed": tickers_processed,
+            "data_points": len(data_points),
+            "base_rate_buckets": inserted,
+            "elapsed_seconds": round(elapsed, 1),
+        }
+        logger.info(f"Calibration: Backtest complete — {result}")
+        return result
+
+    def build_council_calibration(self):
+        """Build calibration curve from Spike's own pick history.
+        Fast — just SQLite queries. Call after each backfill_actuals()."""
+        conn = sqlite3.connect(self.db_path)
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            for horizon in [3, 5, 8]:
+                rows = conn.execute("""
+                    SELECT ph.consensus_score, ar.accurate
+                    FROM pick_history ph
+                    INNER JOIN accuracy_records ar ON ph.id = ar.pick_id
+                    WHERE ar.accurate IS NOT NULL AND ar.horizon_days = ?
+                """, (horizon,)).fetchall()
+
+                if not rows:
+                    continue
+
+                from collections import defaultdict
+                buckets: dict[str, list[int]] = defaultdict(list)
+                for score, accurate in rows:
+                    bucket = self._bucket_confidence(score)
+                    buckets[bucket].append(accurate)
+
+                for bucket, accurates in buckets.items():
+                    if len(accurates) < 2:
+                        continue
+                    conn.execute("""
+                        INSERT OR REPLACE INTO calibration_council
+                        (confidence_bucket, horizon_days, sample_count, actual_hit_rate,
+                         avg_predicted_move, avg_actual_move, bias, updated_at)
+                        VALUES (?, ?, ?, ?, NULL, NULL, NULL, ?)
+                    """, (
+                        bucket, horizon, len(accurates),
+                        sum(accurates) / len(accurates), now,
+                    ))
+
+            conn.commit()
+            logger.info("Calibration: Council calibration curve updated")
+        finally:
+            conn.close()
+
+    def apply_calibration(self, picks: list, payloads_map: dict) -> list:
+        """Apply calibration data to each pick. Annotates with historical base rate
+        and calibrated confidence. Non-destructive — adds fields, doesn't change scores."""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            # Check if we have any base rates
+            base_count = conn.execute("SELECT COUNT(*) FROM calibration_base_rates").fetchone()[0]
+            if base_count == 0:
+                logger.info("Calibration: No base rates available yet — skipping")
+                return picks
+
+            council_count = conn.execute("SELECT COUNT(*) FROM calibration_council").fetchone()[0]
+
+            for pick in picks:
+                ticker = pick.ticker if hasattr(pick, 'ticker') else pick.get('ticker')
+                payload = payloads_map.get(ticker)
+                if not payload:
+                    continue
+
+                techs = payload.technicals if hasattr(payload, 'technicals') else None
+                if not techs:
+                    continue
+
+                rsi = techs.rsi if hasattr(techs, 'rsi') else techs.get('rsi', 50)
+                macd = techs.macd if hasattr(techs, 'macd') else techs.get('macd', 0)
+                adx = techs.adx if hasattr(techs, 'adx') else techs.get('adx', 15)
+                rel_vol = techs.relative_volume if hasattr(techs, 'relative_volume') else techs.get('relative_volume', 1.0)
+
+                rsi_b = self._bucket_rsi(rsi)
+                macd_dir = "positive" if macd > 0 else "negative"
+                adx_b = self._bucket_adx(adx)
+                vol_b = self._bucket_volume(rel_vol or 1.0)
+
+                # Look up 3-day base rate (primary horizon)
+                row = conn.execute("""
+                    SELECT up_probability, sample_count, avg_move_pct
+                    FROM calibration_base_rates
+                    WHERE rsi_bucket = ? AND macd_direction = ? AND adx_bucket = ?
+                      AND rel_volume_bucket = ? AND horizon_days = 3
+                """, (rsi_b, macd_dir, adx_b, vol_b)).fetchone()
+
+                if not row:
+                    continue
+
+                historical_base_rate = row[0]
+                sample_count = row[1]
+                avg_hist_move = row[2]
+
+                # Council confidence (as 0-1)
+                confidence = pick.consensus_score if hasattr(pick, 'consensus_score') else pick.get('consensus_score', 50)
+                council_conf = confidence / 100.0
+
+                # Look up council calibration if available
+                council_hit_rate = None
+                council_sample_count = 0
+                if council_count > 0:
+                    conf_bucket = self._bucket_confidence(confidence)
+                    c_row = conn.execute("""
+                        SELECT actual_hit_rate, sample_count
+                        FROM calibration_council
+                        WHERE confidence_bucket = ? AND horizon_days = 3
+                    """, (conf_bucket,)).fetchone()
+                    if c_row and c_row[1] >= self.MIN_COUNCIL_SAMPLES:
+                        council_hit_rate = c_row[0]
+                        council_sample_count = c_row[1]
+
+                # Blend: weight by sample count
+                if council_hit_rate is not None:
+                    # Weighted blend — council-specific data gets more weight as it grows
+                    total_samples = sample_count + council_sample_count * 10  # Council samples weighted 10x
+                    calibrated = (
+                        (historical_base_rate * sample_count + council_hit_rate * council_sample_count * 10)
+                        / total_samples
+                    )
+                else:
+                    calibrated = historical_base_rate
+
+                overconfidence_flag = council_conf > calibrated + 0.10
+
+                calibration_data = {
+                    "historical_base_rate": round(historical_base_rate, 4),
+                    "council_hit_rate": round(council_hit_rate, 4) if council_hit_rate is not None else None,
+                    "calibrated_confidence": round(calibrated, 4),
+                    "sample_count": sample_count,
+                    "council_sample_count": council_sample_count,
+                    "overconfidence_flag": overconfidence_flag,
+                    "avg_historical_move": round(avg_hist_move, 2),
+                }
+
+                # Attach to pick
+                if hasattr(pick, '__dict__'):
+                    pick.calibration = calibration_data
+                elif isinstance(pick, dict):
+                    pick["calibration"] = calibration_data
+
+            return picks
+        finally:
+            conn.close()
+
+    def get_calibration_status(self) -> dict:
+        """Return calibration engine status for admin display."""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            base_count = conn.execute("SELECT COUNT(*) FROM calibration_base_rates").fetchone()[0]
+            base_samples = conn.execute("SELECT SUM(sample_count) FROM calibration_base_rates").fetchone()[0] or 0
+            base_updated = conn.execute("SELECT MAX(updated_at) FROM calibration_base_rates").fetchone()[0]
+
+            council_count = conn.execute("SELECT COUNT(*) FROM calibration_council").fetchone()[0]
+            council_samples = conn.execute("SELECT SUM(sample_count) FROM calibration_council").fetchone()[0] or 0
+
+            return {
+                "base_rate_buckets": base_count,
+                "base_rate_total_samples": base_samples,
+                "base_rate_last_updated": base_updated,
+                "council_calibration_buckets": council_count,
+                "council_calibration_samples": council_samples,
+            }
+        finally:
+            conn.close()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # RISK PORTFOLIO ENGINE (Session 4)
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -2794,6 +3178,7 @@ class CanadianStockCouncilBrain:
         self.fetcher = LiveDataFetcher(self.fmp_key, self.finnhub_key)
         self.regime_filter = MacroRegimeFilter()
         self.historical_analyzer = HistoricalPerformanceAnalyzer()
+        self.calibration_engine = HistoricalCalibrationEngine()
         self.risk_engine = RiskPortfolioEngine()
         self.roadmap_engine = CompoundingRoadmapEngine()
 
@@ -3222,6 +3607,13 @@ class CanadianStockCouncilBrain:
                 payloads_map, regime, self.regime_filter
             )
 
+            # ── Step 10b: Apply historical calibration ──
+            logger.info("Step 10b: Applying historical calibration")
+            try:
+                self.calibration_engine.apply_calibration(top_picks, payloads_map)
+            except Exception as e:
+                logger.warning(f"Calibration failed (non-fatal): {e}")
+
             # ── Step 11: Apply historical edge multipliers ──
             logger.info("Step 11: Applying historical edge multipliers")
             for pick in top_picks:
@@ -3280,6 +3672,8 @@ class CanadianStockCouncilBrain:
             logger.info("Step 16: Backfilling accuracy for past picks")
             try:
                 await self.historical_analyzer.backfill_actuals(self.fetcher)
+                # Update council calibration curve after new accuracy data
+                self.calibration_engine.build_council_calibration()
             except Exception as e:
                 logger.warning(f"Backfill failed (non-fatal): {e}")
 
