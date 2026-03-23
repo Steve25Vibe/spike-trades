@@ -36,7 +36,7 @@ export default function MarketHeader({ date, regime, tsxLevel, tsxChange, oilPri
   const regimeColors: Record<string, string> = {
     bull: 'text-spike-green bg-spike-green/10 border-spike-green/30 regime-glow-bull',
     bear: 'text-spike-red bg-spike-red/10 border-spike-red/30 regime-glow-bear',
-    neutral: 'text-spike-amber bg-spike-amber/10 border-spike-amber/30',
+    neutral: 'text-spike-amber bg-spike-amber/10 border-spike-amber/30 regime-glow-neutral',
     volatile: 'text-spike-violet bg-spike-violet/10 border-spike-violet/30',
   };
 

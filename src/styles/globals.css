@@ -209,6 +209,15 @@ body {
   animation: glowPulseRed 2s ease-in-out infinite;
 }
 
+@keyframes glowPulseAmber {
+  0%, 100% { box-shadow: 0 0 8px rgba(255, 187, 0, 0.6), 0 0 20px rgba(255, 187, 0, 0.3); }
+  50% { box-shadow: 0 0 2px rgba(255, 187, 0, 0.2), 0 0 6px rgba(255, 187, 0, 0.1); }
+}
+
+.regime-glow-neutral {
+  animation: glowPulseAmber 2s ease-in-out infinite;
+}
+
 /* Pulsing direction arrows for market indicators */
 @keyframes arrowPulseUp {
   0%, 100% { opacity: 1; text-shadow: 0 0 6px rgba(0, 255, 136, 0.8); }
