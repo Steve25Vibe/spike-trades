@@ -5,6 +5,22 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/**
+ * Parse a date string (e.g. "2026-03-20") as a local date without UTC shift.
+ * new Date("2026-03-20") treats it as UTC midnight, which shifts to previous day
+ * in timezones west of UTC. This adds T12:00:00 to keep it on the correct day.
+ */
+export function parseLocalDate(dateStr: string | Date): Date {
+  if (dateStr instanceof Date) {
+    // If already a Date, extract the ISO date part and re-parse as local noon
+    const iso = dateStr.toISOString().split('T')[0];
+    return new Date(iso + 'T12:00:00');
+  }
+  // For ISO date strings like "2026-03-20" or "2026-03-20T..."
+  const datePart = String(dateStr).split('T')[0];
+  return new Date(datePart + 'T12:00:00');
+}
+
 export function formatCurrency(value: number, decimals = 2): string {
   return new Intl.NumberFormat('en-CA', {
     style: 'currency',

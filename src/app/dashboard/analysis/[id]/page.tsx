@@ -8,7 +8,7 @@ import LockInModal from '@/components/portfolio/LockInModal';
 import PortfolioChoiceModal from '@/components/portfolio/PortfolioChoiceModal';
 import { type SizingMode } from '@/components/portfolio/PortfolioSettings';
 import { usePortfolios } from '@/components/portfolio/usePortfolios';
-import { cn, formatCurrency, formatPercent, formatVolume, formatMarketCap } from '@/lib/utils';
+import { cn, formatCurrency, formatPercent, formatVolume, formatMarketCap, parseLocalDate } from '@/lib/utils';
 import {
   RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip
@@ -206,7 +206,7 @@ export default function AnalysisPage() {
 
   // Build ticker accuracy chart if available
   const historyChart = tickerHistory.map((h: any) => ({
-    date: new Date(h.date).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' }),
+    date: parseLocalDate(h.date).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' }),
     predicted: h.predicted3Day,
     actual: h.actual3Day,
   }));
@@ -435,7 +435,7 @@ export default function AnalysisPage() {
         <div className="glass-card p-6 mb-6">
           <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-4">Market Context at Time of Analysis</h3>
           <p className="text-spike-text-dim text-sm mb-4">
-            This analysis was generated on {new Date(marketContext.date).toLocaleDateString('en-CA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} when the market was in a <span className={cn(
+            This analysis was generated on {parseLocalDate(marketContext.date).toLocaleDateString('en-CA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} when the market was in a <span className={cn(
               'font-bold',
               marketContext.regime === 'bull' ? 'text-spike-green' :
               marketContext.regime === 'bear' ? 'text-spike-red' :
