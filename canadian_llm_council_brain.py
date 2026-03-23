@@ -968,6 +968,20 @@ async def _call_anthropic(
     raise RuntimeError(f"Anthropic {model} rate limited after 4 retries")
 
 
+_TRANSIENT_STATUS_CODES = {429, 500, 502, 503}
+
+
+def _is_transient(exc: Exception) -> bool:
+    """Check if an exception represents a transient/retryable API error."""
+    exc_str = str(exc).lower()
+    for code in _TRANSIENT_STATUS_CODES:
+        if str(code) in exc_str:
+            return True
+    if any(kw in exc_str for kw in ("rate limit", "overloaded", "service unavailable", "internal server error", "bad gateway")):
+        return True
+    return False
+
+
 async def _call_gemini(
     api_key: str,
     model: str,
@@ -976,25 +990,32 @@ async def _call_gemini(
     max_tokens: int = 8192,
     temperature: float = 0.3,
 ) -> str:
-    """Call Google Gemini API and return the text response."""
+    """Call Google Gemini API with retry on transient failures."""
     from google import genai
     from google.genai import types
     client = genai.Client(api_key=api_key)
-    try:
-        resp = client.models.generate_content(
-            model=model,
-            contents=user_prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=system_prompt,
-                max_output_tokens=max_tokens,
-                temperature=temperature,
-                response_mime_type="application/json",
-            ),
-        )
-        return resp.text
-    except Exception as e:
-        logger.error(f"Gemini {model} call failed: {e}")
-        raise
+    max_retries = 4
+    for attempt in range(max_retries):
+        try:
+            resp = client.models.generate_content(
+                model=model,
+                contents=user_prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    max_output_tokens=max_tokens,
+                    temperature=temperature,
+                    response_mime_type="application/json",
+                ),
+            )
+            return resp.text
+        except Exception as e:
+            if _is_transient(e) and attempt < max_retries - 1:
+                wait = min(30 * (2 ** attempt), 300)  # 30s, 60s, 120s, 300s
+                logger.warning(f"Gemini {model} transient error, retrying in {wait}s (attempt {attempt + 1}/{max_retries}): {e}")
+                await asyncio.sleep(wait)
+            else:
+                logger.error(f"Gemini {model} call failed: {e}")
+                raise
 
 
 async def _call_grok(
@@ -1005,23 +1026,30 @@ async def _call_grok(
     max_tokens: int = 8192,
     temperature: float = 0.3,
 ) -> str:
-    """Call xAI Grok API (OpenAI-compatible) and return the text response."""
+    """Call xAI Grok API (OpenAI-compatible) with retry on transient failures."""
     from openai import OpenAI
     client = OpenAI(api_key=api_key, base_url="https://api.x.ai/v1")
-    try:
-        resp = client.chat.completions.create(
-            model=model,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-        )
-        return resp.choices[0].message.content
-    except Exception as e:
-        logger.error(f"Grok {model} call failed: {e}")
-        raise
+    max_retries = 4
+    for attempt in range(max_retries):
+        try:
+            resp = client.chat.completions.create(
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+            )
+            return resp.choices[0].message.content
+        except Exception as e:
+            if _is_transient(e) and attempt < max_retries - 1:
+                wait = min(30 * (2 ** attempt), 300)
+                logger.warning(f"Grok {model} transient error, retrying in {wait}s (attempt {attempt + 1}/{max_retries}): {e}")
+                await asyncio.sleep(wait)
+            else:
+                logger.error(f"Grok {model} call failed: {e}")
+                raise
 
 
 # ── Grounding + Chain-of-Verification Mandate ────────────────────────
@@ -2664,10 +2692,13 @@ class CanadianStockCouncilBrain:
                         f"Stage 1 batch {batch_num}/{n_batches}: "
                         f"tickers {i+1}-{min(i+BATCH_SIZE, len(payloads_list))}"
                     )
-                    batch_results = await run_stage1_sonnet(
-                        self.anthropic_key, batch, macro
-                    )
-                    stage1_all.extend(batch_results)
+                    try:
+                        batch_results = await run_stage1_sonnet(
+                            self.anthropic_key, batch, macro
+                        )
+                        stage1_all.extend(batch_results)
+                    except Exception as batch_e:
+                        logger.warning(f"Stage 1 batch {batch_num} failed: {batch_e}")
                     if i + BATCH_SIZE < len(payloads_list):
                         await asyncio.sleep(INTER_BATCH_DELAY)
                 # Re-sort and take top 100
@@ -2684,84 +2715,154 @@ class CanadianStockCouncilBrain:
             if not stage1_results:
                 raise RuntimeError("Stage 1 produced no results")
 
-            # ── Step 6: Stage 2 — Gemini ──
+            # Track skipped stages for metadata/alerting
+            skipped_stages: list[dict] = []
+
+            # ── Step 6: Stage 2 — Gemini (skippable) ──
             GEMINI_BATCH_SIZE = 15  # Smaller batches for Gemini to avoid token limit truncation
             logger.info(f"Step 6: Stage 2 (Gemini) — {len(stage1_results)} tickers")
-            if len(stage1_results) > GEMINI_BATCH_SIZE:
-                stage2_all = []
-                s1_tickers_batched = [
-                    stage1_results[i:i + GEMINI_BATCH_SIZE]
-                    for i in range(0, len(stage1_results), GEMINI_BATCH_SIZE)
-                ]
-                for batch_idx, s1_batch in enumerate(s1_tickers_batched):
-                    batch_tickers = {r["ticker"] for r in s1_batch}
-                    batch_payloads = [p for p in payloads_list if p.ticker in batch_tickers]
-                    logger.info(f"Stage 2 batch {batch_idx + 1}/{len(s1_tickers_batched)}: {len(s1_batch)} tickers")
-                    batch_results = await run_stage2_gemini(
-                        self.google_key, batch_payloads, macro, s1_batch
+            stage2_results = []
+            stage2_skipped = False
+            try:
+                if len(stage1_results) > GEMINI_BATCH_SIZE:
+                    s1_tickers_batched = [
+                        stage1_results[i:i + GEMINI_BATCH_SIZE]
+                        for i in range(0, len(stage1_results), GEMINI_BATCH_SIZE)
+                    ]
+                    # Run Gemini batches concurrently (2 at a time — Gemini rate limits are more generous)
+                    GEMINI_CONCURRENCY = 2
+                    gemini_sem = asyncio.Semaphore(GEMINI_CONCURRENCY)
+
+                    async def _run_gemini_batch(batch_idx: int, s1_batch: list[dict]) -> list[dict]:
+                        async with gemini_sem:
+                            batch_tickers = {r["ticker"] for r in s1_batch}
+                            batch_payloads = [p for p in payloads_list if p.ticker in batch_tickers]
+                            logger.info(f"Stage 2 batch {batch_idx + 1}/{len(s1_tickers_batched)}: {len(s1_batch)} tickers")
+                            return await run_stage2_gemini(
+                                self.google_key, batch_payloads, macro, s1_batch
+                            )
+
+                    batch_tasks = [
+                        _run_gemini_batch(idx, batch)
+                        for idx, batch in enumerate(s1_tickers_batched)
+                    ]
+                    batch_results_list = await asyncio.gather(*batch_tasks, return_exceptions=True)
+
+                    stage2_all = []
+                    for idx, br in enumerate(batch_results_list):
+                        if isinstance(br, Exception):
+                            logger.warning(f"Stage 2 batch {idx + 1} failed: {br}")
+                        else:
+                            stage2_all.extend(br)
+
+                    stage2_results = sorted(
+                        stage2_all, key=lambda x: x["score"]["total"], reverse=True
+                    )[:80]
+                else:
+                    stage2_results = await run_stage2_gemini(
+                        self.google_key, payloads_list, macro, stage1_results
                     )
-                    stage2_all.extend(batch_results)
-                    if batch_idx + 1 < len(s1_tickers_batched):
-                        await asyncio.sleep(INTER_BATCH_DELAY)
-                stage2_results = sorted(
-                    stage2_all, key=lambda x: x["score"]["total"], reverse=True
-                )[:80]
+                    stage2_results = stage2_results[:80]
+            except Exception as e:
+                logger.error(f"Stage 2 (Gemini) FAILED — skipping: {e}")
+                stage2_skipped = True
+                skipped_stages.append({"stage": 2, "model": "gemini", "error": str(e)})
+
+            if stage2_skipped or not stage2_results:
+                if not stage2_skipped:
+                    logger.warning("Stage 2 (Gemini) returned 0 results — passing Stage 1 results through")
+                    skipped_stages.append({"stage": 2, "model": "gemini", "error": "empty results"})
+                stage2_results = stage1_results[:80]
+                logger.info(f"Step 6: Stage 2 SKIPPED — passing through {len(stage2_results)} Stage 1 results")
             else:
-                stage2_results = await run_stage2_gemini(
-                    self.google_key, payloads_list, macro, stage1_results
-                )
-                stage2_results = stage2_results[:80]
+                logger.info(f"Step 6: Stage 2 produced {len(stage2_results)} results")
 
-            logger.info(f"Step 6: Stage 2 produced {len(stage2_results)} results")
-            if not stage2_results:
-                raise RuntimeError("Stage 2 produced no results")
-
-            # ── Step 7: Stage 3 — Opus ──
+            # ── Step 7: Stage 3 — Opus (skippable) ──
             logger.info(f"Step 7: Stage 3 (Opus) — {len(stage2_results)} tickers")
             OPUS_BATCH = 20  # Smaller batches for expensive Opus calls
-            if len(stage2_results) > OPUS_BATCH:
-                stage3_all = []
-                s2_tickers_batched = [
-                    stage2_results[i:i + OPUS_BATCH]
-                    for i in range(0, len(stage2_results), OPUS_BATCH)
-                ]
-                for batch_idx, s2_batch in enumerate(s2_tickers_batched):
-                    batch_tickers = {r["ticker"] for r in s2_batch}
-                    batch_payloads = [p for p in payloads_list if p.ticker in batch_tickers]
-                    s1_for_batch = [r for r in stage1_results if r["ticker"] in batch_tickers]
-                    logger.info(f"Stage 3 batch {batch_idx + 1}/{len(s2_tickers_batched)}: {len(s2_batch)} tickers")
-                    batch_results = await run_stage3_opus(
-                        self.anthropic_key, batch_payloads, macro,
-                        s1_for_batch, s2_batch
+            stage3_results = []
+            stage3_skipped = False
+            try:
+                if len(stage2_results) > OPUS_BATCH:
+                    s2_tickers_batched = [
+                        stage2_results[i:i + OPUS_BATCH]
+                        for i in range(0, len(stage2_results), OPUS_BATCH)
+                    ]
+                    # Opus batches run sequentially — Anthropic rate limits are tight
+                    stage3_all = []
+                    for batch_idx, s2_batch in enumerate(s2_tickers_batched):
+                        batch_tickers = {r["ticker"] for r in s2_batch}
+                        batch_payloads = [p for p in payloads_list if p.ticker in batch_tickers]
+                        s1_for_batch = [r for r in stage1_results if r["ticker"] in batch_tickers]
+                        logger.info(f"Stage 3 batch {batch_idx + 1}/{len(s2_tickers_batched)}: {len(s2_batch)} tickers")
+                        try:
+                            batch_results = await run_stage3_opus(
+                                self.anthropic_key, batch_payloads, macro,
+                                s1_for_batch, s2_batch
+                            )
+                            stage3_all.extend(batch_results)
+                        except Exception as batch_e:
+                            logger.warning(f"Stage 3 batch {batch_idx + 1} failed: {batch_e}")
+                        if batch_idx + 1 < len(s2_tickers_batched):
+                            await asyncio.sleep(INTER_BATCH_DELAY)
+                    stage3_results = sorted(
+                        stage3_all, key=lambda x: x["score"]["total"], reverse=True
+                    )[:40]
+                else:
+                    stage3_results = await run_stage3_opus(
+                        self.anthropic_key, payloads_list, macro,
+                        stage1_results, stage2_results
                     )
-                    stage3_all.extend(batch_results)
-                    if batch_idx + 1 < len(s2_tickers_batched):
-                        await asyncio.sleep(INTER_BATCH_DELAY)
-                stage3_results = sorted(
-                    stage3_all, key=lambda x: x["score"]["total"], reverse=True
-                )[:40]
+                    stage3_results = stage3_results[:40]
+            except Exception as e:
+                logger.error(f"Stage 3 (Opus) FAILED — skipping: {e}")
+                stage3_skipped = True
+                skipped_stages.append({"stage": 3, "model": "opus", "error": str(e)})
+
+            if stage3_skipped or not stage3_results:
+                if not stage3_skipped:
+                    logger.warning("Stage 3 (Opus) returned 0 results — passing Stage 2 results through")
+                    skipped_stages.append({"stage": 3, "model": "opus", "error": "empty results"})
+                stage3_results = stage2_results[:40]
+                logger.info(f"Step 7: Stage 3 SKIPPED — passing through {len(stage3_results)} Stage 2 results")
             else:
-                stage3_results = await run_stage3_opus(
-                    self.anthropic_key, payloads_list, macro,
-                    stage1_results, stage2_results
-                )
-                stage3_results = stage3_results[:40]
+                logger.info(f"Step 7: Stage 3 produced {len(stage3_results)} results")
 
-            logger.info(f"Step 7: Stage 3 produced {len(stage3_results)} results")
-            if not stage3_results:
-                raise RuntimeError("Stage 3 produced no results")
-
-            # ── Step 8: Stage 4 — Grok ──
+            # ── Step 8: Stage 4 — Grok (skippable) ──
             logger.info(f"Step 8: Stage 4 (Grok) — {len(stage3_results)} tickers")
-            stage4_results = await run_stage4_grok(
-                self.xai_key, self.anthropic_key,
-                payloads_list, macro,
-                stage1_results, stage2_results, stage3_results
-            )
-            stage4_results = stage4_results[:20]
-            logger.info(f"Step 8: Stage 4 produced {len(stage4_results)} results")
+            stage4_results = []
+            stage4_skipped = False
+            try:
+                stage4_results = await run_stage4_grok(
+                    self.xai_key, self.anthropic_key,
+                    payloads_list, macro,
+                    stage1_results, stage2_results, stage3_results
+                )
+                stage4_results = stage4_results[:20]
+            except Exception as e:
+                logger.error(f"Stage 4 (Grok) FAILED — skipping: {e}")
+                stage4_skipped = True
+                skipped_stages.append({"stage": 4, "model": "grok", "error": str(e)})
+
+            if stage4_skipped or not stage4_results:
+                if not stage4_skipped:
+                    logger.warning("Stage 4 (Grok) returned 0 results — passing Stage 3 results through")
+                    skipped_stages.append({"stage": 4, "model": "grok", "error": "empty results"})
+                stage4_results = stage3_results[:20]
+                logger.info(f"Step 8: Stage 4 SKIPPED — passing through {len(stage4_results)} Stage 3 results")
+            else:
+                logger.info(f"Step 8: Stage 4 produced {len(stage4_results)} results")
+
+            # Log alert summary for any skipped stages
+            if skipped_stages:
+                skip_summary = ", ".join(f"Stage {s['stage']} ({s['model']})" for s in skipped_stages)
+                logger.warning(
+                    f"⚠️ COUNCIL RUN {run_id}: {len(skipped_stages)} stage(s) skipped: {skip_summary}. "
+                    f"Results may have reduced quality. Review logs for details."
+                )
+
             if not stage4_results:
-                raise RuntimeError("Stage 4 produced no results")
+                raise RuntimeError("Pipeline produced no results after all stages (including fallbacks)")
 
             # ── Step 9: Fact-check ──
             logger.info("Step 9: Running fact checker")
@@ -2817,6 +2918,7 @@ class CanadianStockCouncilBrain:
                     "stage4_count": len(stage4_results),
                     "batching_used": len(payloads_list) > 50,
                     "total_runtime_seconds": round(total_runtime, 1),
+                    "skipped_stages": skipped_stages,
                 },
                 fact_check_flags=fact_flags,
                 total_runtime_seconds=round(total_runtime, 1),

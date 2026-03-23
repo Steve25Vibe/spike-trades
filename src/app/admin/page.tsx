@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import ResponsiveLayout from '@/components/layout/ResponsiveLayout';
 import { cn } from '@/lib/utils';
 
-type Tab = 'users' | 'invitations' | 'activity';
+type Tab = 'users' | 'invitations' | 'activity' | 'council';
 
 interface UserInfo {
   id: string;
@@ -34,10 +34,22 @@ interface ActivityUser {
   lastActive: string | null;
 }
 
+interface CouncilStatus {
+  councilHealth: { status?: string; council_running?: boolean; last_run_time?: number; last_run_error?: string };
+  runInProgress: boolean;
+  lastTriggerResult: { success: boolean; error?: string; startedAt?: string; completedAt?: string; spikeCount?: number } | null;
+  latestLog: { date: string; processingTimeMs: number | null; consensusScore: number | null } | null;
+  recentReports: { id: string; date: string; generatedAt: string; regime: string | null; spikeCount: number }[];
+}
+
 function formatDuration(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
   if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
   return `${(seconds / 3600).toFixed(1)}h`;
+}
+
+function formatDurationMs(ms: number): string {
+  return formatDuration(Math.round(ms / 1000));
 }
 
 export default function AdminPage() {
@@ -45,13 +57,26 @@ export default function AdminPage() {
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [invites, setInvites] = useState<InviteInfo[]>([]);
   const [activity, setActivity] = useState<{ totalUsers: number; activeToday: number; avgSessionDurationSec: number; perUser: ActivityUser[] } | null>(null);
+  const [council, setCouncil] = useState<CouncilStatus | null>(null);
   const [inviteEmail, setInviteEmail] = useState('');
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [elapsedTime, setElapsedTime] = useState(0);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     fetchData();
   }, [tab]);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, []);
 
   const fetchData = async () => {
     setLoading(true);
@@ -64,13 +89,71 @@ export default function AdminPage() {
         const res = await fetch('/api/admin/invites');
         const json = await res.json();
         if (json.success) setInvites(json.data);
-      } else {
+      } else if (tab === 'activity') {
         const res = await fetch('/api/admin/activity');
         const json = await res.json();
         if (json.success) setActivity(json.data);
+      } else if (tab === 'council') {
+        await fetchCouncilStatus();
       }
     } catch { /* handle */ }
     finally { setLoading(false); }
+  };
+
+  const fetchCouncilStatus = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/council');
+      const json = await res.json();
+      if (json.success) {
+        setCouncil(json.data);
+        // If running, ensure polling is active
+        if (json.data.runInProgress && !pollRef.current) {
+          startPolling();
+        }
+        // If no longer running, stop polling
+        if (!json.data.runInProgress && pollRef.current) {
+          stopPolling();
+        }
+      }
+    } catch { /* silent */ }
+  }, []);
+
+  const startPolling = () => {
+    if (pollRef.current) return;
+    const startTime = Date.now();
+    setElapsedTime(0);
+    // Elapsed timer — tick every second
+    timerRef.current = setInterval(() => {
+      setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
+    }, 1000);
+    // Status poll — every 30 seconds
+    pollRef.current = setInterval(() => {
+      fetchCouncilStatus();
+    }, 30000);
+  };
+
+  const stopPolling = () => {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+  };
+
+  const triggerCouncilRun = async () => {
+    setShowConfirm(false);
+    setActionLoading('council');
+    try {
+      const res = await fetch('/api/admin/council', { method: 'POST' });
+      const json = await res.json();
+      if (json.success) {
+        startPolling();
+        await fetchCouncilStatus();
+      } else {
+        alert(json.error || 'Failed to start council run.');
+      }
+    } catch {
+      alert('Failed to trigger council run.');
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   const resetPassword = async (userId: string) => {
@@ -141,6 +224,14 @@ export default function AdminPage() {
     return 'bg-spike-red/10 text-spike-red';
   };
 
+  const regimeColor = (regime: string | null) => {
+    if (regime === 'bull') return 'text-spike-green';
+    if (regime === 'bear') return 'text-spike-red';
+    return 'text-spike-amber';
+  };
+
+  const isRunning = council?.runInProgress || false;
+
   return (
     <ResponsiveLayout>
         <h2 className="text-2xl font-display font-bold text-spike-cyan tracking-wide mb-6">
@@ -149,7 +240,7 @@ export default function AdminPage() {
 
         {/* Tabs */}
         <div className="flex gap-1 bg-spike-bg/50 rounded-lg border border-spike-border p-0.5 mb-6 w-fit">
-          {(['users', 'invitations', 'activity'] as const).map((t) => (
+          {(['users', 'invitations', 'activity', 'council'] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -360,6 +451,178 @@ export default function AdminPage() {
               </>
             )}
             {loading && <p className="text-spike-text-muted">Loading...</p>}
+          </div>
+        )}
+
+        {/* Council Tab */}
+        {tab === 'council' && (
+          <div className="space-y-6">
+            {/* Status Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="glass-card p-4 text-center">
+                <p className="text-[9px] text-spike-text-muted uppercase tracking-wider mb-1">Status</p>
+                {isRunning ? (
+                  <div className="flex items-center justify-center gap-2">
+                    <span className="inline-block w-2 h-2 rounded-full bg-spike-amber animate-pulse" />
+                    <p className="text-xl font-bold text-spike-amber mono">Running</p>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center gap-2">
+                    <span className="inline-block w-2 h-2 rounded-full bg-spike-green" />
+                    <p className="text-xl font-bold text-spike-green mono">Idle</p>
+                  </div>
+                )}
+              </div>
+              <div className="glass-card p-4 text-center">
+                <p className="text-[9px] text-spike-text-muted uppercase tracking-wider mb-1">Last Run</p>
+                <p className="text-xl font-bold text-spike-cyan mono">
+                  {council?.latestLog?.processingTimeMs
+                    ? formatDurationMs(council.latestLog.processingTimeMs)
+                    : council?.councilHealth?.last_run_time
+                      ? formatDuration(Math.round(council.councilHealth.last_run_time))
+                      : '--'}
+                </p>
+              </div>
+              <div className="glass-card p-4 text-center">
+                <p className="text-[9px] text-spike-text-muted uppercase tracking-wider mb-1">Python Server</p>
+                <p className={cn('text-xl font-bold mono', council?.councilHealth?.status === 'ok' ? 'text-spike-green' : 'text-spike-red')}>
+                  {council?.councilHealth?.status === 'ok' ? 'Online' : 'Offline'}
+                </p>
+              </div>
+            </div>
+
+            {/* Running indicator with elapsed time */}
+            {isRunning && (
+              <div className="glass-card p-4 border border-spike-amber/30">
+                <div className="flex items-center gap-3">
+                  <span className="inline-block w-3 h-3 rounded-full bg-spike-amber animate-pulse" />
+                  <div>
+                    <p className="text-spike-amber font-bold text-sm">Council scan in progress...</p>
+                    <p className="text-spike-text-dim text-xs">
+                      Elapsed: {formatDuration(elapsedTime)} — Polling every 30s for updates
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Last trigger result */}
+            {council?.lastTriggerResult?.completedAt && (
+              <div className={cn(
+                'glass-card p-4 border',
+                council.lastTriggerResult.success ? 'border-spike-green/30' : 'border-spike-red/30'
+              )}>
+                <p className={cn('text-sm font-bold', council.lastTriggerResult.success ? 'text-spike-green' : 'text-spike-red')}>
+                  {council.lastTriggerResult.success
+                    ? `Last manual run completed — ${council.lastTriggerResult.spikeCount} spikes generated`
+                    : `Last manual run failed: ${council.lastTriggerResult.error}`}
+                </p>
+                <p className="text-spike-text-dim text-xs mt-1">
+                  Completed: {new Date(council.lastTriggerResult.completedAt).toLocaleString('en-CA', { timeZone: 'America/Halifax' })}
+                </p>
+              </div>
+            )}
+
+            {/* Error from Python server */}
+            {council?.councilHealth?.last_run_error && (
+              <div className="glass-card p-4 border border-spike-red/30">
+                <p className="text-spike-red text-sm font-bold">Last Python error:</p>
+                <p className="text-spike-text-dim text-xs mt-1 mono break-all">{council.councilHealth.last_run_error}</p>
+              </div>
+            )}
+
+            {/* Trigger Button */}
+            <div className="glass-card p-6">
+              <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-4">Manual Scan</h3>
+              <p className="text-spike-text-dim text-sm mb-4">
+                Trigger a full 4-stage LLM council scan. This will screen the entire TSX universe and produce today&apos;s Top 20 spikes.
+                Typical runtime is 30-40 minutes.
+              </p>
+              <button
+                onClick={() => setShowConfirm(true)}
+                disabled={isRunning || actionLoading === 'council' || council?.councilHealth?.status !== 'ok'}
+                className="px-6 py-3 rounded-lg bg-gradient-to-r from-spike-cyan to-spike-violet text-spike-bg font-bold text-sm hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                title={council?.councilHealth?.status !== 'ok' ? 'Python council server is offline' : isRunning ? 'Council is already running' : 'Run council scan'}
+              >
+                {actionLoading === 'council' ? 'Starting...' : isRunning ? 'Scan in Progress...' : 'Run Council Scan'}
+              </button>
+            </div>
+
+            {/* Confirmation Modal */}
+            {showConfirm && (
+              <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="glass-card p-6 max-w-md w-full border border-spike-cyan/30">
+                  <h3 className="text-lg font-bold text-spike-cyan mb-3">Confirm Council Scan</h3>
+                  <p className="text-spike-text-dim text-sm mb-2">
+                    This will run a full 4-stage LLM council analysis:
+                  </p>
+                  <ul className="text-spike-text-dim text-xs space-y-1 mb-4 ml-4">
+                    <li>Stage 1: Sonnet screens ~300 tickers to Top 100</li>
+                    <li>Stage 2: Gemini re-scores to Top 80</li>
+                    <li>Stage 3: Opus challenges to Top 40</li>
+                    <li>Stage 4: Grok produces final Top 20 with forecasts</li>
+                  </ul>
+                  <p className="text-spike-amber text-xs mb-4">
+                    This will overwrite today&apos;s report if one exists. Estimated time: 30-40 minutes.
+                  </p>
+                  <div className="flex gap-3 justify-end">
+                    <button
+                      onClick={() => setShowConfirm(false)}
+                      className="px-4 py-2 text-sm rounded-lg border border-spike-border text-spike-text-dim hover:text-spike-text transition-all"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={triggerCouncilRun}
+                      className="px-4 py-2 text-sm rounded-lg bg-gradient-to-r from-spike-cyan to-spike-violet text-spike-bg font-bold hover:opacity-90 transition-all"
+                    >
+                      Start Scan
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Recent Runs Table */}
+            <div className="glass-card p-6">
+              <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-4">Recent Reports</h3>
+              {loading ? (
+                <p className="text-spike-text-muted">Loading...</p>
+              ) : !council?.recentReports?.length ? (
+                <p className="text-spike-text-muted text-sm">No reports generated yet.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[400px]">
+                  <thead>
+                    <tr className="text-spike-text-muted text-xs uppercase border-b border-spike-border">
+                      <th className="text-left py-3 px-2">Date</th>
+                      <th className="text-left py-3 px-2">Regime</th>
+                      <th className="text-center py-3 px-2">Spikes</th>
+                      <th className="text-left py-3 px-2">Generated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {council.recentReports.map((r) => (
+                      <tr key={r.id} className="border-b border-spike-border/50">
+                        <td className="py-3 px-2 text-spike-text mono">
+                          {new Date(r.date).toLocaleDateString('en-CA')}
+                        </td>
+                        <td className="py-3 px-2">
+                          <span className={cn('text-xs font-bold uppercase', regimeColor(r.regime))}>
+                            {r.regime || '--'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-2 text-center text-spike-cyan font-bold mono">{r.spikeCount}</td>
+                        <td className="py-3 px-2 text-spike-text-dim text-xs">
+                          {new Date(r.generatedAt).toLocaleString('en-CA', { timeZone: 'America/Halifax' })}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
