@@ -1,14 +1,75 @@
 'use client';
 
-import { useState, useCallback, ReactNode } from 'react';
+import { useState, useCallback, useEffect, ReactNode } from 'react';
+import { usePathname } from 'next/navigation';
 import Sidebar from '@/components/layout/Sidebar';
 import ParticleBackground from '@/components/layout/ParticleBackground';
 
+const SCROLL_KEY = 'spike-scroll-positions';
+
+function saveScrollPosition(path: string) {
+  try {
+    const positions = JSON.parse(sessionStorage.getItem(SCROLL_KEY) || '{}');
+    positions[path] = window.scrollY;
+    sessionStorage.setItem(SCROLL_KEY, JSON.stringify(positions));
+  } catch { /* sessionStorage unavailable */ }
+}
+
+function restoreScrollPosition(path: string) {
+  try {
+    const positions = JSON.parse(sessionStorage.getItem(SCROLL_KEY) || '{}');
+    const y = positions[path];
+    if (y != null && y > 0) {
+      // Wait for content to render before scrolling
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          window.scrollTo(0, y);
+        });
+      });
+    }
+  } catch { /* sessionStorage unavailable */ }
+}
+
 export default function ResponsiveLayout({ children }: { children: ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const pathname = usePathname();
 
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+
+  // Save scroll position before navigating away
+  useEffect(() => {
+    const handleBeforeNav = () => {
+      saveScrollPosition(pathname);
+    };
+
+    // Listen for clicks on links that will trigger navigation
+    const handleClick = (e: MouseEvent) => {
+      const anchor = (e.target as HTMLElement)?.closest('a');
+      if (anchor && anchor.href && !anchor.target) {
+        saveScrollPosition(pathname);
+      }
+    };
+
+    // Also save on popstate (back/forward buttons)
+    window.addEventListener('click', handleClick, true);
+    window.addEventListener('beforeunload', handleBeforeNav);
+
+    return () => {
+      window.removeEventListener('click', handleClick, true);
+      window.removeEventListener('beforeunload', handleBeforeNav);
+    };
+  }, [pathname]);
+
+  // Restore scroll position when arriving at a page
+  useEffect(() => {
+    // Small delay to ensure data has loaded and content rendered
+    const timer = setTimeout(() => {
+      restoreScrollPosition(pathname);
+    }, 150);
+
+    return () => clearTimeout(timer);
+  }, [pathname]);
 
   return (
     <div className="min-h-screen bg-spike-bg">
