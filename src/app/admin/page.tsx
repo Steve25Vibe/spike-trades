@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import ResponsiveLayout from '@/components/layout/ResponsiveLayout';
 import { cn } from '@/lib/utils';
 
-type Tab = 'users' | 'invitations' | 'activity' | 'council';
+type Tab = 'users' | 'invitations' | 'activity' | 'council' | 'analytics';
 
 interface UserInfo {
   id: string;
@@ -58,6 +58,8 @@ export default function AdminPage() {
   const [invites, setInvites] = useState<InviteInfo[]>([]);
   const [activity, setActivity] = useState<{ totalUsers: number; activeToday: number; avgSessionDurationSec: number; perUser: ActivityUser[] } | null>(null);
   const [council, setCouncil] = useState<CouncilStatus | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [analytics, setAnalytics] = useState<Record<string, any> | null>(null);
   const [inviteEmail, setInviteEmail] = useState('');
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -95,6 +97,10 @@ export default function AdminPage() {
         if (json.success) setActivity(json.data);
       } else if (tab === 'council') {
         await fetchCouncilStatus();
+      } else if (tab === 'analytics') {
+        const res = await fetch('/api/admin/analytics');
+        const json = await res.json();
+        if (json.success) setAnalytics(json.data);
       }
     } catch { /* handle */ }
     finally { setLoading(false); }
@@ -224,6 +230,13 @@ export default function AdminPage() {
     return 'bg-spike-red/10 text-spike-red';
   };
 
+  const hitRateColor = (rate: number | null | undefined) => {
+    if (rate == null) return 'text-spike-text-dim';
+    if (rate >= 0.60) return 'text-spike-green';
+    if (rate >= 0.50) return 'text-spike-amber';
+    return 'text-spike-red';
+  };
+
   const regimeColor = (regime: string | null) => {
     if (regime === 'bull') return 'text-spike-green';
     if (regime === 'bear') return 'text-spike-red';
@@ -240,7 +253,7 @@ export default function AdminPage() {
 
         {/* Tabs */}
         <div className="flex gap-1 bg-spike-bg/50 rounded-lg border border-spike-border p-0.5 mb-6 w-fit">
-          {(['users', 'invitations', 'activity', 'council'] as const).map((t) => (
+          {(['users', 'invitations', 'activity', 'council', 'analytics'] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -623,6 +636,187 @@ export default function AdminPage() {
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Analytics Tab */}
+        {tab === 'analytics' && (
+          <div className="space-y-6">
+            {loading ? (
+              <p className="text-spike-text-muted">Loading analytics...</p>
+            ) : !analytics ? (
+              <p className="text-spike-text-muted">No analytics data available. Run a council scan first.</p>
+            ) : (
+              <>
+                {/* Export button */}
+                <div className="flex justify-end">
+                  <a
+                    href="/api/admin/analytics?export=xlsx"
+                    className="px-4 py-2 rounded-lg bg-gradient-to-r from-spike-cyan to-spike-violet text-spike-bg font-bold text-sm hover:opacity-90 transition-all"
+                    title="Download full analytics as Excel spreadsheet"
+                  >
+                    Download XLSX
+                  </a>
+                </div>
+
+                {/* Summary Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <div className="glass-card p-4 text-center">
+                    <p className="text-[9px] text-spike-text-muted uppercase tracking-wider mb-1">Total Picks</p>
+                    <p className="text-xl font-bold text-spike-cyan mono">{analytics.summary?.total_picks || 0}</p>
+                  </div>
+                  <div className="glass-card p-4 text-center">
+                    <p className="text-[9px] text-spike-text-muted uppercase tracking-wider mb-1">3-Day Hit Rate</p>
+                    <p className={cn('text-xl font-bold mono', hitRateColor(analytics.summary?.hit_rate_3d))}>
+                      {analytics.summary?.hit_rate_3d != null ? `${(analytics.summary.hit_rate_3d * 100).toFixed(1)}%` : '—'}
+                    </p>
+                    <p className="text-[8px] text-spike-text-muted">{analytics.summary?.checked_3d || 0} checked</p>
+                  </div>
+                  <div className="glass-card p-4 text-center">
+                    <p className="text-[9px] text-spike-text-muted uppercase tracking-wider mb-1">5-Day Hit Rate</p>
+                    <p className={cn('text-xl font-bold mono', hitRateColor(analytics.summary?.hit_rate_5d))}>
+                      {analytics.summary?.hit_rate_5d != null ? `${(analytics.summary.hit_rate_5d * 100).toFixed(1)}%` : '—'}
+                    </p>
+                    <p className="text-[8px] text-spike-text-muted">{analytics.summary?.checked_5d || 0} checked</p>
+                  </div>
+                  <div className="glass-card p-4 text-center">
+                    <p className="text-[9px] text-spike-text-muted uppercase tracking-wider mb-1">8-Day Hit Rate</p>
+                    <p className={cn('text-xl font-bold mono', hitRateColor(analytics.summary?.hit_rate_8d))}>
+                      {analytics.summary?.hit_rate_8d != null ? `${(analytics.summary.hit_rate_8d * 100).toFixed(1)}%` : '—'}
+                    </p>
+                    <p className="text-[8px] text-spike-text-muted">{analytics.summary?.checked_8d || 0} checked</p>
+                  </div>
+                </div>
+
+                {/* Stage Performance Table */}
+                <div className="glass-card p-6">
+                  <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-4">LLM Stage Performance</h3>
+                  <div className="overflow-x-auto">
+                  <table className="w-full text-sm min-w-[700px]">
+                    <thead>
+                      <tr className="text-spike-text-muted text-xs uppercase border-b border-spike-border">
+                        <th className="text-left py-3 px-2">Stage</th>
+                        <th className="text-left py-3 px-2">Model</th>
+                        <th className="text-center py-3 px-2">Picks Scored</th>
+                        <th className="text-center py-3 px-2">Avg Score</th>
+                        <th className="text-center py-3 px-2">Score Range</th>
+                        <th className="text-center py-3 px-2">In Top 20</th>
+                        <th className="text-center py-3 px-2">3d Hit Rate</th>
+                        <th className="text-center py-3 px-2">5d Hit Rate</th>
+                        <th className="text-center py-3 px-2">8d Hit Rate</th>
+                        <th className="text-center py-3 px-2">Bias</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {analytics.stages?.map((s: Record<string, unknown>) => (
+                        <tr key={s.stage as number} className="border-b border-spike-border/50">
+                          <td className="py-3 px-2 text-spike-cyan font-bold">Stage {s.stage as number}</td>
+                          <td className="py-3 px-2 text-spike-text capitalize">{s.model as string}</td>
+                          <td className="py-3 px-2 text-center text-spike-text-dim mono">{s.total_picks_scored as number}</td>
+                          <td className="py-3 px-2 text-center text-spike-text mono">{s.avg_score != null ? (s.avg_score as number).toFixed(1) : '—'}</td>
+                          <td className="py-3 px-2 text-center text-spike-text-dim mono text-xs">
+                            {s.min_score != null ? `${(s.min_score as number).toFixed(0)}–${(s.max_score as number).toFixed(0)}` : '—'}
+                          </td>
+                          <td className="py-3 px-2 text-center text-spike-text mono">{s.picks_in_top20 as number}</td>
+                          <td className={cn('py-3 px-2 text-center mono', hitRateColor(s.hit_rate_3d as number | null))}>
+                            {s.hit_rate_3d != null ? `${((s.hit_rate_3d as number) * 100).toFixed(1)}%` : '—'}
+                          </td>
+                          <td className={cn('py-3 px-2 text-center mono', hitRateColor(s.hit_rate_5d as number | null))}>
+                            {s.hit_rate_5d != null ? `${((s.hit_rate_5d as number) * 100).toFixed(1)}%` : '—'}
+                          </td>
+                          <td className={cn('py-3 px-2 text-center mono', hitRateColor(s.hit_rate_8d as number | null))}>
+                            {s.hit_rate_8d != null ? `${((s.hit_rate_8d as number) * 100).toFixed(1)}%` : '—'}
+                          </td>
+                          <td className="py-3 px-2 text-center text-spike-text-dim mono">
+                            {s.bias != null ? `${(s.bias as number) > 0 ? '+' : ''}${(s.bias as number).toFixed(2)}%` : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  </div>
+                </div>
+
+                {/* Score vs Outcome */}
+                <div className="glass-card p-6">
+                  <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-4">Score vs Outcome</h3>
+                  <p className="text-spike-text-dim text-xs mb-4">Do higher consensus scores lead to better actual outcomes?</p>
+                  <div className="overflow-x-auto">
+                  <table className="w-full text-sm min-w-[400px]">
+                    <thead>
+                      <tr className="text-spike-text-muted text-xs uppercase border-b border-spike-border">
+                        <th className="text-left py-3 px-2">Score Bucket</th>
+                        <th className="text-center py-3 px-2">Picks</th>
+                        <th className="text-center py-3 px-2">Avg Actual Return</th>
+                        <th className="text-center py-3 px-2">Hit Rate</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {analytics.score_buckets?.map((b: Record<string, unknown>) => (
+                        <tr key={b.bucket as string} className="border-b border-spike-border/50">
+                          <td className="py-3 px-2 text-spike-text font-bold mono">{b.bucket as string}</td>
+                          <td className="py-3 px-2 text-center text-spike-text-dim mono">{b.picks as number}</td>
+                          <td className={cn('py-3 px-2 text-center mono', (b.avg_actual_return as number) > 0 ? 'text-spike-green' : (b.avg_actual_return as number) < 0 ? 'text-spike-red' : 'text-spike-text-dim')}>
+                            {b.avg_actual_return != null ? `${(b.avg_actual_return as number) > 0 ? '+' : ''}${(b.avg_actual_return as number).toFixed(2)}%` : '—'}
+                          </td>
+                          <td className={cn('py-3 px-2 text-center mono', hitRateColor(b.hit_rate as number | null))}>
+                            {b.hit_rate != null ? `${((b.hit_rate as number) * 100).toFixed(1)}%` : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  </div>
+                </div>
+
+                {/* Daily Accuracy Trend */}
+                <div className="glass-card p-6">
+                  <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-4">Daily Accuracy Trend</h3>
+                  <div className="overflow-x-auto">
+                  <table className="w-full text-sm min-w-[600px]">
+                    <thead>
+                      <tr className="text-spike-text-muted text-xs uppercase border-b border-spike-border">
+                        <th className="text-left py-3 px-2">Date</th>
+                        <th className="text-center py-3 px-2">Picks</th>
+                        <th className="text-center py-3 px-2">3d Correct</th>
+                        <th className="text-center py-3 px-2">3d Rate</th>
+                        <th className="text-center py-3 px-2">5d Correct</th>
+                        <th className="text-center py-3 px-2">5d Rate</th>
+                        <th className="text-center py-3 px-2">8d Correct</th>
+                        <th className="text-center py-3 px-2">8d Rate</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {analytics.daily?.map((d: Record<string, unknown>) => (
+                        <tr key={d.date as string} className="border-b border-spike-border/50">
+                          <td className="py-3 px-2 text-spike-text mono">{d.date as string}</td>
+                          <td className="py-3 px-2 text-center text-spike-text-dim mono">{d.picks as number}</td>
+                          <td className="py-3 px-2 text-center text-spike-text-dim mono">
+                            {(d.checked_3d as number) > 0 ? `${d.correct_3d}/${d.checked_3d}` : '—'}
+                          </td>
+                          <td className={cn('py-3 px-2 text-center mono', hitRateColor(d.hit_rate_3d as number | null))}>
+                            {d.hit_rate_3d != null ? `${((d.hit_rate_3d as number) * 100).toFixed(1)}%` : '—'}
+                          </td>
+                          <td className="py-3 px-2 text-center text-spike-text-dim mono">
+                            {(d.checked_5d as number) > 0 ? `${d.correct_5d}/${d.checked_5d}` : '—'}
+                          </td>
+                          <td className={cn('py-3 px-2 text-center mono', hitRateColor(d.hit_rate_5d as number | null))}>
+                            {d.hit_rate_5d != null ? `${((d.hit_rate_5d as number) * 100).toFixed(1)}%` : '—'}
+                          </td>
+                          <td className="py-3 px-2 text-center text-spike-text-dim mono">
+                            {(d.checked_8d as number) > 0 ? `${d.correct_8d}/${d.checked_8d}` : '—'}
+                          </td>
+                          <td className={cn('py-3 px-2 text-center mono', hitRateColor(d.hit_rate_8d as number | null))}>
+                            {d.hit_rate_8d != null ? `${((d.hit_rate_8d as number) * 100).toFixed(1)}%` : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         )}
 

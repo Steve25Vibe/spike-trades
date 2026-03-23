@@ -292,6 +292,17 @@ async def health():
     }
 
 
+@app.get("/stage-analytics")
+async def stage_analytics():
+    """Return per-stage LLM performance analytics."""
+    try:
+        brain = _get_brain()
+        return brain.historical_analyzer.get_stage_analytics()
+    except Exception as e:
+        logger.error(f"Stage analytics failed: {e}", exc_info=True)
+        raise HTTPException(500, f"Stage analytics failed: {e}")
+
+
 @app.post("/run-council")
 async def run_council(request: RunCouncilRequest | None = None):
     """

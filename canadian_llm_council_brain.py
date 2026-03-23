@@ -1952,9 +1952,29 @@ class HistoricalPerformanceAnalyzer:
                     UNIQUE(pick_id, horizon_days)
                 );
 
+                CREATE TABLE IF NOT EXISTS stage_scores (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    pick_id INTEGER NOT NULL,
+                    run_date TEXT NOT NULL,
+                    ticker TEXT NOT NULL,
+                    stage INTEGER NOT NULL,
+                    model TEXT NOT NULL,
+                    total_score REAL NOT NULL,
+                    technical_momentum REAL,
+                    sentiment_catalysts REAL,
+                    options_volatility REAL,
+                    risk_reward REAL,
+                    conviction REAL,
+                    predicted_direction TEXT,
+                    predicted_move_pct REAL,
+                    UNIQUE(pick_id, stage)
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_pick_history_ticker ON pick_history(ticker);
                 CREATE INDEX IF NOT EXISTS idx_pick_history_run_date ON pick_history(run_date);
                 CREATE INDEX IF NOT EXISTS idx_accuracy_ticker ON accuracy_records(ticker);
+                CREATE INDEX IF NOT EXISTS idx_stage_scores_ticker ON stage_scores(ticker);
+                CREATE INDEX IF NOT EXISTS idx_stage_scores_run_date ON stage_scores(run_date);
             """)
             conn.commit()
         finally:
@@ -2012,6 +2032,36 @@ class HistoricalPerformanceAnalyzer:
                             pick_id, ticker, horizon,
                             fcast.get("predicted_direction", "UP"),
                             fcast.get("most_likely_move_pct"),
+                        ))
+
+                # Save per-stage scores
+                stage_models = {1: "sonnet", 2: "gemini", 3: "opus", 4: "grok"}
+                stage_scores_dict = pick.get("stage_scores", {})
+                for stage_key, score_data in stage_scores_dict.items():
+                    stage_num = int(stage_key.replace("stage", ""))
+                    if isinstance(score_data, dict):
+                        # Get direction from Stage 4 forecasts
+                        pred_dir = None
+                        pred_move = None
+                        if stage_num == 4 and f3:
+                            pred_dir = f3.get("predicted_direction")
+                            pred_move = f3.get("most_likely_move_pct")
+                        conn.execute("""
+                            INSERT OR IGNORE INTO stage_scores
+                            (pick_id, run_date, ticker, stage, model, total_score,
+                             technical_momentum, sentiment_catalysts, options_volatility,
+                             risk_reward, conviction, predicted_direction, predicted_move_pct)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (
+                            pick_id, str(run_date), ticker, stage_num,
+                            stage_models.get(stage_num, f"stage{stage_num}"),
+                            score_data.get("total", 0),
+                            score_data.get("technical_momentum"),
+                            score_data.get("sentiment_catalysts"),
+                            score_data.get("options_volatility"),
+                            score_data.get("risk_reward"),
+                            score_data.get("conviction"),
+                            pred_dir, pred_move,
                         ))
 
             conn.commit()
@@ -2166,6 +2216,193 @@ class HistoricalPerformanceAnalyzer:
                 }
                 for row in rows
             }
+        finally:
+            conn.close()
+
+    def get_stage_analytics(self) -> dict:
+        """Compute per-stage LLM performance analytics.
+        Joins stage_scores with accuracy_records to provide hit rates, bias,
+        score distributions, and daily breakdowns."""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            # ── Per-stage summary ──
+            stages = []
+            for stage_num, model_name in [(1, "sonnet"), (2, "gemini"), (3, "opus"), (4, "grok")]:
+                row = conn.execute("""
+                    SELECT COUNT(*) as total_scored,
+                           AVG(total_score) as avg_score,
+                           MIN(total_score) as min_score,
+                           MAX(total_score) as max_score
+                    FROM stage_scores WHERE stage = ?
+                """, (stage_num,)).fetchone()
+
+                # How many of this stage's picks made the final Top 20
+                top20_row = conn.execute("""
+                    SELECT COUNT(DISTINCT ss.ticker)
+                    FROM stage_scores ss
+                    INNER JOIN pick_history ph ON ss.pick_id = ph.id
+                    WHERE ss.stage = ?
+                """, (stage_num,)).fetchone()
+
+                stage_info = {
+                    "stage": stage_num,
+                    "model": model_name,
+                    "total_picks_scored": row[0] or 0,
+                    "avg_score": round(row[1], 1) if row[1] else None,
+                    "min_score": round(row[2], 1) if row[2] else None,
+                    "max_score": round(row[3], 1) if row[3] else None,
+                    "picks_in_top20": top20_row[0] or 0,
+                }
+
+                # Stage 4 direction accuracy (only stage with predictions)
+                if stage_num == 4:
+                    acc_row = conn.execute("""
+                        SELECT COUNT(*) as total,
+                               SUM(CASE WHEN ar.accurate = 1 THEN 1 ELSE 0 END) as correct,
+                               AVG(ar.predicted_move_pct) as avg_pred,
+                               AVG(ar.actual_move_pct) as avg_actual
+                        FROM stage_scores ss
+                        INNER JOIN accuracy_records ar ON ss.pick_id = ar.pick_id
+                        WHERE ss.stage = 4
+                          AND ar.accurate IS NOT NULL
+                          AND ar.horizon_days = 3
+                    """).fetchone()
+                    total_checked = acc_row[0] or 0
+                    correct = acc_row[1] or 0
+                    stage_info["hit_rate_3d"] = round(correct / total_checked, 4) if total_checked > 0 else None
+                    stage_info["avg_predicted_move"] = round(acc_row[2], 2) if acc_row[2] else None
+                    stage_info["avg_actual_move"] = round(acc_row[3], 2) if acc_row[3] else None
+                    stage_info["bias"] = round((acc_row[2] or 0) - (acc_row[3] or 0), 2) if acc_row[2] and acc_row[3] else None
+                    stage_info["total_checked"] = total_checked
+
+                    # 5d and 8d hit rates
+                    for horizon in [5, 8]:
+                        h_row = conn.execute("""
+                            SELECT COUNT(*) as total,
+                                   SUM(CASE WHEN ar.accurate = 1 THEN 1 ELSE 0 END) as correct
+                            FROM stage_scores ss
+                            INNER JOIN accuracy_records ar ON ss.pick_id = ar.pick_id
+                            WHERE ss.stage = 4 AND ar.accurate IS NOT NULL
+                              AND ar.horizon_days = ?
+                        """, (horizon,)).fetchone()
+                        h_total = h_row[0] or 0
+                        h_correct = h_row[1] or 0
+                        stage_info[f"hit_rate_{horizon}d"] = round(h_correct / h_total, 4) if h_total > 0 else None
+
+                stages.append(stage_info)
+
+            # ── Score vs Outcome buckets ──
+            score_buckets = []
+            for low, high, label in [(80, 101, "80+"), (70, 80, "70-80"), (60, 70, "60-70"), (0, 60, "<60")]:
+                bucket_row = conn.execute("""
+                    SELECT COUNT(*) as total,
+                           AVG(ar.actual_move_pct) as avg_actual,
+                           SUM(CASE WHEN ar.accurate = 1 THEN 1 ELSE 0 END) as correct
+                    FROM pick_history ph
+                    INNER JOIN accuracy_records ar ON ph.id = ar.pick_id
+                    WHERE ph.consensus_score >= ? AND ph.consensus_score < ?
+                      AND ar.accurate IS NOT NULL AND ar.horizon_days = 3
+                """, (low, high)).fetchone()
+                b_total = bucket_row[0] or 0
+                b_correct = bucket_row[2] or 0
+                score_buckets.append({
+                    "bucket": label,
+                    "picks": b_total,
+                    "avg_actual_return": round(bucket_row[1], 2) if bucket_row[1] else None,
+                    "hit_rate": round(b_correct / b_total, 4) if b_total > 0 else None,
+                })
+
+            # ── Daily breakdown ──
+            daily_rows = conn.execute("""
+                SELECT ph.run_date,
+                       COUNT(DISTINCT ph.id) as picks,
+                       SUM(CASE WHEN ar.horizon_days = 3 AND ar.accurate IS NOT NULL THEN 1 ELSE 0 END) as checked_3d,
+                       SUM(CASE WHEN ar.horizon_days = 3 AND ar.accurate = 1 THEN 1 ELSE 0 END) as correct_3d,
+                       SUM(CASE WHEN ar.horizon_days = 5 AND ar.accurate IS NOT NULL THEN 1 ELSE 0 END) as checked_5d,
+                       SUM(CASE WHEN ar.horizon_days = 5 AND ar.accurate = 1 THEN 1 ELSE 0 END) as correct_5d,
+                       SUM(CASE WHEN ar.horizon_days = 8 AND ar.accurate IS NOT NULL THEN 1 ELSE 0 END) as checked_8d,
+                       SUM(CASE WHEN ar.horizon_days = 8 AND ar.accurate = 1 THEN 1 ELSE 0 END) as correct_8d
+                FROM pick_history ph
+                LEFT JOIN accuracy_records ar ON ph.id = ar.pick_id
+                GROUP BY ph.run_date
+                ORDER BY ph.run_date DESC
+                LIMIT 30
+            """).fetchall()
+            daily = []
+            for r in daily_rows:
+                daily.append({
+                    "date": r[0],
+                    "picks": r[1],
+                    "checked_3d": r[2], "correct_3d": r[3],
+                    "hit_rate_3d": round(r[3] / r[2], 4) if r[2] and r[2] > 0 else None,
+                    "checked_5d": r[4], "correct_5d": r[5],
+                    "hit_rate_5d": round(r[5] / r[4], 4) if r[4] and r[4] > 0 else None,
+                    "checked_8d": r[6], "correct_8d": r[7],
+                    "hit_rate_8d": round(r[7] / r[6], 4) if r[6] and r[6] > 0 else None,
+                })
+
+            # ── Pick detail (for export) ──
+            pick_detail = conn.execute("""
+                SELECT ph.run_date, ph.ticker, ph.consensus_score, ph.conviction_tier,
+                       ph.entry_price, ph.predicted_direction,
+                       ph.forecast_3d_move_pct, ph.forecast_5d_move_pct, ph.forecast_8d_move_pct,
+                       s1.total_score as s1_score, s2.total_score as s2_score,
+                       s3.total_score as s3_score, s4.total_score as s4_score,
+                       a3.actual_move_pct as actual_3d, a3.accurate as accurate_3d,
+                       a5.actual_move_pct as actual_5d, a5.accurate as accurate_5d,
+                       a8.actual_move_pct as actual_8d, a8.accurate as accurate_8d
+                FROM pick_history ph
+                LEFT JOIN stage_scores s1 ON ph.id = s1.pick_id AND s1.stage = 1
+                LEFT JOIN stage_scores s2 ON ph.id = s2.pick_id AND s2.stage = 2
+                LEFT JOIN stage_scores s3 ON ph.id = s3.pick_id AND s3.stage = 3
+                LEFT JOIN stage_scores s4 ON ph.id = s4.pick_id AND s4.stage = 4
+                LEFT JOIN accuracy_records a3 ON ph.id = a3.pick_id AND a3.horizon_days = 3
+                LEFT JOIN accuracy_records a5 ON ph.id = a5.pick_id AND a5.horizon_days = 5
+                LEFT JOIN accuracy_records a8 ON ph.id = a8.pick_id AND a8.horizon_days = 8
+                ORDER BY ph.run_date DESC, ph.consensus_score DESC
+            """).fetchall()
+            picks = []
+            for r in pick_detail:
+                picks.append({
+                    "date": r[0], "ticker": r[1], "consensus_score": r[2],
+                    "conviction": r[3], "entry_price": r[4], "direction": r[5],
+                    "pred_3d": r[6], "pred_5d": r[7], "pred_8d": r[8],
+                    "s1_score": r[9], "s2_score": r[10], "s3_score": r[11], "s4_score": r[12],
+                    "actual_3d": r[13], "accurate_3d": r[14],
+                    "actual_5d": r[15], "accurate_5d": r[16],
+                    "actual_8d": r[17], "accurate_8d": r[18],
+                })
+
+            # ── Overall summary ──
+            overall = conn.execute("""
+                SELECT COUNT(DISTINCT ph.id) as total_picks,
+                       SUM(CASE WHEN ar.horizon_days = 3 AND ar.accurate = 1 THEN 1 ELSE 0 END) as correct_3d,
+                       SUM(CASE WHEN ar.horizon_days = 3 AND ar.accurate IS NOT NULL THEN 1 ELSE 0 END) as checked_3d,
+                       SUM(CASE WHEN ar.horizon_days = 5 AND ar.accurate = 1 THEN 1 ELSE 0 END) as correct_5d,
+                       SUM(CASE WHEN ar.horizon_days = 5 AND ar.accurate IS NOT NULL THEN 1 ELSE 0 END) as checked_5d,
+                       SUM(CASE WHEN ar.horizon_days = 8 AND ar.accurate = 1 THEN 1 ELSE 0 END) as correct_8d,
+                       SUM(CASE WHEN ar.horizon_days = 8 AND ar.accurate IS NOT NULL THEN 1 ELSE 0 END) as checked_8d
+                FROM pick_history ph
+                LEFT JOIN accuracy_records ar ON ph.id = ar.pick_id
+            """).fetchone()
+            summary = {
+                "total_picks": overall[0] or 0,
+                "hit_rate_3d": round(overall[1] / overall[2], 4) if overall[2] and overall[2] > 0 else None,
+                "hit_rate_5d": round(overall[3] / overall[4], 4) if overall[4] and overall[4] > 0 else None,
+                "hit_rate_8d": round(overall[5] / overall[6], 4) if overall[6] and overall[6] > 0 else None,
+                "checked_3d": overall[2] or 0,
+                "checked_5d": overall[4] or 0,
+                "checked_8d": overall[6] or 0,
+            }
+
+            return {
+                "summary": summary,
+                "stages": stages,
+                "score_buckets": score_buckets,
+                "daily": daily,
+                "pick_detail": picks,
+            }
+
         finally:
             conn.close()
 
