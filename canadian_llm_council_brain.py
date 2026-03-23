@@ -2509,8 +2509,8 @@ class HistoricalCalibrationEngine:
         quotes = await fetcher.fetch_quotes(universe[:500])
         # Sort by dollar volume, take top N
         liquid = sorted(
-            [(t, q) for t, q in quotes.items() if q.get("price", 0) > 2 and q.get("volume", 0) > 0],
-            key=lambda x: x[1].get("price", 0) * x[1].get("volume", 0),
+            [(t, q) for t, q in quotes.items() if (q.get("price") or 0) > 2 and (q.get("volume") or 0) > 0],
+            key=lambda x: (x[1].get("price") or 0) * (x[1].get("volume") or 0),
             reverse=True,
         )[:self.BACKTEST_TICKERS_LIMIT]
 
@@ -2540,8 +2540,8 @@ class HistoricalCalibrationEngine:
                         continue
 
                     # Compute relative volume
-                    vol_sma_20 = sum(b.get("volume", 0) for b in sub_bars[-20:]) / 20 if len(sub_bars) >= 20 else 1
-                    current_vol = bars[day_idx].get("volume", 0)
+                    vol_sma_20 = sum((b.get("volume") or 0) for b in sub_bars[-20:]) / 20 if len(sub_bars) >= 20 else 1
+                    current_vol = bars[day_idx].get("volume") or 0
                     rel_vol = current_vol / vol_sma_20 if vol_sma_20 > 0 else 1.0
 
                     rsi_b = self._bucket_rsi(techs.rsi)
