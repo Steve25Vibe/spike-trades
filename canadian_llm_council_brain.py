@@ -577,7 +577,7 @@ class LiveDataFetcher:
 
     # ── News ──────────────────────────────────────────────────────────
 
-    async def fetch_news(self, ticker: str, limit: int = 10) -> list[NewsItem]:
+    async def fetch_news(self, ticker: str, limit: int = 5) -> list[NewsItem]:
         """Fetch recent news for a ticker from FMP /stable/news/stock."""
         data = await self._fmp_get(
             "/news/stock",
@@ -932,6 +932,20 @@ def _extract_json(text: str) -> Any:
     return None
 
 
+def _slim_payload(d: dict) -> dict:
+    """Strip token-heavy fields from a payload dict before sending to LLMs.
+    Removes: macro (already in prompt header), news URLs (waste tokens).
+    """
+    d.pop("macro", None)
+    for item in d.get("news", []):
+        if isinstance(item, dict):
+            item.pop("url", None)
+    return d
+
+
+_COMPACT = {"separators": (",", ":"), "default": str}
+
+
 # ── LLM API Callers ──────────────────────────────────────────────────
 
 async def _call_anthropic(
@@ -1141,18 +1155,18 @@ async def run_stage1_sonnet(
     logger.info(f"Stage 1 (Sonnet): Processing {len(payloads)} tickers")
     start = time.time()
 
-    # Build user prompt with all ticker payloads
+    # Build user prompt with all ticker payloads (slimmed for token efficiency)
     payload_dicts = []
     for p in payloads:
         d = p.model_dump(mode="json")
-        # Trim historical_bars to save tokens (last 10 bars)
-        d["historical_bars"] = d["historical_bars"][-10:]
+        d["historical_bars"] = d["historical_bars"][-5:]
+        _slim_payload(d)
         payload_dicts.append(d)
 
     user_prompt = (
-        f"MACRO CONTEXT:\n{json.dumps(macro.model_dump(mode='json'), indent=2, default=str)}\n\n"
+        f"MACRO CONTEXT:\n{json.dumps(macro.model_dump(mode='json'), **_COMPACT)}\n\n"
         f"TICKERS TO SCREEN ({len(payload_dicts)} total):\n"
-        f"{json.dumps(payload_dicts, indent=1, default=str)}"
+        f"{json.dumps(payload_dicts, **_COMPACT)}"
     )
 
     raw = await _call_anthropic(
@@ -1238,20 +1252,21 @@ async def run_stage2_gemini(
     logger.info(f"Stage 2 (Gemini): Processing {len(stage1_results)} tickers from Stage 1")
     start = time.time()
 
-    # Build payload subset — only tickers that passed Stage 1
+    # Build payload subset — only tickers that passed Stage 1 (slimmed)
     passed_tickers = {r["ticker"] for r in stage1_results}
     payload_dicts = []
     for p in payloads:
         if p.ticker in passed_tickers:
             d = p.model_dump(mode="json")
-            d["historical_bars"] = d["historical_bars"][-10:]
+            d["historical_bars"] = d["historical_bars"][-5:]
+            _slim_payload(d)
             payload_dicts.append(d)
 
     user_prompt = (
-        f"MACRO CONTEXT:\n{json.dumps(macro.model_dump(mode='json'), indent=2, default=str)}\n\n"
-        f"STAGE 1 (SONNET) RESULTS:\n{json.dumps(stage1_results, indent=1, default=str)}\n\n"
+        f"MACRO CONTEXT:\n{json.dumps(macro.model_dump(mode='json'), **_COMPACT)}\n\n"
+        f"STAGE 1 (SONNET) RESULTS:\n{json.dumps(stage1_results, **_COMPACT)}\n\n"
         f"RAW DATA ({len(payload_dicts)} tickers):\n"
-        f"{json.dumps(payload_dicts, indent=1, default=str)}"
+        f"{json.dumps(payload_dicts, **_COMPACT)}"
     )
 
     raw = await _call_gemini(
@@ -1345,15 +1360,16 @@ async def run_stage3_opus(
     for p in payloads:
         if p.ticker in passed_tickers:
             d = p.model_dump(mode="json")
-            d["historical_bars"] = d["historical_bars"][-10:]
+            d["historical_bars"] = d["historical_bars"][-5:]
+            _slim_payload(d)
             payload_dicts.append(d)
 
     user_prompt = (
-        f"MACRO CONTEXT:\n{json.dumps(macro.model_dump(mode='json'), indent=2, default=str)}\n\n"
-        f"STAGE 1 (SONNET) RESULTS:\n{json.dumps(stage1_results, indent=1, default=str)}\n\n"
-        f"STAGE 2 (GEMINI) RESULTS:\n{json.dumps(stage2_results, indent=1, default=str)}\n\n"
+        f"MACRO CONTEXT:\n{json.dumps(macro.model_dump(mode='json'), **_COMPACT)}\n\n"
+        f"STAGE 1 (SONNET) RESULTS:\n{json.dumps(stage1_results, **_COMPACT)}\n\n"
+        f"STAGE 2 (GEMINI) RESULTS:\n{json.dumps(stage2_results, **_COMPACT)}\n\n"
         f"RAW DATA ({len(payload_dicts)} tickers):\n"
-        f"{json.dumps(payload_dicts, indent=1, default=str)}"
+        f"{json.dumps(payload_dicts, **_COMPACT)}"
     )
 
     raw = await _call_anthropic(
@@ -1490,16 +1506,17 @@ async def run_stage4_grok(
     for p in payloads:
         if p.ticker in passed_tickers:
             d = p.model_dump(mode="json")
-            d["historical_bars"] = d["historical_bars"][-10:]
+            d["historical_bars"] = d["historical_bars"][-5:]
+            _slim_payload(d)
             payload_dicts.append(d)
 
     user_prompt = (
-        f"MACRO CONTEXT:\n{json.dumps(macro.model_dump(mode='json'), indent=2, default=str)}\n\n"
-        f"STAGE 1 (SONNET) SCORES:\n{json.dumps(stage1_results[:40], indent=1, default=str)}\n\n"
-        f"STAGE 2 (GEMINI) SCORES:\n{json.dumps(stage2_results[:40], indent=1, default=str)}\n\n"
-        f"STAGE 3 (OPUS) SCORES + RISK ANALYSIS:\n{json.dumps(stage3_results, indent=1, default=str)}\n\n"
+        f"MACRO CONTEXT:\n{json.dumps(macro.model_dump(mode='json'), **_COMPACT)}\n\n"
+        f"STAGE 1 (SONNET) SCORES:\n{json.dumps(stage1_results[:40], **_COMPACT)}\n\n"
+        f"STAGE 2 (GEMINI) SCORES:\n{json.dumps(stage2_results[:40], **_COMPACT)}\n\n"
+        f"STAGE 3 (OPUS) SCORES + RISK ANALYSIS:\n{json.dumps(stage3_results, **_COMPACT)}\n\n"
         f"RAW DATA ({len(payload_dicts)} tickers):\n"
-        f"{json.dumps(payload_dicts, indent=1, default=str)}"
+        f"{json.dumps(payload_dicts, **_COMPACT)}"
     )
 
     # Try Grok first, fall back to Opus if xAI key is missing or call fails
@@ -2673,6 +2690,98 @@ class CanadianStockCouncilBrain:
             if len(clean_tickers) < len(payloads_list):
                 payloads_list = [p for p in payloads_list if p.ticker in set(clean_tickers)]
                 logger.info(f"Step 4b: {len(payloads_list)} tickers after noise filter")
+
+            # ── Step 4c: Technical pre-filter (reduce universe before LLM stages) ──
+            MAX_STAGE1_TICKERS = 150
+            if len(payloads_list) > MAX_STAGE1_TICKERS:
+                logger.info(f"Step 4c: Technical pre-filter — scoring {len(payloads_list)} tickers")
+                scored_payloads: list[tuple[float, StockDataPayload]] = []
+                catalyst_overrides: list[StockDataPayload] = []
+
+                for p in payloads_list:
+                    t = p.technicals
+                    if t is None:
+                        # No technicals = can't score, low priority
+                        scored_payloads.append((0.0, p))
+                        continue
+
+                    # Catalyst override: >5 news articles bypass the filter
+                    if len(p.news) > 5:
+                        catalyst_overrides.append(p)
+                        continue
+
+                    # Hard disqualify obvious non-candidates
+                    disqualified = False
+                    if t.rsi_14 > 80:
+                        disqualified = True  # Severely overbought
+                    elif t.rsi_14 < 20 and t.macd_histogram < 0:
+                        disqualified = True  # Dead stock, no reversal signal
+                    elif t.adx_14 < 10:
+                        disqualified = True  # Zero trend strength
+                    elif (p.price < t.sma_50 and t.macd_histogram < 0
+                          and t.relative_volume < 0.5):
+                        disqualified = True  # Bearish with no interest
+                    elif t.relative_volume < 0.3:
+                        disqualified = True  # Basically no trading activity
+
+                    if disqualified:
+                        continue
+
+                    # Composite momentum score (0-100 scale)
+                    score = 0.0
+                    # RSI momentum zone: 40-65 is ideal (max 25 pts)
+                    if 40 <= t.rsi_14 <= 65:
+                        score += 25.0
+                    elif 30 <= t.rsi_14 < 40 or 65 < t.rsi_14 <= 70:
+                        score += 15.0
+                    elif 25 <= t.rsi_14 < 30 or 70 < t.rsi_14 <= 75:
+                        score += 5.0
+
+                    # MACD direction (max 25 pts)
+                    if t.macd_histogram > 0:
+                        score += 15.0
+                        if t.macd_line > t.macd_signal:
+                            score += 10.0  # Bullish crossover
+                    elif t.macd_histogram > -0.1:
+                        score += 5.0  # About to cross
+
+                    # ADX trend strength (max 20 pts)
+                    if t.adx_14 >= 25:
+                        score += 20.0  # Strong trend
+                    elif t.adx_14 >= 20:
+                        score += 12.0
+                    elif t.adx_14 >= 15:
+                        score += 5.0
+
+                    # Price above SMA-20 (max 15 pts)
+                    if p.price > t.sma_20:
+                        score += 10.0
+                        if p.price > t.sma_50:
+                            score += 5.0  # Above both SMAs
+
+                    # Relative volume surge (max 15 pts)
+                    if t.relative_volume >= 2.0:
+                        score += 15.0
+                    elif t.relative_volume >= 1.5:
+                        score += 10.0
+                    elif t.relative_volume >= 1.0:
+                        score += 5.0
+
+                    scored_payloads.append((score, p))
+
+                # Sort by score descending, take top N
+                scored_payloads.sort(key=lambda x: x[0], reverse=True)
+                slots_remaining = MAX_STAGE1_TICKERS - len(catalyst_overrides)
+                top_payloads = [p for _, p in scored_payloads[:max(slots_remaining, 0)]]
+                payloads_list = catalyst_overrides + top_payloads
+
+                logger.info(
+                    f"Step 4c: Pre-filter kept {len(payloads_list)} tickers "
+                    f"({len(catalyst_overrides)} catalyst overrides, "
+                    f"{len(top_payloads)} by technical score)"
+                )
+            else:
+                logger.info(f"Step 4c: Pre-filter not needed ({len(payloads_list)} <= {MAX_STAGE1_TICKERS})")
 
             # Index payloads by ticker for later lookup
             payloads_map = {p.ticker: p for p in payloads_list}
