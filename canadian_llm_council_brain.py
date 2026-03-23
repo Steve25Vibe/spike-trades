@@ -2544,9 +2544,9 @@ class HistoricalCalibrationEngine:
                     current_vol = bars[day_idx].get("volume") or 0
                     rel_vol = current_vol / vol_sma_20 if vol_sma_20 > 0 else 1.0
 
-                    rsi_b = self._bucket_rsi(techs.rsi)
-                    macd_dir = "positive" if techs.macd > 0 else "negative"
-                    adx_b = self._bucket_adx(techs.adx)
+                    rsi_b = self._bucket_rsi(techs.rsi_14)
+                    macd_dir = "positive" if techs.macd_line > 0 else "negative"
+                    adx_b = self._bucket_adx(techs.adx_14)
                     vol_b = self._bucket_volume(rel_vol)
 
                     # Look ahead 3, 5, 8 trading days
@@ -2693,9 +2693,9 @@ class HistoricalCalibrationEngine:
                 if not techs:
                     continue
 
-                rsi = techs.rsi if hasattr(techs, 'rsi') else techs.get('rsi', 50)
-                macd = techs.macd if hasattr(techs, 'macd') else techs.get('macd', 0)
-                adx = techs.adx if hasattr(techs, 'adx') else techs.get('adx', 15)
+                rsi = techs.rsi_14 if hasattr(techs, 'rsi_14') else techs.get('rsi_14', 50)
+                macd = techs.macd_line if hasattr(techs, 'macd_line') else techs.get('macd_line', 0)
+                adx = techs.adx_14 if hasattr(techs, 'adx_14') else techs.get('adx_14', 15)
                 rel_vol = techs.relative_volume if hasattr(techs, 'relative_volume') else techs.get('relative_volume', 1.0)
 
                 rsi_b = self._bucket_rsi(rsi)
