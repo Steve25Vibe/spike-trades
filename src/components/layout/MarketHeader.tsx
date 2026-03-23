@@ -19,7 +19,9 @@ interface Props {
 
 function PulseArrow({ current, previous }: { current: number; previous?: number | null }) {
   if (previous == null || previous === 0) return null;
-  const up = current >= previous;
+  // Only show arrow when value actually changed (not when equal)
+  if (current === previous) return null;
+  const up = current > previous;
   return (
     <span className={cn(
       'inline-block ml-1 text-xs',

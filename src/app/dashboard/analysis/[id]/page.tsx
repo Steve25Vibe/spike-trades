@@ -444,7 +444,7 @@ export default function AnalysisPage() {
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 lg:gap-4">
             {[
-              { label: 'TSX Composite', value: marketContext.tsxLevel?.toFixed(0), sub: `${marketContext.tsxChange >= 0 ? '+' : ''}${marketContext.tsxChange?.toFixed(2)}%`, color: marketContext.tsxChange >= 0 ? 'text-spike-green' : 'text-spike-red' },
+              { label: 'TSX (XIU)', value: marketContext.tsxLevel?.toFixed(0), sub: `${marketContext.tsxChange >= 0 ? '+' : ''}${marketContext.tsxChange?.toFixed(2)}%`, color: marketContext.tsxChange >= 0 ? 'text-spike-green' : 'text-spike-red' },
               { label: 'USO Oil', value: `$${marketContext.oilPrice?.toFixed(2)}`, sub: 'USD/barrel', color: 'text-spike-text' },
               { label: 'Gold', value: `$${marketContext.goldPrice?.toFixed(0)}`, sub: 'CAD', color: 'text-spike-text' },
               { label: 'BTC', value: `$${marketContext.btcPrice?.toLocaleString('en-CA', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`, sub: 'CAD', color: 'text-spike-text' },

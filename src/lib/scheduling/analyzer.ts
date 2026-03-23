@@ -182,7 +182,10 @@ export async function runDailyAnalysis(useCached = false): Promise<{
 
     // Step 2: Save DailyReport + Spikes to database (upsert to handle re-runs)
     console.log('[Analyzer] Saving report to database...');
-    const reportDate = new Date(reportData.date);
+    // Parse date string as local date (not UTC) to avoid timezone shift
+    // "2025-03-19" must be stored as March 19, not shifted to March 18 via UTC
+    const [year, month, day] = reportData.date.split('-').map(Number);
+    const reportDate = new Date(year, month - 1, day);
 
     // Check if a report already exists for this date
     const existingReport = await prisma.dailyReport.findUnique({

@@ -408,7 +408,8 @@ class LiveDataFetcher:
         During non-market hours, we relax this check."""
         ts = quote.get("timestamp")
         if ts is None:
-            # No timestamp — accept but flag
+            # No timestamp — log warning but accept (some FMP symbols lack timestamps)
+            logger.warning(f"Quote for {quote.get('symbol', '?')} has no timestamp — accepting but may be stale")
             return True
         try:
             if isinstance(ts, (int, float)):
@@ -634,8 +635,14 @@ class LiveDataFetcher:
         # GCUSD=gold, CADUSD=CAD/USD, ^VIX=VIX, BZUSD=Brent, XIU.TO=TSX proxy
         # CLUSD (WTI) returns 402 on current plan — use USO ETF as proxy
         async def _quote(symbol: str) -> Optional[dict]:
+            # Try /quote first, then /stable/quote as fallback for fresher data
             data = await self._fmp_get("/quote", params={"symbol": symbol})
             if data and isinstance(data, list) and data:
+                return data[0]
+            # Fallback to stable endpoint
+            data = await self._fmp_get("/stable/quote", params={"symbol": symbol})
+            if data and isinstance(data, list) and data:
+                logger.info(f"Used /stable/quote fallback for {symbol}")
                 return data[0]
             return None
 
