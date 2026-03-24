@@ -540,7 +540,7 @@ export default function AnalysisPage() {
             Trading stocks involves risk. You may lose your entire investment.
           </p>
           <p className="mt-2">
-            &copy; {new Date().getFullYear()} Spike Trades &mdash; spiketrades.ca. All rights reserved. &middot; Ver 2.1
+            &copy; {new Date().getFullYear()} Spike Trades &mdash; spiketrades.ca. All rights reserved. &middot; Ver 2.5
           </p>
         </div>
 

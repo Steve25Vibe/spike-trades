@@ -630,7 +630,7 @@ export default function PortfolioPage() {
 
         <div className="legal-footer">
           <p>For educational and informational purposes only. Not financial advice. Past performance is no guarantee of future results.</p>
-          <p className="mt-2">&copy; {new Date().getFullYear()} Spike Trades — spiketrades.ca &middot; Ver 2.1</p>
+          <p className="mt-2">&copy; {new Date().getFullYear()} Spike Trades — spiketrades.ca &middot; Ver 2.5</p>
         </div>
         </>
         )}

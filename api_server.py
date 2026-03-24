@@ -165,6 +165,10 @@ def _map_to_prisma(council_output: dict) -> dict:
             narrative_parts.append(f"Kill condition: {pick['kill_condition']}")
         if pick.get("worst_case_scenario"):
             narrative_parts.append(f"Worst case: {pick['worst_case_scenario']}")
+        if pick.get("earnings_flag"):
+            narrative_parts.append("⚠ Earnings within prediction window")
+        if pick.get("insider_signal") and pick["insider_signal"] > 0.3:
+            narrative_parts.append("Insider buying detected")
         narrative = " | ".join(narrative_parts) if narrative_parts else ""
 
         # Map rubric scores — use the best available stage (prefer 4 > 3 > 2 > 1)
@@ -198,9 +202,9 @@ def _map_to_prisma(council_output: dict) -> dict:
             "volatilityAdj": technicals.get("atr_14", 0) / max(pick.get("price", 1), 0.01) * 100,
             "sectorRotation": None,
             "patternMatch": best_stage.get("risk_reward", 0),
-            "liquidityDepth": None,
-            "insiderSignal": None,
-            "gapPotential": None,
+            "liquidityDepth": pick.get("sector_relative_strength"),
+            "insiderSignal": pick.get("insider_signal"),
+            "gapPotential": pick.get("analyst_upside_pct"),
             "convictionScore": best_stage.get("conviction", 0),
             "predicted3Day": pred_3d,
             "predicted5Day": pred_5d,

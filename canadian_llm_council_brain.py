@@ -98,6 +98,35 @@ class NewsItem(BaseModel):
     sentiment_score: Optional[float] = Field(None, ge=-1, le=1)
 
 
+class EarningsEvent(BaseModel):
+    """Upcoming earnings event for a ticker."""
+    model_config = {"arbitrary_types_allowed": True}
+    earnings_date: str = Field(..., description="YYYY-MM-DD date of earnings")
+    eps_estimated: Optional[float] = None
+    revenue_estimated: Optional[float] = None
+    days_until: int = Field(..., ge=0, description="Trading days until earnings")
+
+
+class InsiderActivity(BaseModel):
+    """Aggregated insider trading signal."""
+    net_buy_ratio: float = Field(..., ge=-1.0, le=1.0, description="-1=all sells, +1=all buys")
+    total_transactions: int = Field(default=0, ge=0)
+    net_shares: int = Field(default=0, description="Net shares bought or sold")
+    recency_weighted_score: float = Field(default=0.0, ge=-1.0, le=1.0)
+    last_filing_date: Optional[str] = None
+
+
+class AnalystConsensus(BaseModel):
+    """Wall Street analyst consensus data."""
+    strong_buy: int = Field(default=0, ge=0)
+    buy: int = Field(default=0, ge=0)
+    hold: int = Field(default=0, ge=0)
+    sell: int = Field(default=0, ge=0)
+    strong_sell: int = Field(default=0, ge=0)
+    sentiment_score: float = Field(default=0.0, ge=-1.0, le=1.0)
+    target_upside_pct: Optional[float] = Field(None, description="% upside to consensus target")
+
+
 class StockDataPayload(BaseModel):
     """Complete data package for a single ticker, sent to LLM stages."""
     ticker: str = Field(..., description="TSX ticker e.g. RY.TO")
@@ -115,6 +144,10 @@ class StockDataPayload(BaseModel):
     news: list[NewsItem] = Field(default_factory=list)
     finnhub_sentiment: Optional[float] = Field(None, ge=-1, le=1)
     macro: Optional[MacroContext] = None
+    earnings_event: Optional[EarningsEvent] = None
+    insider_activity: Optional[InsiderActivity] = None
+    analyst_consensus: Optional[AnalystConsensus] = None
+    sector_relative_strength: Optional[float] = Field(None, description="Ticker change% minus sector avg")
     as_of: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     data_quality: str = Field(default="OK", description="OK or STALE_DATA or MISSING_FIELD")
 
@@ -200,6 +233,10 @@ class FinalHotPick(BaseModel):
     technicals: Optional[TechnicalIndicators] = None
     historical_edge_multiplier: float = Field(default=1.0, ge=0)
     calibration: Optional[dict] = Field(default=None, description="Historical calibration data")
+    earnings_flag: bool = Field(default=False, description="True if earnings within prediction window")
+    insider_signal: Optional[float] = Field(None, ge=-1.0, le=1.0)
+    analyst_upside_pct: Optional[float] = None
+    sector_relative_strength: Optional[float] = None
     as_of: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -750,6 +787,176 @@ class LiveDataFetcher:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# ENHANCED SIGNAL FETCHERS
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+async def fetch_earnings_calendar(
+    fetcher: "LiveDataFetcher", days_ahead: int = 10
+) -> dict[str, EarningsEvent]:
+    """Bulk fetch earnings calendar for next N days. Returns {ticker: EarningsEvent}."""
+    from_date = date.today().isoformat()
+    to_date = (date.today() + timedelta(days=days_ahead)).isoformat()
+    data = await fetcher._fmp_get(
+        "/earnings-calendar", params={"from": from_date, "to": to_date}
+    )
+    if not data:
+        return {}
+    result = {}
+    today = date.today()
+    for item in data:
+        symbol = item.get("symbol", "")
+        if not symbol.endswith(".TO") and not symbol.endswith(".V"):
+            continue
+        try:
+            earn_date = date.fromisoformat(item["date"])
+            days_until = max((earn_date - today).days, 0)
+            result[symbol] = EarningsEvent(
+                earnings_date=item["date"],
+                eps_estimated=item.get("epsEstimated"),
+                revenue_estimated=item.get("revenueEstimated"),
+                days_until=days_until,
+            )
+        except (KeyError, ValueError):
+            continue
+    logger.info(f"Earnings calendar: {len(result)} TSX tickers with earnings in next {days_ahead} days")
+    return result
+
+
+async def fetch_insider_trades(
+    fetcher: "LiveDataFetcher", ticker: str, days_back: int = 30
+) -> Optional[InsiderActivity]:
+    """Fetch recent insider trades for a ticker and compute aggregated signal."""
+    data = await fetcher._fmp_get("/insider-trading", params={"symbol": ticker, "limit": 50})
+    if not data or not isinstance(data, list):
+        return None
+    cutoff = date.today() - timedelta(days=days_back)
+    buys, sells = 0, 0
+    net_shares = 0
+    recency_sum = 0.0
+    count = 0
+    latest_date = None
+    for txn in data:
+        try:
+            filing = date.fromisoformat(str(txn.get("filingDate", ""))[:10])
+        except (ValueError, TypeError):
+            continue
+        if filing < cutoff:
+            continue
+        txn_type = str(txn.get("transactionType", ""))
+        shares = abs(int(txn.get("securitiesTransacted", 0) or 0))
+        days_ago = (date.today() - filing).days
+        recency_weight = max(0.0, 1.0 - days_ago / days_back)
+        if txn_type.startswith("P"):  # Purchase
+            buys += shares
+            recency_sum += recency_weight
+        elif txn_type.startswith("S"):  # Sale
+            sells += shares
+            recency_sum -= recency_weight
+        net_shares += shares if txn_type.startswith("P") else -shares
+        count += 1
+        if latest_date is None or filing > latest_date:
+            latest_date = filing
+    if count == 0:
+        return None
+    total = buys + sells
+    net_buy_ratio = (buys - sells) / total if total > 0 else 0.0
+    recency_score = max(-1.0, min(1.0, recency_sum / max(count, 1)))
+    return InsiderActivity(
+        net_buy_ratio=round(net_buy_ratio, 4),
+        total_transactions=count,
+        net_shares=net_shares,
+        recency_weighted_score=round(recency_score, 4),
+        last_filing_date=latest_date.isoformat() if latest_date else None,
+    )
+
+
+async def fetch_analyst_consensus(
+    fetcher: "LiveDataFetcher", ticker: str, current_price: float
+) -> Optional[AnalystConsensus]:
+    """Fetch analyst grades + price target consensus."""
+    grades_data, target_data = await asyncio.gather(
+        fetcher._fmp_get("/grades-summary", params={"symbol": ticker}),
+        fetcher._fmp_get("/price-target-consensus", params={"symbol": ticker}),
+    )
+    if not grades_data and not target_data:
+        return None
+    g = grades_data[0] if grades_data and isinstance(grades_data, list) else {}
+    sb = int(g.get("strongBuy", 0) or 0)
+    b = int(g.get("buy", 0) or 0)
+    h = int(g.get("hold", 0) or 0)
+    s = int(g.get("sell", 0) or 0)
+    ss = int(g.get("strongSell", 0) or 0)
+    total_grades = sb + b + h + s + ss
+    sentiment = ((sb * 2 + b * 1 + h * 0 + s * -1 + ss * -2) / max(total_grades, 1)) / 2.0
+    t = target_data[0] if target_data and isinstance(target_data, list) else {}
+    target_consensus = t.get("targetConsensus")
+    upside_pct = None
+    if target_consensus and current_price > 0:
+        upside_pct = round((target_consensus - current_price) / current_price * 100, 2)
+    if total_grades == 0 and upside_pct is None:
+        return None
+    return AnalystConsensus(
+        strong_buy=sb, buy=b, hold=h, sell=s, strong_sell=ss,
+        sentiment_score=round(sentiment, 4),
+        target_upside_pct=upside_pct,
+    )
+
+
+async def fetch_enhanced_signals_batch(
+    fetcher: "LiveDataFetcher",
+    tickers: list[str],
+    quotes: dict[str, dict],
+) -> tuple[dict[str, InsiderActivity], dict[str, AnalystConsensus]]:
+    """Fetch insider + analyst data for tickers, rate-limited."""
+    insider_map: dict[str, InsiderActivity] = {}
+    analyst_map: dict[str, AnalystConsensus] = {}
+    sem = asyncio.Semaphore(3)
+
+    async def _fetch_one(ticker: str):
+        async with sem:
+            price = quotes.get(ticker, {}).get("price", 0)
+            try:
+                insider = await fetch_insider_trades(fetcher, ticker)
+                if insider:
+                    insider_map[ticker] = insider
+            except Exception as e:
+                logger.debug(f"Insider fetch failed for {ticker}: {e}")
+            try:
+                analyst = await fetch_analyst_consensus(fetcher, ticker, price)
+                if analyst:
+                    analyst_map[ticker] = analyst
+            except Exception as e:
+                logger.debug(f"Analyst fetch failed for {ticker}: {e}")
+            await asyncio.sleep(0.3)
+
+    for i in range(0, len(tickers), 20):
+        batch = tickers[i:i + 20]
+        await asyncio.gather(*[_fetch_one(t) for t in batch])
+        if i + 20 < len(tickers):
+            await asyncio.sleep(3)
+            logger.info(f"Enhanced signals: {min(i + 20, len(tickers))}/{len(tickers)} fetched")
+
+    logger.info(f"Enhanced signals: {len(insider_map)} insider, {len(analyst_map)} analyst records")
+    return insider_map, analyst_map
+
+
+def compute_sector_relative_strength(
+    payloads: list[StockDataPayload],
+) -> dict[str, float]:
+    """Compute per-ticker sector-relative strength from existing data. No API calls."""
+    sector_changes: dict[str, list[float]] = {}
+    for p in payloads:
+        sector_changes.setdefault(p.sector, []).append(p.change_pct)
+    sector_avg = {s: statistics.mean(changes) for s, changes in sector_changes.items() if changes}
+    result = {}
+    for p in payloads:
+        avg = sector_avg.get(p.sector, 0.0)
+        result[p.ticker] = round(p.change_pct - avg, 4)
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # MACRO REGIME FILTER
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -935,9 +1142,12 @@ def _extract_json(text: str) -> Any:
 
 def _slim_payload(d: dict) -> dict:
     """Strip token-heavy fields from a payload dict before sending to LLMs.
-    Removes: macro (already in prompt header), news URLs (waste tokens).
+    Removes: macro (already in prompt header), news URLs (waste tokens),
+    trims news to 5 most recent.
     """
     d.pop("macro", None)
+    if "news" in d:
+        d["news"] = d["news"][:5]  # Only 5 most recent articles
     for item in d.get("news", []):
         if isinstance(item, dict):
             item.pop("url", None)
@@ -1098,7 +1308,7 @@ Do NOT confuse "interesting technically" with "good to buy". We want BUYERS' opp
 RUBRIC_TEXT = """
 100-POINT SCORING RUBRIC (apply to EACH ticker — score for UPSIDE potential):
 - Technical Momentum & Confluence (0-30 pts): Score HIGH for BULLISH signals (RSI rising from oversold, bullish MACD crossover, price above rising SMA, breakout above resistance). Score LOW for bearish signals (overbought RSI>75, bearish crossover, price below falling SMA, breakdown below support). Strong upward trend with volume confirmation = highest scores.
-- Sentiment & Catalysts (0-25 pts): Recent positive news sentiment, upcoming bullish catalysts, positive earnings surprise, analyst upgrades. Negative sentiment or bearish catalysts = low scores.
+- Sentiment & Catalysts (0-25 pts): Recent positive news sentiment, upcoming bullish catalysts, positive earnings surprise, analyst upgrades. Negative sentiment or bearish catalysts = low scores. Insider buying clusters are strongly bullish. Analyst consensus alignment increases conviction. If earnings_event is present (earnings within prediction window), score conservatively — this is a binary risk event. Sector-relative strength (sector_relative_strength field, positive = outperforming peers) distinguishes true momentum from sector tailwinds.
 - Options IV / Volatility Edge (0-20 pts): ATR relative to price showing expanding upside moves, volatility regime supporting upside. Use ATR as proxy if options data is thin.
 - Risk/Reward Clarity + Edge Decay (0-15 pts): Asymmetric UPSIDE potential vs downside risk. Clear support level for stop loss, wide upside target. High risk:reward ratio favoring the long side.
 - Overall Short-Term UPSIDE Conviction (0-10 pts): How confident are you this stock RISES in 3-8 days? Factor in all evidence. Zero if you expect decline.
@@ -1724,6 +1934,7 @@ def _build_consensus(
     payloads: dict[str, StockDataPayload],
     regime: str,
     regime_filter: MacroRegimeFilter,
+    earnings_map: dict[str, EarningsEvent] | None = None,
 ) -> list[FinalHotPick]:
     """Build consensus Top 20 from all 4 stage results.
 
@@ -1809,6 +2020,42 @@ def _build_consensus(
                     directional_multiplier = 1.0 - (prob - 0.5) * move / 5
                 consensus_score *= max(directional_multiplier, 0.1)
 
+        # ── Enhanced signal adjustments ──
+        _earnings_map = earnings_map or {}
+
+        # (A) Earnings proximity penalty
+        if ticker in _earnings_map:
+            earn = _earnings_map[ticker]
+            if earn.days_until <= 2:
+                consensus_score *= 0.70  # Heavy: earnings in 0-2 days
+            elif earn.days_until <= 5:
+                consensus_score *= 0.85  # Moderate: 3-5 days
+            elif earn.days_until <= 8:
+                consensus_score *= 0.92  # Light: 6-8 days
+
+        # (B) Insider trading boost/penalty
+        if payload and payload.insider_activity:
+            ins = payload.insider_activity
+            insider_adj = 1.0 + ins.recency_weighted_score * 0.08
+            consensus_score *= insider_adj
+
+        # (C) Analyst consensus adjustment
+        if payload and payload.analyst_consensus:
+            ac = payload.analyst_consensus
+            analyst_adj = 1.0 + ac.sentiment_score * 0.05
+            if ac.target_upside_pct and ac.target_upside_pct > 15:
+                analyst_adj += 0.03
+            if ac.sentiment_score < -0.3 and consensus_score > 70:
+                analyst_adj *= 0.95  # Divergence warning haircut
+            consensus_score *= analyst_adj
+
+        # (D) Sector-relative strength adjustment
+        if payload and payload.sector_relative_strength is not None:
+            srs = payload.sector_relative_strength
+            capped = max(-3.0, min(3.0, srs))
+            srs_adj = 1.0 + capped * 0.017
+            consensus_score *= srs_adj
+
         scored_tickers.append((ticker, consensus_score, len(stages), data))
 
     # Filter out strong bearish predictions (>65% probability of DOWN)
@@ -1883,6 +2130,18 @@ def _build_consensus(
             worst_case_scenario=data.get("worst_case_scenario", ""),
             reasoning_summary=reasoning_summary,
             technicals=payload.technicals if payload else None,
+            earnings_flag=(ticker in (earnings_map or {})),
+            insider_signal=(
+                payload.insider_activity.recency_weighted_score
+                if payload and payload.insider_activity else None
+            ),
+            analyst_upside_pct=(
+                payload.analyst_consensus.target_upside_pct
+                if payload and payload.analyst_consensus else None
+            ),
+            sector_relative_strength=(
+                payload.sector_relative_strength if payload else None
+            ),
         )
         picks.append(pick)
 
@@ -3405,6 +3664,40 @@ class CanadianStockCouncilBrain:
             else:
                 logger.info(f"Step 4c: Pre-filter not needed ({len(payloads_list)} <= {MAX_STAGE1_TICKERS})")
 
+            # ── Step 4d: Fetch earnings calendar (1 API call) ──
+            logger.info("Step 4d: Fetching earnings calendar")
+            try:
+                earnings_map = await fetch_earnings_calendar(self.fetcher, days_ahead=10)
+            except Exception as e:
+                logger.warning(f"Earnings calendar fetch failed (non-fatal): {e}")
+                earnings_map = {}
+
+            # ── Step 4e: Fetch enhanced signals (insider + analyst) ──
+            logger.info(f"Step 4e: Fetching insider + analyst data for {len(payloads_list)} tickers")
+            try:
+                insider_map, analyst_map = await fetch_enhanced_signals_batch(
+                    self.fetcher, [p.ticker for p in payloads_list], quotes
+                )
+            except Exception as e:
+                logger.warning(f"Enhanced signals fetch failed (non-fatal): {e}")
+                insider_map, analyst_map = {}, {}
+
+            # ── Step 4f: Compute sector-relative strength + attach all signals ──
+            rel_strength_map = compute_sector_relative_strength(payloads_list)
+            for p in payloads_list:
+                if p.ticker in earnings_map:
+                    p.earnings_event = earnings_map[p.ticker]
+                if p.ticker in insider_map:
+                    p.insider_activity = insider_map[p.ticker]
+                if p.ticker in analyst_map:
+                    p.analyst_consensus = analyst_map[p.ticker]
+                p.sector_relative_strength = rel_strength_map.get(p.ticker)
+            logger.info(
+                f"Step 4f: Signals attached — "
+                f"{len(earnings_map)} earnings, {len(insider_map)} insider, "
+                f"{len(analyst_map)} analyst, {len(rel_strength_map)} sector-rel"
+            )
+
             # Index payloads by ticker for later lookup
             payloads_map = {p.ticker: p for p in payloads_list}
 
@@ -3604,7 +3897,8 @@ class CanadianStockCouncilBrain:
             logger.info("Step 10: Building consensus")
             top_picks = _build_consensus(
                 stage1_results, stage2_results, stage3_results, stage4_results,
-                payloads_map, regime, self.regime_filter
+                payloads_map, regime, self.regime_filter,
+                earnings_map=earnings_map,
             )
 
             # ── Step 10b: Apply historical calibration ──
