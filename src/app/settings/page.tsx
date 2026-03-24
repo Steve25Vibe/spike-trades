@@ -51,7 +51,7 @@ export default function SettingsPage() {
           {prefs ? (
             <div className="space-y-4">
               {[
-                { key: 'emailDailySpikes' as const, label: 'Daily Spikes Summary', desc: 'Receive the Top 20 picks every trading day' },
+                { key: 'emailDailySpikes' as const, label: 'Daily Spikes Summary', desc: 'Receive the Top 10 picks every trading day' },
                 { key: 'emailSellReminders' as const, label: 'Sell Reminders', desc: 'Get notified when your positions hit their target windows' },
                 { key: 'emailDeviationAlerts' as const, label: 'Deviation Alerts', desc: 'Alert when positions move significantly against predictions' },
               ].map(({ key, label, desc }) => (

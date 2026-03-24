@@ -548,7 +548,7 @@ export default function AdminPage() {
             <div className="glass-card p-6">
               <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-4">Manual Scan</h3>
               <p className="text-spike-text-dim text-sm mb-4">
-                Trigger a full 4-stage LLM council scan. This will screen the entire TSX universe and produce today&apos;s Top 20 spikes.
+                Trigger a full 4-stage LLM council scan. This will screen the entire TSX universe and produce today&apos;s Top 10 spikes.
                 Typical runtime is 30-40 minutes.
               </p>
               <button
@@ -573,7 +573,7 @@ export default function AdminPage() {
                     <li>Stage 1: Sonnet screens ~300 tickers to Top 100</li>
                     <li>Stage 2: Gemini re-scores to Top 80</li>
                     <li>Stage 3: Opus challenges to Top 40</li>
-                    <li>Stage 4: Grok produces final Top 20 with forecasts</li>
+                    <li>Stage 4: Grok produces final Top 10 with forecasts</li>
                   </ul>
                   <p className="text-spike-amber text-xs mb-4">
                     This will overwrite today&apos;s report if one exists. Estimated time: 30-40 minutes.
@@ -700,7 +700,7 @@ export default function AdminPage() {
                         <th className="text-center py-3 px-2">Picks Scored</th>
                         <th className="text-center py-3 px-2">Avg Score</th>
                         <th className="text-center py-3 px-2">Score Range</th>
-                        <th className="text-center py-3 px-2">In Top 20</th>
+                        <th className="text-center py-3 px-2">In Top 10</th>
                         <th className="text-center py-3 px-2">3d Hit Rate</th>
                         <th className="text-center py-3 px-2">5d Hit Rate</th>
                         <th className="text-center py-3 px-2">8d Hit Rate</th>

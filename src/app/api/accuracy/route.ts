@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
         date: true,
         spikes: {
           orderBy: { rank: 'asc' },
-          take: 20,
+          take: 10,
           select: {
             ticker: true, name: true, rank: true, spikeScore: true,
             predicted3Day: true, predicted5Day: true, predicted8Day: true,

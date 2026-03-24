@@ -130,7 +130,7 @@ def _map_to_prisma(council_output: dict) -> dict:
 
     # Map spikes
     mapped_spikes = []
-    for pick in picks[:20]:
+    for pick in picks[:10]:
         ticker = pick["ticker"]
         technicals = pick.get("technicals", {})
         forecasts = pick.get("forecasts", [])

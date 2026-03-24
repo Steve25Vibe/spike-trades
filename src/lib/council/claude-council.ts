@@ -567,7 +567,7 @@ function buildFallbackVerdict(
 ): CouncilVerdict {
   console.warn('[Council] Using fallback — scoring engine rankings only (no LLM review)');
   return {
-    topSpikes: candidates.slice(0, 20),
+    topSpikes: candidates.slice(0, 10),
     marketOutlook: 'LLM Council unavailable. Rankings based on scoring engine only.',
     riskWarnings: ['LLM review was not completed — predictions are unvalidated'],
     sectorAllocations: [],

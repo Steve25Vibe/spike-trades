@@ -34,7 +34,7 @@ export async function sendDailySummary(data: {
 }) {
   const { to, date, topSpikes, marketRegime, tsxLevel, tsxChange } = data;
 
-  const spikeRows = topSpikes.slice(0, 20).map((s) =>
+  const spikeRows = topSpikes.slice(0, 10).map((s) =>
     `<tr style="border-bottom:1px solid #1E3A5F">
       <td style="padding:12px;color:#00F0FF;font-weight:bold">#${s.rank}</td>
       <td style="padding:12px">

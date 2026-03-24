@@ -56,7 +56,7 @@ async function generateXlsx(analytics: {
   stageSheet.addRow([]);
   stageSheet.addRow([
     'Stage', 'Model', 'Picks Scored', 'Avg Score', 'Min Score', 'Max Score',
-    'In Top 20', '3d Hit Rate', '5d Hit Rate', '8d Hit Rate', 'Bias',
+    'In Top 10', '3d Hit Rate', '5d Hit Rate', '8d Hit Rate', 'Bias',
   ]);
   const headerRow1 = stageSheet.getRow(3);
   headerRow1.font = { bold: true };

@@ -10,7 +10,7 @@ Pipeline:
   Stage 1 — Claude Sonnet 4.6    → screens universe to Top 100
   Stage 2 — Gemini 3.1 Pro       → narrows to Top 80
   Stage 3 — Claude Opus 4.6      → narrows to Top 40
-  Stage 4 — SuperGrok Heavy (xAI)→ final Top 20 with probabilistic forecasts
+  Stage 4 — SuperGrok Heavy (xAI)→ final Top 10 with probabilistic forecasts
 
 Fully self-contained.  Import into FastAPI, Airflow, cron, or any Python app.
 
@@ -214,8 +214,8 @@ class ConvictionTier(str, Enum):
 
 
 class FinalHotPick(BaseModel):
-    """A single Top 20 hot pick with all council data."""
-    rank: int = Field(..., ge=1, le=20)
+    """A single Top 10 hot pick with all council data."""
+    rank: int = Field(..., ge=1, le=10)
     ticker: str
     company_name: str = ""
     sector: str = "Unknown"
@@ -291,7 +291,7 @@ class CouncilResult(BaseModel):
     regime: str
     universe_size: int = Field(..., ge=0)
     tickers_screened: int = Field(..., ge=0)
-    top_picks: list[FinalHotPick] = Field(..., max_length=20)
+    top_picks: list[FinalHotPick] = Field(..., max_length=10)
     risk_summary: Optional[RiskSummary] = None
     daily_roadmap: Optional[DailyRoadmap] = None
     stage_metadata: dict[str, Any] = Field(default_factory=dict)
@@ -1621,8 +1621,9 @@ async def run_stage3_opus(
 GROK_SYSTEM_PROMPT = f"""You are the final quantitative synthesizer for a Canadian equity momentum council.
 You are Stage 4 (Final Authority) of a 4-stage LLM Council. You receive all 3 prior stages AND raw data.
 
-YOUR TASK: Produce the FINAL Top 20 picks with explicit probabilistic forecasts.
-For EACH of the Top 20, provide forecasts at 3 horizons: 3-day, 5-day, 8-day.
+YOUR TASK: Produce the FINAL Top 10 picks with explicit probabilistic forecasts.
+Select ONLY the 10 highest-conviction picks — reject borderline or uncertain setups.
+For EACH of the Top 10, provide forecasts at 3 horizons: 3-day, 5-day, 8-day.
 
 Each forecast MUST include:
 - direction_probability: float 0-1 (probability the predicted direction is correct)
@@ -1694,7 +1695,8 @@ OUTPUT FORMAT (strict JSON):
   ]
 }}
 
-Sort by total score descending. Return EXACTLY the top 20 (or all if fewer).
+Sort by total score descending. Return EXACTLY the top 10 (or all if fewer).
+Only include picks where you have genuine directional conviction — drop uncertain setups.
 This is the FINAL verdict — be decisive and quantitative.
 """
 
@@ -1708,7 +1710,7 @@ async def run_stage4_grok(
     stage2_results: list[dict],
     stage3_results: list[dict],
 ) -> list[dict]:
-    """Stage 4: Grok (or Opus fallback) produces final Top 20 with probabilistic forecasts."""
+    """Stage 4: Grok (or Opus fallback) produces final Top 10 with probabilistic forecasts."""
     logger.info(f"Stage 4 (Grok): Processing {len(stage3_results)} tickers from Stage 3")
     start = time.time()
 
@@ -1936,7 +1938,7 @@ def _build_consensus(
     regime_filter: MacroRegimeFilter,
     earnings_map: dict[str, EarningsEvent] | None = None,
 ) -> list[FinalHotPick]:
-    """Build consensus Top 20 from all 4 stage results.
+    """Build consensus Top 10 from all 4 stage results.
 
     Conviction tiering:
       HIGH   — consensus_score ≥ 80 AND appeared in ≥ 3 stages
@@ -2070,13 +2072,13 @@ def _build_consensus(
 
     scored_tickers = [t for t in scored_tickers if not _is_bearish(t)]
 
-    # Sort by consensus score descending, take top 20
+    # Sort by consensus score descending, take top 10
     scored_tickers.sort(key=lambda x: (-x[1], -x[2]))
-    top_20 = scored_tickers[:20]
+    top_10 = scored_tickers[:10]
 
     # Build FinalHotPick objects
     picks: list[FinalHotPick] = []
-    for rank, (ticker, consensus_score, n_stages, data) in enumerate(top_20, 1):
+    for rank, (ticker, consensus_score, n_stages, data) in enumerate(top_10, 1):
         payload = payloads.get(ticker)
 
         # Determine conviction tier
@@ -2496,7 +2498,7 @@ class HistoricalPerformanceAnalyzer:
                     FROM stage_scores WHERE stage = ?
                 """, (stage_num,)).fetchone()
 
-                # How many of this stage's picks made the final Top 20
+                # How many of this stage's picks made the final Top 10
                 top20_row = conn.execute("""
                     SELECT COUNT(DISTINCT ss.ticker)
                     FROM stage_scores ss
@@ -3456,7 +3458,7 @@ class CanadianStockCouncilBrain:
           5. Stage 1 — Sonnet screens to Top 100
           6. Stage 2 — Gemini re-scores to Top 80
           7. Stage 3 — Opus challenges to Top 40
-          8. Stage 4 — Grok final Top 20 with probabilistic forecasts
+          8. Stage 4 — Grok final Top 10 with probabilistic forecasts
           9. Fact-check Stage 4 output
           10. Build consensus + conviction tiering
           11. Return CouncilResult
