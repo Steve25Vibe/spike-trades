@@ -291,8 +291,8 @@ function DashboardContent() {
               {[
                 { label: 'Stocks Analyzed', value: data.report.stocksAnalyzed?.toLocaleString() || '--', color: 'text-spike-amber' },
                 { label: 'Total Spikes', value: data.spikes.length, color: 'text-spike-cyan' },
-                { label: 'Avg Score', value: (data.spikes.reduce((a, s) => a + s.spikeScore, 0) / data.spikes.length).toFixed(1), color: 'text-spike-green' },
-                { label: 'Top Score', value: data.spikes[0]?.spikeScore.toFixed(1) || '--', color: 'text-spike-gold' },
+                { label: 'Avg Score', value: (data.spikes.reduce((a, s) => a + s.spikeScore, 0) / data.spikes.length).toFixed(0), color: 'text-spike-green' },
+                { label: 'Top Score', value: data.spikes[0]?.spikeScore.toFixed(0) || '--', color: 'text-spike-gold' },
                 { label: 'Avg Confidence', value: (data.spikes.reduce((a, s) => a + s.confidence, 0) / data.spikes.length).toFixed(0) + '%', color: 'text-spike-violet' },
               ].map((stat) => (
                 <div key={stat.label} className="glass-card p-4 text-center">
