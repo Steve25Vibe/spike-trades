@@ -3,19 +3,9 @@
 import { useState, useEffect } from 'react';
 import ResponsiveLayout from '@/components/layout/ResponsiveLayout';
 import { cn } from '@/lib/utils';
-import {
-  ComposedChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, ReferenceLine, Cell, Legend
-} from 'recharts';
+// recharts removed — no charts on this page currently
 
 // ---- Types ----
-
-interface CandlestickPoint {
-  date: string;
-  avg3: number | null; min3: number | null; max3: number | null; index3: number;
-  avg5: number | null; min5: number | null; max5: number | null; index5: number;
-  avg8: number | null; min8: number | null; max8: number | null; index8: number;
-}
 
 interface Scorecard {
   horizon: number;
@@ -56,120 +46,9 @@ const HORIZON_COLORS = {
   8: { main: '#A855F7', dim: '#A855F780', label: '8-Day' },
 };
 
-const CHART_TOOLTIP_STYLE = {
-  background: '#111E33',
-  border: '1px solid #1E3A5F',
-  borderRadius: 8,
-  fontSize: 12,
-  color: '#E2E8F0',
-};
-
-const formatDate = (d: string) =>
-  new Date(d).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' });
-
-// ---- Custom Candlestick Shape ----
-// Renders a candle: body from 0 to avg, wicks from min to max
-
-interface CandleProps {
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-  payload?: Record<string, unknown>;
-  avgKey: string;
-  minKey: string;
-  maxKey: string;
-  color: string;
-  yScale: (val: number) => number;
-}
-
-function CandlestickShape({ x = 0, width = 0, payload, avgKey, minKey, maxKey, color, yScale }: CandleProps) {
-  if (!payload) return null;
-  const avg = payload[avgKey] as number | null;
-  const min = payload[minKey] as number | null;
-  const max = payload[maxKey] as number | null;
-
-  if (avg === null || avg === undefined) return null;
-
-  const zeroY = yScale(0);
-  const avgY = yScale(avg);
-  const minY = min !== null ? yScale(min) : avgY;
-  const maxY = max !== null ? yScale(max) : avgY;
-
-  const bodyTop = Math.min(zeroY, avgY);
-  const bodyHeight = Math.abs(avgY - zeroY);
-  const isPositive = avg >= 0;
-  const fillColor = isPositive ? '#00FF88' : '#FF3366';
-  const wickX = x + width / 2;
-
-  return (
-    <g>
-      {/* Wick — thin line from min to max */}
-      <line
-        x1={wickX}
-        y1={maxY}
-        x2={wickX}
-        y2={minY}
-        stroke={color}
-        strokeWidth={1.5}
-        strokeOpacity={0.6}
-      />
-      {/* Wick caps */}
-      <line x1={wickX - 3} y1={maxY} x2={wickX + 3} y2={maxY} stroke={color} strokeWidth={1} strokeOpacity={0.5} />
-      <line x1={wickX - 3} y1={minY} x2={wickX + 3} y2={minY} stroke={color} strokeWidth={1} strokeOpacity={0.5} />
-      {/* Body — filled rect from 0 to avg */}
-      <rect
-        x={x + 1}
-        y={bodyTop}
-        width={Math.max(width - 2, 4)}
-        height={Math.max(bodyHeight, 2)}
-        fill={fillColor}
-        fillOpacity={0.75}
-        stroke={color}
-        strokeWidth={1.5}
-        rx={2}
-      />
-    </g>
-  );
-}
-
-// ---- Custom Tooltip ----
-
-function CandlestickTooltip({ active, payload, label }: any) {
-  if (!active || !payload || !payload[0]) return null;
-  const data = payload[0].payload;
-  const dateStr = new Date(label).toLocaleDateString('en-CA', { weekday: 'short', month: 'long', day: 'numeric' });
-
-  return (
-    <div style={CHART_TOOLTIP_STYLE} className="p-3 shadow-lg">
-      <p className="text-spike-text-dim text-xs mb-2">{dateStr}</p>
-      {([3, 5, 8] as const).map((h) => {
-        const avg = data[`avg${h}`];
-        if (avg === null || avg === undefined) return null;
-        const min = data[`min${h}`];
-        const max = data[`max${h}`];
-        const { main, label: hLabel } = HORIZON_COLORS[h];
-        return (
-          <div key={h} className="flex items-center gap-2 mb-1">
-            <span className="w-2 h-2 rounded-full inline-block" style={{ background: main }} />
-            <span className="text-xs text-spike-text-dim w-12">{hLabel}</span>
-            <span className={cn('text-xs mono font-medium', avg >= 0 ? 'text-spike-green' : 'text-spike-red')}>
-              Avg: {avg >= 0 ? '+' : ''}{avg.toFixed(2)}%
-            </span>
-            <span className="text-xs text-spike-text-muted mono">
-              ({min !== null ? `${min >= 0 ? '+' : ''}${min.toFixed(1)}` : '?'} to {max !== null ? `${max >= 0 ? '+' : ''}${max.toFixed(1)}` : '?'}%)
-            </span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 // ---- Page ----
 
 export default function AccuracyPage() {
-  const [candlestickData, setCandlestickData] = useState<CandlestickPoint[]>([]);
   const [scorecards, setScorecards] = useState<Scorecard[]>([]);
   const [recentPicks, setRecentPicks] = useState<RecentPick[]>([]);
   const [indexValues, setIndexValues] = useState<IndexValues>({ day3: 100, day5: 100, day8: 100 });
@@ -186,7 +65,6 @@ export default function AccuracyPage() {
       if (res.status === 401) { window.location.href = '/login'; return; }
       const json = await res.json();
       if (json.success) {
-        setCandlestickData(json.data.candlestickData || []);
         setScorecards(json.data.scorecards || []);
         setRecentPicks(json.data.recentPicks || []);
         setIndexValues(json.data.indexValues || { day3: 100, day5: 100, day8: 100 });
@@ -194,19 +72,6 @@ export default function AccuracyPage() {
     } catch { /* handle */ }
     finally { setLoading(false); }
   };
-
-  // Compute Y-axis domain from candlestick data
-  const allValues = candlestickData.flatMap((d) => [
-    d.min3, d.max3, d.min5, d.max5, d.min8, d.max8,
-  ]).filter((v): v is number => v !== null && v !== undefined);
-  const yMin = allValues.length > 0 ? Math.floor(Math.min(...allValues) - 1) : -10;
-  const yMax = allValues.length > 0 ? Math.ceil(Math.max(...allValues) + 1) : 10;
-
-  // We need the Y scale function for candlestick shapes.
-  // We'll pass it via a ref approach: store chart dimensions after render.
-  // But recharts custom shapes don't get the scale directly.
-  // Instead, we use the ErrorBar approach OR render candlesticks via <Customized>.
-  // Simplest: use a Customized component with access to the chart's yAxis scale.
 
   return (
     <ResponsiveLayout>
@@ -233,98 +98,7 @@ export default function AccuracyPage() {
         </div>
 
         {/* ============================================================ */}
-        {/* SECTION 1: Candlestick Performance Chart */}
-        {/* ============================================================ */}
-        <div className="glass-card p-6 mb-6">
-          <div className="mb-2">
-            <h3 className="text-lg font-bold text-spike-text">
-              Spike Trades Performance Index
-            </h3>
-            <p className="text-sm text-spike-text-dim">
-              Each candle shows the average return (body) and range from worst to best pick (wicks) per report date
-            </p>
-          </div>
-          {candlestickData.length > 0 && allValues.length > 0 ? (
-            <ResponsiveContainer width="100%" height={420}>
-              <ComposedChart data={candlestickData} barGap={2} barCategoryGap="20%">
-                <CartesianGrid strokeDasharray="3 3" stroke="#1E3A5F" />
-                <XAxis
-                  dataKey="date"
-                  tickFormatter={formatDate}
-                  stroke="#64748B"
-                  fontSize={11}
-                />
-                <YAxis
-                  stroke="#64748B"
-                  fontSize={11}
-                  domain={[yMin, yMax]}
-                  tickFormatter={(v) => `${v > 0 ? '+' : ''}${v}%`}
-                />
-                <Tooltip content={<CandlestickTooltip />} />
-                <ReferenceLine y={0} stroke="#475569" strokeWidth={1.5} strokeDasharray="6 3" />
-                <Legend
-                  wrapperStyle={{ fontSize: 12, color: '#94A3B8', paddingTop: 8 }}
-                  payload={[
-                    { value: '3-Day', type: 'square', color: HORIZON_COLORS[3].main },
-                    { value: '5-Day', type: 'square', color: HORIZON_COLORS[5].main },
-                    { value: '8-Day', type: 'square', color: HORIZON_COLORS[8].main },
-                  ]}
-                />
-                {/* 3-Day candles */}
-                <Bar dataKey="avg3" name="3-Day" barSize={16}
-                  shape={(props: any) => {
-                    const { y: chartY, height: chartH, ...rest } = props;
-                    // recharts Bar gives us x, y, width, height based on the avg value
-                    // We need to compute yScale from the chart's coordinate system
-                    const yAxisHeight = 420 - 30 - 30; // approx chart area (minus margins)
-                    const yRange = yMax - yMin;
-                    const yScale = (val: number) => 30 + ((yMax - val) / yRange) * yAxisHeight;
-                    return <CandlestickShape {...rest} y={chartY} height={chartH} avgKey="avg3" minKey="min3" maxKey="max3" color={HORIZON_COLORS[3].main} yScale={yScale} />;
-                  }}
-                >
-                  {candlestickData.map((entry, idx) => (
-                    <Cell key={idx} fill={entry.avg3 !== null && entry.avg3 >= 0 ? '#00FF88' : '#FF3366'} fillOpacity={entry.avg3 !== null ? 0.75 : 0} />
-                  ))}
-                </Bar>
-                {/* 5-Day candles */}
-                <Bar dataKey="avg5" name="5-Day" barSize={16}
-                  shape={(props: any) => {
-                    const { y: chartY, height: chartH, ...rest } = props;
-                    const yAxisHeight = 420 - 30 - 30;
-                    const yRange = yMax - yMin;
-                    const yScale = (val: number) => 30 + ((yMax - val) / yRange) * yAxisHeight;
-                    return <CandlestickShape {...rest} y={chartY} height={chartH} avgKey="avg5" minKey="min5" maxKey="max5" color={HORIZON_COLORS[5].main} yScale={yScale} />;
-                  }}
-                >
-                  {candlestickData.map((entry, idx) => (
-                    <Cell key={idx} fill={entry.avg5 !== null && entry.avg5 >= 0 ? '#00FF88' : '#FF3366'} fillOpacity={entry.avg5 !== null ? 0.75 : 0} />
-                  ))}
-                </Bar>
-                {/* 8-Day candles */}
-                <Bar dataKey="avg8" name="8-Day" barSize={16}
-                  shape={(props: any) => {
-                    const { y: chartY, height: chartH, ...rest } = props;
-                    const yAxisHeight = 420 - 30 - 30;
-                    const yRange = yMax - yMin;
-                    const yScale = (val: number) => 30 + ((yMax - val) / yRange) * yAxisHeight;
-                    return <CandlestickShape {...rest} y={chartY} height={chartH} avgKey="avg8" minKey="min8" maxKey="max8" color={HORIZON_COLORS[8].main} yScale={yScale} />;
-                  }}
-                >
-                  {candlestickData.map((entry, idx) => (
-                    <Cell key={idx} fill={entry.avg8 !== null && entry.avg8 >= 0 ? '#00FF88' : '#FF3366'} fillOpacity={entry.avg8 !== null ? 0.75 : 0} />
-                  ))}
-                </Bar>
-              </ComposedChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="h-[420px] flex items-center justify-center text-spike-text-muted text-sm">
-              {loading ? 'Loading performance data...' : 'No accuracy data yet. Results appear after the daily 4:30 PM backfill runs.'}
-            </div>
-          )}
-        </div>
-
-        {/* ============================================================ */}
-        {/* SECTION 2: Horizon Scorecards */}
+        {/* Horizon Scorecards */}
         {/* ============================================================ */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           {([3, 5, 8] as const).map((h) => {
