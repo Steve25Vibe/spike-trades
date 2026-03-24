@@ -6,7 +6,7 @@
 import { StockQuote, HistoricalBar } from '@/types';
 import { sleep } from '@/lib/utils';
 
-const FMP_BASE = 'https://financialmodelingprep.com/api/v3';
+const FMP_BASE = 'https://financialmodelingprep.com/stable';
 const FMP_KEY = process.env.FMP_API_KEY!;
 
 interface FMPQuote {
@@ -14,7 +14,7 @@ interface FMPQuote {
   name: string;
   price: number;
   change: number;
-  changesPercentage: number;
+  changePercentage: number;  // /stable/ uses changePercentage (not changesPercentage)
   volume: number;
   avgVolume: number;
   marketCap: number;
@@ -68,13 +68,13 @@ async function fmpFetch<T>(endpoint: string, params: Record<string, string> = {}
 export async function getTSXSymbols(): Promise<string[]> {
   const [tsx, tsxv] = await Promise.all([
     fmpFetch<FMPProfile[]>('/stock-screener', {
-      exchange: 'TSX',
+      exchange: 'tsx',
       marketCapMoreThan: '50000000',   // Min $50M cap
       volumeMoreThan: '100000',         // Min 100K daily volume
       limit: '1000',
     }),
     fmpFetch<FMPProfile[]>('/stock-screener', {
-      exchange: 'TSX',                 // TSXV stocks often come through TSX endpoint
+      exchange: 'tsx',                 // TSXV stocks often come through TSX endpoint
       marketCapMoreThan: '20000000',
       volumeMoreThan: '50000',
       limit: '500',
@@ -89,7 +89,7 @@ export async function getTSXSymbols(): Promise<string[]> {
 /** Get real-time quotes for a batch of symbols */
 export async function getBatchQuotes(symbols: string[]): Promise<StockQuote[]> {
   const quotes: StockQuote[] = [];
-  // FMP supports comma-separated batch quotes
+  // /stable/batch-quote accepts ?symbols=X,Y,Z
   const batchSize = 50;
 
   for (let i = 0; i < symbols.length; i += batchSize) {
@@ -97,7 +97,7 @@ export async function getBatchQuotes(symbols: string[]): Promise<StockQuote[]> {
     const symbolStr = batch.join(',');
 
     try {
-      const raw = await fmpFetch<FMPQuote[]>(`/quote/${symbolStr}`);
+      const raw = await fmpFetch<FMPQuote[]>('/batch-quote', { symbols: symbolStr });
       for (const q of raw) {
         if (!q.price || q.price <= 0) continue;
         quotes.push({
@@ -105,7 +105,7 @@ export async function getBatchQuotes(symbols: string[]): Promise<StockQuote[]> {
           name: q.name || q.symbol,
           price: q.price,
           change: q.change,
-          changePercent: q.changesPercentage,
+          changePercent: q.changePercentage,
           volume: q.volume,
           avgVolume: q.avgVolume,
           marketCap: q.marketCap,
@@ -136,14 +136,15 @@ export async function getHistoricalPrices(
   days = 90
 ): Promise<HistoricalBar[]> {
   try {
-    const raw = await fmpFetch<{ historical: FMPHistorical[] }>(
-      `/historical-price-full/${symbol}`,
-      { serietype: 'line' }
+    // /stable/ returns a flat list (not { historical: [...] })
+    const raw = await fmpFetch<FMPHistorical[]>(
+      '/historical-price-eod/full',
+      { symbol, serietype: 'line' }
     );
 
-    if (!raw?.historical) return [];
+    if (!Array.isArray(raw) || raw.length === 0) return [];
 
-    return raw.historical
+    return raw
       .slice(0, days)
       .map((h) => ({
         date: h.date,
@@ -171,7 +172,7 @@ export async function getCompanyProfiles(
   for (let i = 0; i < symbols.length; i += batchSize) {
     const batch = symbols.slice(i, i + batchSize);
     try {
-      const raw = await fmpFetch<FMPProfile[]>(`/profile/${batch.join(',')}`);
+      const raw = await fmpFetch<FMPProfile[]>('/profile', { symbol: batch.join(',') });
       for (const p of raw) {
         profiles.set(p.symbol, {
           sector: p.sector || 'Unknown',
@@ -187,15 +188,16 @@ export async function getCompanyProfiles(
   return profiles;
 }
 
-/** Get TSX index data for relative strength */
+/** Get TSX index data for relative strength (XIU.TO proxy) */
 export async function getTSXIndex(): Promise<{ level: number; change: number; changePct: number } | null> {
   try {
-    const raw = await fmpFetch<FMPQuote[]>('/quote/%5EGSPTSE');
+    // ^GSPTSE returns 402 on current plan — use XIU.TO (iShares S&P/TSX 60 ETF) as proxy
+    const raw = await fmpFetch<FMPQuote[]>('/quote', { symbol: 'XIU.TO' });
     if (raw.length > 0) {
       return {
         level: raw[0].price,
         change: raw[0].change,
-        changePct: raw[0].changesPercentage,
+        changePct: raw[0].changePercentage,
       };
     }
   } catch (err) {
@@ -211,20 +213,17 @@ export async function getCommodityPrices(): Promise<{
   cadUsd: number | null;
 }> {
   try {
+    // CLUSD/GCUSD return 402 on current plan — use USO and GLD ETFs as proxies
     const [oilData, goldData, fxData] = await Promise.all([
-      fmpFetch<FMPQuote[]>('/quote/CLUSD').catch(() => []),
-      fmpFetch<FMPQuote[]>('/quote/GCUSD').catch(() => []),
-      fmpFetch<{ ticker: string; bid: number }[]>('/fx').catch(() => []),
+      fmpFetch<FMPQuote[]>('/quote', { symbol: 'USO' }).catch(() => []),
+      fmpFetch<FMPQuote[]>('/quote', { symbol: 'GLD' }).catch(() => []),
+      fmpFetch<FMPQuote[]>('/quote', { symbol: 'CADUSD=X' }).catch(() => []),
     ]);
 
-    const cadUsd = Array.isArray(fxData)
-      ? fxData.find((f) => f.ticker === 'USD/CAD')?.bid ?? null
-      : null;
-
     return {
-      oil: oilData[0]?.price ?? null,
-      gold: goldData[0]?.price ?? null,
-      cadUsd: cadUsd ? 1 / cadUsd : null, // Convert to CAD/USD
+      oil: Array.isArray(oilData) && oilData[0]?.price ? oilData[0].price : null,
+      gold: Array.isArray(goldData) && goldData[0]?.price ? goldData[0].price : null,
+      cadUsd: Array.isArray(fxData) && fxData[0]?.price ? fxData[0].price : null,
     };
   } catch {
     return { oil: null, gold: null, cadUsd: null };
@@ -237,8 +236,9 @@ export async function getStockNews(
   limit = 10
 ): Promise<{ title: string; text: string; publishedDate: string; sentiment: string }[]> {
   try {
-    const raw = await fmpFetch<any[]>(`/stock_news`, {
-      tickers: symbol,
+    // /stable/ endpoint is /news/stock (not /stock_news)
+    const raw = await fmpFetch<any[]>('/news/stock', {
+      symbol,
       limit: limit.toString(),
     });
     return (raw || []).map((n) => ({

@@ -2,10 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import ResponsiveLayout from '@/components/layout/ResponsiveLayout';
-import { cn, formatPercent, formatCurrency } from '@/lib/utils';
+import { cn, formatPercent } from '@/lib/utils';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ResponsiveContainer, ScatterChart, Scatter, ZAxis, Area, AreaChart,
+  ResponsiveContainer, Area, AreaChart, BarChart, Bar, Cell,
   ReferenceLine
 } from 'recharts';
 
@@ -15,7 +15,10 @@ interface AccuracySummary {
   hitRate: number;
   mae: number;
   bias: number;
-  correlation: number;
+  avgReturn: number;
+  avgPredicted: number;
+  alpha: number;
+  bestPick: { ticker: string; return: number } | null;
 }
 
 interface RollingData {
@@ -25,14 +28,6 @@ interface RollingData {
   predictions: number;
 }
 
-interface ScatterPoint {
-  ticker: string;
-  score: number;
-  predicted: number;
-  actual: number;
-  date: string;
-}
-
 interface PerformancePoint {
   date: string;
   tsx: number;
@@ -40,23 +35,21 @@ interface PerformancePoint {
   top5Picks: number;
 }
 
-interface PortfolioHealthTimeline {
-  date: string;
-  totalValue: number;
-  totalInvested: number;
-  realizedPnl: number;
+interface DistributionBucket {
+  label: string;
+  count: number;
+  color: string;
 }
 
-interface PortfolioHealthEntry {
-  portfolioId: string;
-  portfolioName: string;
-  timeline: PortfolioHealthTimeline[];
-}
-
-interface PredVsActualPoint {
+interface RecentPick {
   date: string;
+  ticker: string;
+  name: string;
+  rank: number;
+  score: number;
   predicted: number;
   actual: number;
+  hit: boolean;
 }
 
 const CHART_TOOLTIP_STYLE = {
@@ -74,11 +67,9 @@ export default function AccuracyPage() {
   const [horizon, setHorizon] = useState<3 | 5 | 8>(3);
   const [summary, setSummary] = useState<AccuracySummary | null>(null);
   const [rolling, setRolling] = useState<RollingData[]>([]);
-  const [scatter, setScatter] = useState<ScatterPoint[]>([]);
   const [perfComparison, setPerfComparison] = useState<PerformancePoint[]>([]);
-  const [portfolioHealth, setPortfolioHealth] = useState<PortfolioHealthEntry[]>([]);
-  const [selectedHealthPortfolio, setSelectedHealthPortfolio] = useState<string>('all');
-  const [predVsActual, setPredVsActual] = useState<PredVsActualPoint[]>([]);
+  const [distribution, setDistribution] = useState<DistributionBucket[]>([]);
+  const [recentPicks, setRecentPicks] = useState<RecentPick[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -95,18 +86,13 @@ export default function AccuracyPage() {
       if (json.success) {
         setSummary(json.data.summary);
         setRolling(json.data.rolling);
-        setScatter(json.data.scatterData);
         setPerfComparison(json.data.performanceComparison || []);
-        setPortfolioHealth(json.data.portfolioHealth || []);
-        setPredVsActual(json.data.dailyPredVsActual || []);
+        setDistribution(json.data.returnDistribution || []);
+        setRecentPicks(json.data.recentPicks || []);
       }
     } catch { /* handle */ }
     finally { setLoading(false); }
   };
-
-  // Determine outperformance
-  const latestPerf = perfComparison.length > 0 ? perfComparison[perfComparison.length - 1] : null;
-  const outperformance = latestPerf ? latestPerf.allPicks - latestPerf.tsx : 0;
 
   return (
     <ResponsiveLayout>
@@ -135,307 +121,183 @@ export default function AccuracyPage() {
           </div>
         </div>
 
-        {/* Summary metrics */}
+        {/* ============================================================ */}
+        {/* SECTION 1: Summary Cards */}
+        {/* ============================================================ */}
         {summary && (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
             {[
-              { label: 'Hit Rate', value: `${summary.hitRate.toFixed(1)}%`, color: summary.hitRate >= 55 ? 'text-spike-green' : 'text-spike-amber' },
-              { label: 'MAE', value: `${summary.mae.toFixed(2)}%`, color: 'text-spike-cyan' },
-              { label: 'Bias', value: formatPercent(summary.bias), color: summary.bias >= 0 ? 'text-spike-green' : 'text-spike-red' },
-              { label: 'Correlation', value: summary.correlation.toFixed(3), color: summary.correlation > 0.3 ? 'text-spike-green' : 'text-spike-amber' },
-              { label: 'Predictions', value: summary.totalPredictions.toString(), color: 'text-spike-violet' },
-              { label: 'vs TSX', value: `${outperformance >= 0 ? '+' : ''}${outperformance.toFixed(1)}%`, color: outperformance >= 0 ? 'text-spike-green' : 'text-spike-red' },
+              {
+                label: 'Win Rate',
+                value: `${summary.hitRate.toFixed(1)}%`,
+                sub: 'correct direction',
+                color: summary.hitRate >= 55 ? 'text-spike-green' : summary.hitRate >= 50 ? 'text-spike-amber' : 'text-spike-red',
+              },
+              {
+                label: 'Avg Return',
+                value: `${summary.avgReturn >= 0 ? '+' : ''}${summary.avgReturn.toFixed(2)}%`,
+                sub: `per ${horizon}-day pick`,
+                color: summary.avgReturn >= 0 ? 'text-spike-green' : 'text-spike-red',
+              },
+              {
+                label: 'Alpha vs TSX',
+                value: `${summary.alpha >= 0 ? '+' : ''}${summary.alpha.toFixed(2)}%`,
+                sub: 'outperformance',
+                color: summary.alpha >= 0 ? 'text-spike-green' : 'text-spike-red',
+              },
+              {
+                label: 'Avg Predicted',
+                value: `${summary.avgPredicted >= 0 ? '+' : ''}${summary.avgPredicted.toFixed(2)}%`,
+                sub: 'forecast avg',
+                color: 'text-spike-cyan',
+              },
+              {
+                label: 'Total Picks',
+                value: summary.totalPredictions.toString(),
+                sub: 'tracked',
+                color: 'text-spike-violet',
+              },
+              {
+                label: 'Best Pick',
+                value: summary.bestPick ? summary.bestPick.ticker.replace('.TO', '') : '—',
+                sub: summary.bestPick ? `+${summary.bestPick.return.toFixed(1)}%` : '',
+                color: 'text-spike-green',
+              },
             ].map((stat) => (
               <div key={stat.label} className="glass-card p-4 text-center">
                 <p className="text-[9px] text-spike-text-muted uppercase tracking-wider mb-1">{stat.label}</p>
                 <p className={`text-xl font-bold mono ${stat.color}`}>{stat.value}</p>
+                {stat.sub && <p className="text-[10px] text-spike-text-dim mt-0.5">{stat.sub}</p>}
               </div>
             ))}
           </div>
         )}
 
         {/* ============================================================ */}
-        {/* HERO CHART: Portfolio Performance vs TSX Composite (Line Graph) */}
+        {/* SECTION 2: Hero Chart — Spike Picks vs TSX (same N-day windows) */}
         {/* ============================================================ */}
         <div className="glass-card p-6 mb-6">
           <div className="flex items-center justify-between mb-2">
             <div>
               <h3 className="text-lg font-bold text-spike-text">
-                Spike Picks vs TSX Composite
+                Spike Picks vs TSX
               </h3>
               <p className="text-sm text-spike-text-dim">
-                Cumulative {horizon}-day returns — our picks vs the overall Canadian market
+                Cumulative {horizon}-day returns — picks vs TSX over same windows
               </p>
             </div>
-            {latestPerf && (
+            {summary && (
               <div className={cn(
                 'px-4 py-2 rounded-xl text-sm font-bold mono',
-                outperformance >= 0 ? 'bg-spike-green/10 text-spike-green' : 'bg-spike-red/10 text-spike-red'
+                summary.alpha >= 0 ? 'bg-spike-green/10 text-spike-green' : 'bg-spike-red/10 text-spike-red'
               )}>
-                {outperformance >= 0 ? '+' : ''}{outperformance.toFixed(2)}% vs TSX
+                {summary.alpha >= 0 ? '+' : ''}{summary.alpha.toFixed(2)}% vs TSX
               </div>
             )}
           </div>
-          <ResponsiveContainer width="100%" height={380}>
-            <LineChart data={perfComparison}>
-              <defs>
-                <linearGradient id="cyanGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#00F0FF" stopOpacity={0.15} />
-                  <stop offset="95%" stopColor="#00F0FF" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1E3A5F" />
-              <XAxis
-                dataKey="date"
-                tickFormatter={formatDate}
-                stroke="#64748B"
-                fontSize={11}
-              />
-              <YAxis
-                stroke="#64748B"
-                fontSize={11}
-                tickFormatter={(v) => `${v > 0 ? '+' : ''}${v}%`}
-              />
-              <Tooltip
-                contentStyle={CHART_TOOLTIP_STYLE}
-                labelFormatter={(d) => new Date(d).toLocaleDateString('en-CA', { weekday: 'short', month: 'long', day: 'numeric' })}
-                formatter={(value: number, name: string) => [`${value > 0 ? '+' : ''}${value.toFixed(2)}%`, name]}
-              />
-              <Legend
-                wrapperStyle={{ fontSize: 12, color: '#94A3B8' }}
-              />
-              <ReferenceLine y={0} stroke="#475569" strokeDasharray="3 3" />
-              {/* TSX Composite baseline */}
-              <Line
-                type="monotone"
-                dataKey="tsx"
-                name="TSX Composite"
-                stroke="#64748B"
-                strokeWidth={2}
-                strokeDasharray="6 3"
-                dot={false}
-                activeDot={{ r: 4, fill: '#64748B' }}
-              />
-              {/* All 20 picks */}
-              <Line
-                type="monotone"
-                dataKey="allPicks"
-                name="All 20 Spike Picks"
-                stroke="#00F0FF"
-                strokeWidth={2.5}
-                dot={false}
-                activeDot={{ r: 5, fill: '#00F0FF', stroke: '#0A1428', strokeWidth: 2 }}
-              />
-              {/* Top 5 picks */}
-              <Line
-                type="monotone"
-                dataKey="top5Picks"
-                name="Top 5 Picks"
-                stroke="#00FF88"
-                strokeWidth={2.5}
-                dot={false}
-                activeDot={{ r: 5, fill: '#00FF88', stroke: '#0A1428', strokeWidth: 2 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* ============================================================ */}
-        {/* PREDICTED vs ACTUAL LINE CHART (Daily averages over time) */}
-        {/* ============================================================ */}
-        <div className="glass-card p-6 mb-6">
-          <div className="mb-2">
-            <h3 className="text-lg font-bold text-spike-text">
-              Daily Predicted vs Actual Returns
-            </h3>
-            <p className="text-sm text-spike-text-dim">
-              Average {horizon}-day predicted return vs what actually happened each day
-            </p>
-          </div>
-          <ResponsiveContainer width="100%" height={320}>
-            <LineChart data={predVsActual}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1E3A5F" />
-              <XAxis dataKey="date" tickFormatter={formatDate} stroke="#64748B" fontSize={11} />
-              <YAxis stroke="#64748B" fontSize={11} tickFormatter={(v) => `${v}%`} />
-              <Tooltip
-                contentStyle={CHART_TOOLTIP_STYLE}
-                labelFormatter={(d) => new Date(d).toLocaleDateString('en-CA')}
-                formatter={(value: number, name: string) => [`${value.toFixed(2)}%`, name]}
-              />
-              <Legend wrapperStyle={{ fontSize: 12, color: '#94A3B8' }} />
-              <ReferenceLine y={0} stroke="#475569" strokeDasharray="3 3" />
-              <Line
-                type="monotone"
-                dataKey="predicted"
-                name="Predicted Return"
-                stroke="#A855F7"
-                strokeWidth={2}
-                dot={false}
-                activeDot={{ r: 4, fill: '#A855F7' }}
-              />
-              <Line
-                type="monotone"
-                dataKey="actual"
-                name="Actual Return"
-                stroke="#00FF88"
-                strokeWidth={2}
-                dot={false}
-                activeDot={{ r: 4, fill: '#00FF88' }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Second row: Your Portfolio + Rolling Hit Rate */}
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
-          {/* Portfolio Health — Value Over Time */}
-          <div className="glass-card p-6">
-            <div className="flex items-center justify-between mb-1">
-              <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider">
-                Portfolio Health
-              </h3>
-              {portfolioHealth.length > 0 && (
-                <select
-                  value={selectedHealthPortfolio}
-                  onChange={(e) => setSelectedHealthPortfolio(e.target.value)}
-                  className="bg-spike-bg border border-spike-border rounded-lg px-3 py-1.5 text-xs text-spike-text focus:outline-none focus:border-spike-cyan/50"
-                >
-                  <option value="all">All Portfolios</option>
-                  {portfolioHealth.map((ph) => (
-                    <option key={ph.portfolioId} value={ph.portfolioId}>
-                      {ph.portfolioName}
-                    </option>
-                  ))}
-                </select>
-              )}
+          {perfComparison.length > 0 ? (
+            <ResponsiveContainer width="100%" height={380}>
+              <LineChart data={perfComparison}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1E3A5F" />
+                <XAxis
+                  dataKey="date"
+                  tickFormatter={formatDate}
+                  stroke="#64748B"
+                  fontSize={11}
+                />
+                <YAxis
+                  stroke="#64748B"
+                  fontSize={11}
+                  tickFormatter={(v) => `${v > 0 ? '+' : ''}${v}%`}
+                />
+                <Tooltip
+                  contentStyle={CHART_TOOLTIP_STYLE}
+                  labelFormatter={(d) => new Date(d).toLocaleDateString('en-CA', { weekday: 'short', month: 'long', day: 'numeric' })}
+                  formatter={(value: number, name: string) => [`${value > 0 ? '+' : ''}${value.toFixed(2)}%`, name]}
+                />
+                <Legend wrapperStyle={{ fontSize: 12, color: '#94A3B8' }} />
+                <ReferenceLine y={0} stroke="#475569" strokeDasharray="3 3" />
+                <Line
+                  type="monotone"
+                  dataKey="tsx"
+                  name="TSX (XIU)"
+                  stroke="#64748B"
+                  strokeWidth={2}
+                  strokeDasharray="6 3"
+                  dot={false}
+                  activeDot={{ r: 4, fill: '#64748B' }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="allPicks"
+                  name="All Spike Picks"
+                  stroke="#00F0FF"
+                  strokeWidth={2.5}
+                  dot={false}
+                  activeDot={{ r: 5, fill: '#00F0FF', stroke: '#0A1428', strokeWidth: 2 }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="top5Picks"
+                  name="Top 5 Picks"
+                  stroke="#00FF88"
+                  strokeWidth={2.5}
+                  dot={false}
+                  activeDot={{ r: 5, fill: '#00FF88', stroke: '#0A1428', strokeWidth: 2 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-[380px] flex items-center justify-center text-spike-text-muted text-sm">
+              Not enough data yet. Performance comparison will appear after accuracy checks run.
             </div>
+          )}
+        </div>
+
+        {/* ============================================================ */}
+        {/* SECTION 3: Win/Loss Distribution + Rolling Accuracy */}
+        {/* ============================================================ */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
+          {/* Win/Loss Distribution */}
+          <div className="glass-card p-6">
+            <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-1">
+              Return Distribution
+            </h3>
             <p className="text-xs text-spike-text-muted mb-4">
-              Total portfolio value over time — tracks invested capital + realized gains
+              How {horizon}-day actual returns are distributed across all picks
             </p>
-            {(() => {
-              // Build chart data based on selection
-              const selectedData = selectedHealthPortfolio === 'all'
-                ? portfolioHealth
-                : portfolioHealth.filter((ph) => ph.portfolioId === selectedHealthPortfolio);
-
-              if (selectedData.length === 0 || selectedData.every((d) => d.timeline.length === 0)) {
-                return (
-                  <div className="h-[280px] flex items-center justify-center text-spike-text-muted text-sm">
-                    No portfolio data yet. Create a portfolio and lock in spikes to track health.
-                  </div>
-                );
-              }
-
-              // For "all" — merge all timelines into a single combined series
-              // For single portfolio — just use its timeline
-              if (selectedHealthPortfolio === 'all' && selectedData.length > 1) {
-                // Multi-portfolio overlay: one line per portfolio
-                // Collect all unique dates, build a combined dataset
-                const allDates = new Set<string>();
-                for (const ph of selectedData) {
-                  for (const t of ph.timeline) {
-                    allDates.add(new Date(t.date).toISOString().split('T')[0]);
-                  }
-                }
-                const sortedDates = [...allDates].sort();
-                const PORTFOLIO_COLORS = ['#00F0FF', '#00FF88', '#A855F7', '#FF3366', '#FBBF24'];
-
-                // Build data points per date with each portfolio's value
-                const chartData = sortedDates.map((dateStr) => {
-                  const point: Record<string, unknown> = { date: dateStr };
-                  for (const ph of selectedData) {
-                    // Find the most recent timeline entry on or before this date
-                    let val: number | null = null;
-                    for (const t of ph.timeline) {
-                      const tDate = new Date(t.date).toISOString().split('T')[0];
-                      if (tDate <= dateStr) val = t.totalValue;
-                    }
-                    point[ph.portfolioName] = val;
-                  }
-                  return point;
-                });
-
-                return (
-                  <ResponsiveContainer width="100%" height={280}>
-                    <LineChart data={chartData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#1E3A5F" />
-                      <XAxis dataKey="date" tickFormatter={formatDate} stroke="#64748B" fontSize={11} />
-                      <YAxis stroke="#64748B" fontSize={11} tickFormatter={(v) => formatCurrency(v, 0)} />
-                      <Tooltip
-                        contentStyle={CHART_TOOLTIP_STYLE}
-                        labelFormatter={(d) => new Date(d).toLocaleDateString('en-CA')}
-                        formatter={(value: number) => [formatCurrency(value), 'Value']}
+            {distribution.length > 0 && distribution.some(d => d.count > 0) ? (
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={distribution} layout="vertical" margin={{ left: 60 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1E3A5F" horizontal={false} />
+                  <XAxis type="number" stroke="#64748B" fontSize={11} />
+                  <YAxis
+                    type="category"
+                    dataKey="label"
+                    stroke="#64748B"
+                    fontSize={11}
+                    width={65}
+                  />
+                  <Tooltip
+                    contentStyle={CHART_TOOLTIP_STYLE}
+                    formatter={(value: number) => [`${value} picks`, 'Count']}
+                  />
+                  <Bar dataKey="count" radius={[0, 4, 4, 0]}>
+                    {distribution.map((entry, idx) => (
+                      <Cell
+                        key={idx}
+                        fill={entry.color === 'green' ? '#00FF88' : '#FF3366'}
+                        fillOpacity={0.7}
                       />
-                      <Legend wrapperStyle={{ fontSize: 12, color: '#94A3B8' }} />
-                      {selectedData.map((ph, i) => (
-                        <Line
-                          key={ph.portfolioId}
-                          type="monotone"
-                          dataKey={ph.portfolioName}
-                          stroke={PORTFOLIO_COLORS[i % PORTFOLIO_COLORS.length]}
-                          strokeWidth={2}
-                          dot={{ r: 3, fill: PORTFOLIO_COLORS[i % PORTFOLIO_COLORS.length], stroke: '#0A1428', strokeWidth: 1 }}
-                          connectNulls
-                        />
-                      ))}
-                    </LineChart>
-                  </ResponsiveContainer>
-                );
-              }
-
-              // Single portfolio view
-              const singleData = selectedData[0];
-              const chartData = singleData.timeline.map((t) => ({
-                date: new Date(t.date).toISOString().split('T')[0],
-                totalValue: t.totalValue,
-                totalInvested: t.totalInvested,
-              }));
-
-              return (
-                <ResponsiveContainer width="100%" height={280}>
-                  <AreaChart data={chartData}>
-                    <defs>
-                      <linearGradient id="healthGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#00FF88" stopOpacity={0.25} />
-                        <stop offset="95%" stopColor="#00FF88" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1E3A5F" />
-                    <XAxis dataKey="date" tickFormatter={formatDate} stroke="#64748B" fontSize={11} />
-                    <YAxis stroke="#64748B" fontSize={11} tickFormatter={(v) => formatCurrency(v, 0)} />
-                    <Tooltip
-                      contentStyle={CHART_TOOLTIP_STYLE}
-                      labelFormatter={(d) => new Date(d).toLocaleDateString('en-CA')}
-                      formatter={(value: number, name: string) => [
-                        formatCurrency(value),
-                        name === 'totalValue' ? 'Portfolio Value' : 'Invested Capital',
-                      ]}
-                    />
-                    <Legend
-                      wrapperStyle={{ fontSize: 12, color: '#94A3B8' }}
-                      formatter={(value) => value === 'totalValue' ? 'Portfolio Value' : 'Invested Capital'}
-                    />
-                    <ReferenceLine y={0} stroke="#475569" strokeDasharray="3 3" />
-                    <Area
-                      type="monotone"
-                      dataKey="totalValue"
-                      stroke="#00FF88"
-                      fill="url(#healthGrad)"
-                      strokeWidth={2.5}
-                      dot={{ r: 3, fill: '#00FF88', stroke: '#0A1428', strokeWidth: 1 }}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="totalInvested"
-                      stroke="#64748B"
-                      strokeWidth={1.5}
-                      strokeDasharray="6 3"
-                      dot={false}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              );
-            })()}
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-[280px] flex items-center justify-center text-spike-text-muted text-sm">
+                No return data available yet.
+              </div>
+            )}
           </div>
 
           {/* Rolling Hit Rate */}
@@ -446,82 +308,118 @@ export default function AccuracyPage() {
             <p className="text-xs text-spike-text-muted mb-4">
               What % of predictions correctly predicted the direction of the move
             </p>
-            <ResponsiveContainer width="100%" height={280}>
-              <AreaChart data={rolling}>
-                <defs>
-                  <linearGradient id="hitRateGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#00F0FF" stopOpacity={0.25} />
-                    <stop offset="95%" stopColor="#00F0FF" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1E3A5F" />
-                <XAxis dataKey="date" tickFormatter={formatDate} stroke="#64748B" fontSize={11} />
-                <YAxis stroke="#64748B" fontSize={11} domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
-                <Tooltip
-                  contentStyle={CHART_TOOLTIP_STYLE}
-                  labelFormatter={(d) => new Date(d).toLocaleDateString('en-CA')}
-                  formatter={(value: number) => [`${value.toFixed(1)}%`, 'Hit Rate']}
-                />
-                <ReferenceLine y={50} stroke="#FF3366" strokeDasharray="5 5" label={{ value: '50% (random)', fill: '#FF3366', fontSize: 10, position: 'right' }} />
-                <Area type="monotone" dataKey="hitRate" stroke="#00F0FF" fill="url(#hitRateGrad)" strokeWidth={2} />
-              </AreaChart>
-            </ResponsiveContainer>
+            {rolling.length > 0 ? (
+              <ResponsiveContainer width="100%" height={280}>
+                <AreaChart data={rolling}>
+                  <defs>
+                    <linearGradient id="hitRateGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#00F0FF" stopOpacity={0.25} />
+                      <stop offset="95%" stopColor="#00F0FF" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1E3A5F" />
+                  <XAxis dataKey="date" tickFormatter={formatDate} stroke="#64748B" fontSize={11} />
+                  <YAxis stroke="#64748B" fontSize={11} domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
+                  <Tooltip
+                    contentStyle={CHART_TOOLTIP_STYLE}
+                    labelFormatter={(d) => new Date(d).toLocaleDateString('en-CA')}
+                    formatter={(value: number) => [`${value.toFixed(1)}%`, 'Hit Rate']}
+                  />
+                  <ReferenceLine y={50} stroke="#FF3366" strokeDasharray="5 5" label={{ value: '50% (random)', fill: '#FF3366', fontSize: 10, position: 'right' }} />
+                  <Area type="monotone" dataKey="hitRate" stroke="#00F0FF" fill="url(#hitRateGrad)" strokeWidth={2} />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-[280px] flex items-center justify-center text-spike-text-muted text-sm">
+                Not enough data for rolling accuracy yet.
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Third row: Scatter + MAE */}
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          {/* Predicted vs Actual Scatter */}
-          <div className="glass-card p-6">
-            <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-1">
-              Prediction Accuracy Scatter
-            </h3>
-            <p className="text-xs text-spike-text-muted mb-4">
-              Each dot is one spike pick. Points near the diagonal line = accurate predictions.
-            </p>
-            <ResponsiveContainer width="100%" height={300}>
-              <ScatterChart>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1E3A5F" />
-                <XAxis
-                  type="number" dataKey="predicted" name="Predicted" stroke="#64748B" fontSize={11}
-                  label={{ value: 'Predicted %', position: 'insideBottom', offset: -5, style: { fill: '#64748B', fontSize: 11 } }}
-                />
-                <YAxis
-                  type="number" dataKey="actual" name="Actual" stroke="#64748B" fontSize={11}
-                  label={{ value: 'Actual %', angle: -90, position: 'insideLeft', style: { fill: '#64748B', fontSize: 11 } }}
-                />
-                <ZAxis type="number" dataKey="score" range={[20, 200]} name="Score" />
-                <Tooltip
-                  contentStyle={CHART_TOOLTIP_STYLE}
-                  formatter={(value: number, name: string) => [`${value.toFixed(2)}%`, name]}
-                />
-                <Scatter name="Predictions" data={scatter} fill="#00F0FF" fillOpacity={0.6} />
-              </ScatterChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* Mean Absolute Error Trend */}
-          <div className="glass-card p-6">
-            <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-1">
-              Prediction Error Over Time
-            </h3>
-            <p className="text-xs text-spike-text-muted mb-4">
-              Mean Absolute Error — lower is better. Shows how the model is improving over time.
-            </p>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={rolling}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1E3A5F" />
-                <XAxis dataKey="date" tickFormatter={formatDate} stroke="#64748B" fontSize={11} />
-                <YAxis stroke="#64748B" fontSize={11} tickFormatter={(v) => `${v.toFixed(1)}%`} />
-                <Tooltip
-                  contentStyle={CHART_TOOLTIP_STYLE}
-                  labelFormatter={(d) => new Date(d).toLocaleDateString('en-CA')}
-                  formatter={(value: number) => [`${value.toFixed(2)}%`, 'MAE']}
-                />
-                <Line type="monotone" dataKey="mae" stroke="#A855F7" strokeWidth={2} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+        {/* ============================================================ */}
+        {/* SECTION 4: Recent Picks Performance Table */}
+        {/* ============================================================ */}
+        <div className="glass-card p-6">
+          <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-1">
+            Recent Pick Results
+          </h3>
+          <p className="text-xs text-spike-text-muted mb-4">
+            Last 30 picks with {horizon}-day actual returns — did we call it right?
+          </p>
+          {recentPicks.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-spike-border text-spike-text-dim text-xs uppercase tracking-wider">
+                    <th className="py-2 px-3 text-left">Date</th>
+                    <th className="py-2 px-3 text-left">Ticker</th>
+                    <th className="py-2 px-3 text-center">Rank</th>
+                    <th className="py-2 px-3 text-right">Predicted</th>
+                    <th className="py-2 px-3 text-right">Actual</th>
+                    <th className="py-2 px-3 text-center">Result</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentPicks.map((pick, idx) => {
+                    const isWin = pick.actual >= 0;
+                    return (
+                      <tr
+                        key={`${pick.ticker}-${pick.date}-${idx}`}
+                        className={cn(
+                          'border-b border-spike-border/30 transition-colors',
+                          isWin ? 'bg-spike-green/[0.03]' : 'bg-spike-red/[0.03]',
+                          'hover:bg-spike-bg-hover'
+                        )}
+                      >
+                        <td className="py-2.5 px-3 text-spike-text-dim text-xs mono">
+                          {new Date(pick.date).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <a
+                            href={`https://finance.yahoo.com/quote/${pick.ticker}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-spike-cyan hover:underline font-medium"
+                            title={pick.name}
+                          >
+                            {pick.ticker.replace('.TO', '')}
+                          </a>
+                        </td>
+                        <td className="py-2.5 px-3 text-center text-spike-text-dim text-xs">
+                          #{pick.rank}
+                        </td>
+                        <td className="py-2.5 px-3 text-right mono text-spike-text-dim">
+                          {pick.predicted >= 0 ? '+' : ''}{pick.predicted.toFixed(2)}%
+                        </td>
+                        <td className={cn(
+                          'py-2.5 px-3 text-right mono font-medium',
+                          pick.actual >= 0 ? 'text-spike-green' : 'text-spike-red'
+                        )}>
+                          {pick.actual >= 0 ? '+' : ''}{pick.actual.toFixed(2)}%
+                        </td>
+                        <td className="py-2.5 px-3 text-center">
+                          {pick.hit ? (
+                            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-spike-green/10 text-spike-green text-xs" title="Correct direction">
+                              &#10003;
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-spike-red/10 text-spike-red text-xs" title="Wrong direction">
+                              &#10007;
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="py-12 text-center text-spike-text-muted text-sm">
+              No picks with {horizon}-day results yet. Results appear after the accuracy backfill runs.
+            </div>
+          )}
         </div>
 
         <div className="legal-footer">
