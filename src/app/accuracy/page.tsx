@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import ResponsiveLayout from '@/components/layout/ResponsiveLayout';
 import { cn } from '@/lib/utils';
 // recharts removed — no charts on this page currently
@@ -53,6 +53,8 @@ export default function AccuracyPage() {
   const [recentPicks, setRecentPicks] = useState<RecentPick[]>([]);
   const [indexValues, setIndexValues] = useState<IndexValues>({ day3: 100, day5: 100, day8: 100 });
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 10;
 
   useEffect(() => {
     fetchAccuracy();
@@ -175,89 +177,175 @@ export default function AccuracyPage() {
         </div>
 
         {/* ============================================================ */}
-        {/* SECTION 3: Recent Picks Table — All Horizons, Alphabetical */}
+        {/* Pick Results Table — Winners first, paginated */}
         {/* ============================================================ */}
-        <div className="glass-card p-6">
-          <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-1">
-            Pick Results
-          </h3>
-          <p className="text-xs text-spike-text-muted mb-4">
-            All picks sorted alphabetically — predicted vs actual across all three horizons
-          </p>
-          {recentPicks.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-spike-border text-spike-text-dim text-[10px] uppercase tracking-wider">
-                    <th className="py-2 px-2 text-left">Ticker</th>
-                    <th className="py-2 px-2 text-left">Date</th>
-                    <th className="py-2 px-2 text-center">#</th>
-                    <th className="py-2 px-1 text-right" title="3-Day Predicted">
-                      <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ background: HORIZON_COLORS[3].main }} />3D Pred
-                    </th>
-                    <th className="py-2 px-1 text-right" title="3-Day Actual">3D Act</th>
-                    <th className="py-2 px-1 text-right" title="5-Day Predicted">
-                      <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ background: HORIZON_COLORS[5].main }} />5D Pred
-                    </th>
-                    <th className="py-2 px-1 text-right" title="5-Day Actual">5D Act</th>
-                    <th className="py-2 px-1 text-right" title="8-Day Predicted">
-                      <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ background: HORIZON_COLORS[8].main }} />8D Pred
-                    </th>
-                    <th className="py-2 px-1 text-right" title="8-Day Actual">8D Act</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recentPicks.map((pick, idx) => {
-                    // Overall row color: green if any actual is positive, red if all are negative
-                    const anyPositive = [pick.actual3, pick.actual5, pick.actual8].some((v) => v !== null && v >= 0);
-                    const anyActual = [pick.actual3, pick.actual5, pick.actual8].some((v) => v !== null);
+        {(() => {
+          // Sort: winners first (best return desc), then losers (least negative first), then no-data
+          const sorted = [...recentPicks].sort((a, b) => {
+            const aActuals = [a.actual3, a.actual5, a.actual8].filter((v): v is number => v !== null);
+            const bActuals = [b.actual3, b.actual5, b.actual8].filter((v): v is number => v !== null);
+            const aHasData = aActuals.length > 0;
+            const bHasData = bActuals.length > 0;
+            const aBest = aHasData ? Math.max(...aActuals) : -Infinity;
+            const bBest = bHasData ? Math.max(...bActuals) : -Infinity;
+            const aIsWinner = aHasData && aActuals.some((v) => v >= 0);
+            const bIsWinner = bHasData && bActuals.some((v) => v >= 0);
 
-                    return (
-                      <tr
-                        key={`${pick.ticker}-${pick.date}-${idx}`}
+            // 1. Picks with data before picks without
+            if (aHasData && !bHasData) return -1;
+            if (!aHasData && bHasData) return 1;
+            if (!aHasData && !bHasData) {
+              // Both no data: newest date first, then score desc
+              const dateCmp = new Date(b.date).getTime() - new Date(a.date).getTime();
+              return dateCmp !== 0 ? dateCmp : b.score - a.score;
+            }
+            // 2. Winners before losers
+            if (aIsWinner && !bIsWinner) return -1;
+            if (!aIsWinner && bIsWinner) return 1;
+            // 3. Best actual return descending
+            return bBest - aBest;
+          });
+
+          const totalPages = Math.ceil(sorted.length / PAGE_SIZE);
+          const pagePicks = sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
+          // Detect date boundaries for separator rows
+          let lastDate = '';
+
+          return (
+            <div className="glass-card p-6">
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider">
+                  Pick Results
+                </h3>
+                {sorted.length > 0 && (
+                  <span className="text-xs text-spike-text-muted mono">
+                    {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, sorted.length)} of {sorted.length}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-spike-text-muted mb-4">
+                Winners first — predicted vs actual across all three horizons
+              </p>
+              {pagePicks.length > 0 ? (
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-spike-border text-spike-text-dim text-[10px] uppercase tracking-wider">
+                          <th className="py-2 px-2 text-left">Ticker</th>
+                          <th className="py-2 px-2 text-left">Date</th>
+                          <th className="py-2 px-2 text-center">#</th>
+                          <th className="py-2 px-1 text-right" title="3-Day Predicted">
+                            <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ background: HORIZON_COLORS[3].main }} />3D Pred
+                          </th>
+                          <th className="py-2 px-1 text-right" title="3-Day Actual">3D Act</th>
+                          <th className="py-2 px-1 text-right" title="5-Day Predicted">
+                            <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ background: HORIZON_COLORS[5].main }} />5D Pred
+                          </th>
+                          <th className="py-2 px-1 text-right" title="5-Day Actual">5D Act</th>
+                          <th className="py-2 px-1 text-right" title="8-Day Predicted">
+                            <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ background: HORIZON_COLORS[8].main }} />8D Pred
+                          </th>
+                          <th className="py-2 px-1 text-right" title="8-Day Actual">8D Act</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pagePicks.map((pick, idx) => {
+                          const pickDate = new Date(pick.date).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' });
+                          const showDateSep = pickDate !== lastDate;
+                          lastDate = pickDate;
+
+                          const anyPositive = [pick.actual3, pick.actual5, pick.actual8].some((v) => v !== null && v >= 0);
+                          const anyActual = [pick.actual3, pick.actual5, pick.actual8].some((v) => v !== null);
+
+                          return (
+                            <React.Fragment key={`${pick.ticker}-${pick.date}-${idx}`}>
+                              {showDateSep && (
+                                <tr>
+                                  <td colSpan={9} className="py-1.5 px-2 text-[10px] text-spike-text-muted uppercase tracking-wider bg-spike-bg-card/50 border-b border-spike-border/20">
+                                    {pickDate}
+                                  </td>
+                                </tr>
+                              )}
+                              <tr
+                                className={cn(
+                                  'border-b border-spike-border/30 transition-colors hover:bg-spike-bg-hover',
+                                  anyActual && anyPositive ? 'bg-spike-green/[0.03]' : anyActual ? 'bg-spike-red/[0.03]' : ''
+                                )}
+                              >
+                                <td className="py-2 px-2">
+                                  <a
+                                    href={`https://finance.yahoo.com/quote/${pick.ticker}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-spike-cyan hover:underline font-medium text-xs"
+                                    title={pick.name}
+                                  >
+                                    {pick.ticker.replace('.TO', '')}
+                                  </a>
+                                </td>
+                                <td className="py-2 px-2 text-spike-text-dim text-xs mono">
+                                  {pickDate}
+                                </td>
+                                <td className="py-2 px-2 text-center text-spike-text-dim text-xs">
+                                  #{pick.rank}
+                                </td>
+                                <ActualCell predicted={pick.predicted3} actual={null} isPred />
+                                <ActualCell predicted={pick.predicted3} actual={pick.actual3} />
+                                <ActualCell predicted={pick.predicted5} actual={null} isPred />
+                                <ActualCell predicted={pick.predicted5} actual={pick.actual5} />
+                                <ActualCell predicted={pick.predicted8} actual={null} isPred />
+                                <ActualCell predicted={pick.predicted8} actual={pick.actual8} />
+                              </tr>
+                            </React.Fragment>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Pagination */}
+                  {totalPages > 1 && (
+                    <div className="flex items-center justify-between mt-4 pt-3 border-t border-spike-border/30">
+                      <button
+                        onClick={() => setPage((p) => Math.max(0, p - 1))}
+                        disabled={page === 0}
                         className={cn(
-                          'border-b border-spike-border/30 transition-colors hover:bg-spike-bg-hover',
-                          anyActual && anyPositive ? 'bg-spike-green/[0.02]' : anyActual ? 'bg-spike-red/[0.02]' : ''
+                          'px-4 py-2 rounded-lg text-xs font-medium transition-all',
+                          page === 0
+                            ? 'text-spike-text-muted cursor-not-allowed'
+                            : 'text-spike-cyan hover:bg-spike-cyan/10 border border-spike-cyan/20'
                         )}
                       >
-                        <td className="py-2 px-2">
-                          <a
-                            href={`https://finance.yahoo.com/quote/${pick.ticker}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-spike-cyan hover:underline font-medium text-xs"
-                            title={pick.name}
-                          >
-                            {pick.ticker.replace('.TO', '')}
-                          </a>
-                        </td>
-                        <td className="py-2 px-2 text-spike-text-dim text-xs mono">
-                          {new Date(pick.date).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}
-                        </td>
-                        <td className="py-2 px-2 text-center text-spike-text-dim text-xs">
-                          #{pick.rank}
-                        </td>
-                        {/* 3-Day */}
-                        <ActualCell predicted={pick.predicted3} actual={null} isPred />
-                        <ActualCell predicted={pick.predicted3} actual={pick.actual3} />
-                        {/* 5-Day */}
-                        <ActualCell predicted={pick.predicted5} actual={null} isPred />
-                        <ActualCell predicted={pick.predicted5} actual={pick.actual5} />
-                        {/* 8-Day */}
-                        <ActualCell predicted={pick.predicted8} actual={null} isPred />
-                        <ActualCell predicted={pick.predicted8} actual={pick.actual8} />
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                        Previous
+                      </button>
+                      <span className="text-xs text-spike-text-dim mono">
+                        Page {page + 1} of {totalPages}
+                      </span>
+                      <button
+                        onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                        disabled={page >= totalPages - 1}
+                        className={cn(
+                          'px-4 py-2 rounded-lg text-xs font-medium transition-all',
+                          page >= totalPages - 1
+                            ? 'text-spike-text-muted cursor-not-allowed'
+                            : 'text-spike-cyan hover:bg-spike-cyan/10 border border-spike-cyan/20'
+                        )}
+                      >
+                        Next
+                      </button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="py-12 text-center text-spike-text-muted text-sm">
+                  {loading ? 'Loading...' : 'No picks data yet.'}
+                </div>
+              )}
             </div>
-          ) : (
-            <div className="py-12 text-center text-spike-text-muted text-sm">
-              {loading ? 'Loading...' : 'No picks data yet.'}
-            </div>
-          )}
-        </div>
+          );
+        })()}
 
         <div className="legal-footer">
           <p>
