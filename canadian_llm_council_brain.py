@@ -2340,8 +2340,8 @@ class HistoricalPerformanceAnalyzer:
         updated = 0
         try:
             # Find accuracy records missing actual data
-            # Use generous calendar buffer (horizon * 2) since we filter by
-            # actual trading days in Python below
+            # Loose calendar filter: at least horizon_days have passed.
+            # Exact trading-day check happens in Python below.
             rows = conn.execute("""
                 SELECT ar.id, ar.pick_id, ar.ticker, ar.horizon_days,
                        ar.predicted_direction, ar.predicted_move_pct,
@@ -2349,7 +2349,7 @@ class HistoricalPerformanceAnalyzer:
                 FROM accuracy_records ar
                 JOIN pick_history ph ON ar.pick_id = ph.id
                 WHERE ar.actual_direction IS NULL
-                  AND date(ph.run_date, '+' || (ar.horizon_days * 2) || ' days') <= date('now')
+                  AND date(ph.run_date, '+' || ar.horizon_days || ' days') <= date('now')
             """).fetchall()
 
             # Filter to only rows where enough trading days have passed
