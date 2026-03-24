@@ -1092,72 +1092,104 @@ When ending a session, Claude Code should append an entry like this:
 ### What was built:
 
 **LLM Outage Resilience (`canadian_llm_council_brain.py`):**
-- **`_is_transient()` + `_TRANSIENT_STATUS_CODES`** — shared helper to detect retryable API errors (429, 500, 502, 503, plus keyword matching for "rate limit", "overloaded", "service unavailable", etc.)
-- **`_call_gemini()` retry logic** — 4 retries with exponential backoff (30s, 60s, 120s, 300s) for transient failures
-- **`_call_grok()` retry logic** — same pattern (4 retries, 30-300s backoff)
-- **Graceful stage skipping** — Stages 2, 3, 4 wrapped in try/except in `run_council()`. On persistent failure, previous stage results pass through (e.g., Stage 2 fails → Stage 1 results[:80] go to Stage 3)
-- **Per-batch resilience** — Individual batch failures within Stages 1, 2, 3 are caught and logged without killing the entire stage. Partial results from successful batches are still used.
-- **`skipped_stages`** list tracked in `stage_metadata` — records which stages were skipped and why, for admin monitoring
-- **Warning log** when any stages are skipped — summarizes skipped stages at end of run
-- **Removed SKIP_GEMINI hack** — the temporary `SKIP_GEMINI = True` flag on the production server was replaced by proper retry/skip logic
+- **`_is_transient()` + `_TRANSIENT_STATUS_CODES`** — shared helper to detect retryable API errors (429, 500, 502, 503, plus keyword matching)
+- **`_call_gemini()` retry logic** — 4 retries with exponential backoff (30s, 60s, 120s, 300s)
+- **`_call_grok()` retry logic** — same pattern
+- **Graceful stage skipping** — Stages 2/3/4 wrapped in try/except, pass through previous results on failure
+- **Per-batch resilience** — individual batch failures in Stages 1/2/3 caught and logged without killing the stage
+- **`skipped_stages`** list tracked in `stage_metadata`
+- **Removed SKIP_GEMINI hack** from production server
 
 **Performance Optimization (`canadian_llm_council_brain.py`):**
-- **Concurrent Gemini batches** — Stage 2 batches now run 2 at a time via `asyncio.Semaphore(2)` + `asyncio.gather()`. With 7 batches (100 tickers at 15/batch), this saves ~3-4 minutes vs sequential execution.
+- **Concurrent Gemini batches** — 2 at a time via `asyncio.Semaphore(2)` + `asyncio.gather()` (~3-4 min savings)
+- **Technical pre-filter before Stage 1** (`Step 4c`): cuts ~350 tickers to ~150 using RSI/MACD/ADX/volume thresholds with catalyst override (>5 news articles bypass). `MAX_STAGE1_TICKERS = 150`. Saves ~12-15 min.
+- **Token optimizations**: historical bars 10→5, news 10→5, URLs stripped, macro removed from individual payloads, compact JSON via `_COMPACT` separator constant. ~30% token reduction per batch.
+- **`_slim_payload()`** helper: strips macro, trims news/bars, removes URLs before serialization
+
+**New Accuracy Signals (`canadian_llm_council_brain.py`):**
+- **Earnings Calendar Awareness**: `EarningsEvent` model + `fetch_earnings_calendar()` (1 bulk FMP call). Consensus penalty: 0.70x for 0-2 days, 0.85x for 3-5 days, 0.92x for 6-8 days.
+- **Insider Trading Signal**: `InsiderActivity` model + `fetch_insider_trades()`. Recency-weighted scoring, up to +/-8% consensus adjustment.
+- **Analyst Consensus**: `AnalystConsensus` model + `fetch_analyst_consensus()`. Sentiment score +/-5%, +3% bonus for >15% analyst upside, 5% haircut on divergence.
+- **Sector-Relative Strength**: `compute_sector_relative_strength()`. Ticker change% minus sector avg, capped +/-3%, up to +/-5% consensus adjustment. Zero API calls.
+- All 4 signals attached to `StockDataPayload` and visible in LLM prompts via updated `RUBRIC_TEXT`.
+
+**Historical Calibration Engine (`canadian_llm_council_brain.py`):**
+- **6-month TSX backtest**: `run_historical_backtest()` — `BACKTEST_DAYS = 126`, computes technical indicator base rates across all liquid TSX tickers
+- **Calibration curve**: `build_council_calibration()` — builds from pick_history + accuracy_records
+- **SQLite `calibration_council` table**: confidence_bucket, horizon_days, sample_count, hit_rate, bias
+- **`apply_calibration()`**: adjusts pick confidence based on calibration data, called in `run_council()` at Step 14
+- Runs daily after `backfill_actuals()` completes
+
+**Per-Stage LLM Analytics:**
+- **`get_stage_analytics()`** method: joins stage_scores with accuracy_records, returns per-stage hit rates (3d/5d/8d) and biases
+- **Analytics tab** in admin panel (5th tab): per-stage performance tables
+- **XLSX export**: `GET /api/admin/analytics?export=xlsx` — multi-sheet workbook via ExcelJS
 
 **Admin Manual Scan Trigger:**
-- **`src/app/api/admin/council/route.ts`** (new) — Admin-only API endpoint:
-  - `GET` — Returns council status (Python health, run-in-progress state, last trigger result, latest council log, 5 most recent DailyReports)
-  - `POST` — Triggers a council run in the background via `runDailyAnalysis()`. Returns immediately. Prevents concurrent runs (409 if already running).
-- **`src/app/admin/page.tsx`** — Added "Council" tab (4th tab) to admin panel:
-  - Status cards: Current state (Idle/Running with pulsing indicator), last run duration, Python server status (Online/Offline)
-  - Running indicator with elapsed time counter
-  - Last trigger result card (success/error with spike count and timestamp)
-  - "Run Council Scan" button with confirmation modal explaining the 4-stage pipeline
-  - Polling: when running, polls GET /api/admin/council every 30s for status updates
-  - Recent Reports table: last 5 DailyReports with date, regime, spike count, generation time
+- **`src/app/api/admin/council/route.ts`** — GET (status) + POST (trigger background run)
+- **Council tab** in admin panel: status cards, "Run Council Scan" button with confirmation modal, 30s polling with elapsed timer, recent reports table
+
+**Dashboard Enhancements:**
+- **Dual-bar confidence meter** on spike cards (`SpikeCard.tsx:122-165`): Council confidence bar vs Historical confidence bar, color-coded
+- **NEUTRAL regime glow** (`globals.css:217-219`): `regime-glow-neutral` class with amber `glowPulseAmber` animation
+
+**Prisma Mapping (`api_server.py`):**
+- `insiderSignal` mapped from insider_activity.recency_weighted_score
+- `gapPotential` mapped from analyst_consensus.target_upside_pct
+- Sector-relative strength mapped to existing schema field
+
+**Version & Documentation:**
+- Version bump to **Ver 2.5** across all 8+ page footers
+- **FEATURES.md** created: complete version changelog from Ver 1.0 through Ver 2.5
 
 ### What was tested:
 - Python syntax check → PASS
 - TypeScript compilation (0 errors) → PASS
 - `_is_transient()` unit tests: 503=true, 401=false, "rate limit"=true → PASS
-- Module import check (brain loads, all new functions exist) → PASS
-- Next.js production build → PASS (all routes compiled, `/api/admin/council` registered)
-- Server deployment: both council + app containers rebuilt and healthy → PASS
+- Next.js production build → PASS (all routes compiled)
+- Server deployment: council + app containers rebuilt and healthy → PASS
 - Council health endpoint responding on production → PASS
 - Site accessible at spiketrades.ca → PASS
+- Full codebase audit: 15/15 features confirmed in source code → PASS
 
 ### Key decisions made:
-- **Stage 1 (Sonnet) is NOT skippable**: If Stage 1 fails entirely, the pipeline has no results to work with. It's the foundation stage — the pipeline raises RuntimeError if it produces 0 results.
-- **Stages 2/3/4 are all skippable**: Each passes through the previous stage's results (trimmed to the expected size) on failure. The pipeline degrades gracefully rather than dying.
-- **Gemini concurrency = 2**: Higher concurrency would trigger more rate limit errors. 2 is a safe balance between speed and API pressure.
-- **Anthropic (Sonnet/Opus) stays sequential**: Anthropic rate limits are tight (30K tokens/min). Running 2 concurrent batches would just cause more 429 retries with no net speedup.
-- **Background execution for manual scan**: The council run takes ~33 min. The POST endpoint fires and forgets, with the client polling GET every 30s for status. User can navigate away.
-- **Admin-only access**: The `/api/admin/council` endpoint is protected by middleware (requires `role === 'admin'`). Regular users can't trigger scans.
+- **Stage 1 is NOT skippable** — if it fails, pipeline has nothing. Stages 2/3/4 all degrade gracefully.
+- **Technical pre-filter cutoff = 150** — generous headroom (Stage 1 keeps 100). Catalyst override protects news-heavy tickers.
+- **Earnings penalty is multiplicative** — stacks with other adjustments rather than overriding them.
+- **Insider signal capped at +/-8%** — prevents a single insider trade from dominating the score.
+- **Calibration runs daily after accuracy backfill** — automatically improves as data accumulates.
+- **Dual-bar meter shows both Council and Historical confidence** — users see when LLMs and history agree or diverge.
+- **Background execution for manual scan** — POST returns immediately, client polls every 30s.
 
 ### Quirks / gotchas discovered:
-- The production server had a local `SKIP_GEMINI = True` hack in `canadian_llm_council_brain.py` from the Gemini outage. Had to `git checkout --` to discard it before pulling the new code.
-- `_is_transient()` checks both HTTP status codes in the exception string AND common error keywords. This handles different exception formats from different SDKs (google-genai, openai, anthropic).
-- The `asyncio.gather(return_exceptions=True)` pattern is critical for concurrent batches — without it, one failed batch would cancel all others.
+- Production server had `SKIP_GEMINI = True` hack — had to `git checkout --` before pulling.
+- `asyncio.gather(return_exceptions=True)` critical for concurrent batches — without it, one failure cancels all.
+- Audit agent missed `regime-glow-neutral` in globals.css — it exists at line 217.
 
 ### Files modified:
-- `canadian_llm_council_brain.py` — added retry logic, stage skipping, concurrent Gemini batches, per-batch resilience (~200 lines net change)
-- `src/app/admin/page.tsx` — added Council tab with status cards, trigger button, confirmation modal, polling, recent runs table
-- `src/app/api/admin/council/route.ts` — created (130 lines) — admin council management API
+- `canadian_llm_council_brain.py` — resilience, signals, pre-filter, calibration engine, analytics, token optimizations (~1100 lines added)
+- `api_server.py` — new Prisma field mappings for insider/analyst/sector signals
+- `src/app/admin/page.tsx` — Council tab + Analytics tab
+- `src/app/api/admin/council/route.ts` — created (council management API)
+- `src/app/api/admin/analytics/route.ts` — created (XLSX export)
+- `src/components/spikes/SpikeCard.tsx` — dual-bar confidence meter
+- `src/styles/globals.css` — NEUTRAL regime amber glow animation
+- 8 page files — version bump to Ver 2.5
+- `FEATURES.md` — created (complete version changelog)
 
 ### Checkpoint artifacts:
-- GitHub: `Steve25Vibe/spike-trades` commit `4ab9def`
-- Production: spiketrades.ca deployed with all resilience improvements and admin Council tab
-- Council Python server: healthy, retry logic active, SKIP_GEMINI removed
+- GitHub: `Steve25Vibe/spike-trades` latest commits on `main`
+- Production: spiketrades.ca deployed at Ver 2.5
+- All features verified via code audit
 
 ### What the next session should do first:
-1. Log into spiketrades.ca as admin, navigate to Admin Panel → Council tab
-2. Verify status cards show correct info (Idle, last run duration, Python server Online)
-3. Trigger a manual scan via the button to test the full flow
-4. Monitor the polling — verify "Running..." state shows with elapsed timer
-5. After completion, verify dashboard shows new spikes
-6. Consider: batch size optimization (Gemini=15 may be conservative), macro context caching across batches
-7. Consider: adding webhook/email notification when a stage is skipped during automated cron runs
+1. Trigger a manual scan via Admin Panel → Council tab to verify all new signals appear in output
+2. After 3-day accuracy check (Wednesday March 25), review Analytics tab for per-stage hit rates
+3. After 1 week, review calibration data in SQLite to verify base rates are populating
+4. Consider: Haiku swap for Stage 1 (5x faster, A/B test against Sonnet)
+5. Consider: pre-computed daily watchlist (offline pre-fetch at market close)
+6. Consider: additional accuracy signals (short interest, US pre-market leading indicator, gap analysis)
 
 ### Context window status:
-- Estimated usage: moderate
-- Reason for stopping: completed Session 13 scope — resilience + manual scan trigger deployed
+- Estimated usage: very heavy (multiple feature implementations, full audit, documentation)
+- Reason for stopping: completed Session 13 scope — Ver 2.5 fully deployed with resilience, accuracy signals, calibration engine, analytics, and admin controls
