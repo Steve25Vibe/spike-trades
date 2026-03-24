@@ -39,6 +39,9 @@ interface SpikeData {
   technicalScore: number;
   macroScore: number;
   sentimentScore: number;
+  historicalConfidence?: number;
+  calibrationSamples?: number;
+  overconfidenceFlag?: boolean;
 }
 
 interface ReportData {

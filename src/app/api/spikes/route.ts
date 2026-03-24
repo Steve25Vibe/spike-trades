@@ -104,6 +104,10 @@ export async function GET(request: NextRequest) {
           actual3Day: s.actual3Day,
           actual5Day: s.actual5Day,
           actual8Day: s.actual8Day,
+          // Calibration data for dual-bar confidence meter
+          historicalConfidence: s.historicalConfidence,
+          calibrationSamples: s.calibrationSamples,
+          overconfidenceFlag: s.overconfidenceFlag,
         })),
       },
       timestamp: Date.now(),
