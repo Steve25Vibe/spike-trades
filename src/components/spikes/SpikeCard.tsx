@@ -126,7 +126,7 @@ export default function SpikeCard({ spike, selected, onSelect, onLockIn, selecti
           {spike.overconfidenceFlag && (
             <span className={cn(
               'text-xs font-medium',
-              spike.confidence >= 80 ? 'text-spike-green' : spike.confidence >= 60 ? 'text-spike-amber' : 'text-spike-red'
+              spike.spikeScore >= 80 ? 'text-spike-green' : spike.spikeScore >= 60 ? 'text-spike-amber' : 'text-spike-red'
             )} title="Council confidence exceeds historical base rate by &gt;10 points">Council Optimistic</span>
           )}
         </div>
