@@ -1193,3 +1193,104 @@ When ending a session, Claude Code should append an entry like this:
 ### Context window status:
 - Estimated usage: very heavy (multiple feature implementations, full audit, documentation)
 - Reason for stopping: completed Session 13 scope — Ver 2.5 fully deployed with resilience, accuracy signals, calibration engine, analytics, and admin controls
+
+---
+
+## Session 14 Checkpoint — 2026-03-24
+
+### What was built:
+
+**FMP API Migration (`src/lib/api/fmp.ts`):**
+- Migrated entire TS FMP client from dead `/api/v3` to `/stable/` endpoints
+- Fixed: `getBatchQuotes` → `/stable/batch-quote?symbols=`, `getHistoricalPrices` → `/stable/historical-price-eod/full`, `getCompanyProfiles` → `/stable/profile?symbol=`, `getTSXIndex` → XIU.TO proxy, `getCommodityPrices` → USO/GLD proxies, `getStockNews` → `/stable/news/stock`
+- Fixed field name: `changesPercentage` → `changePercentage`
+- **Root cause of**: portfolio prices not updating (0% P&L for all positions), accuracy backfill never running (no actuals filled)
+
+**Accuracy Page Redesign (`src/app/accuracy/page.tsx` + `src/app/api/accuracy/route.ts`):**
+- Removed 6 confusing charts, replaced with 2 clean sections
+- Three horizon scorecards (3-Day, 5-Day, 8-Day) showing win rate, W-L record, avg return, win bar — all visible simultaneously, no toggle
+- Paginated picks table: winners first (best return descending), 10 per page with Previous/Next navigation, date separator rows
+- API returns all horizons in single response (no more `?horizon=` parameter)
+- Fixed hero chart's broken TSX comparison (was summing daily changes vs N-day returns)
+
+**Top 20 → Top 10 Picks (9 files across full stack):**
+- `canadian_llm_council_brain.py`: Grok Stage 4 prompt now says "select ONLY the 10 highest-conviction picks — reject borderline or uncertain setups", consensus builder slices to 10, Pydantic models `le=10` / `max_length=10`
+- `api_server.py`: mapping `picks[:10]`
+- All TS consumers updated: accuracy queries, email rendering, council fallback, admin labels, XLSX export, metadata, settings text
+- Based on Mar 19 data: Top 10 would have had 60% hit rate vs 35% for Top 20
+
+**Dual-Bar Confidence Meter Fix (3 breaks found and fixed):**
+- `src/app/api/spikes/route.ts`: Added `historicalConfidence`, `calibrationSamples`, `overconfidenceFlag` to response (were in DB but never returned)
+- `src/app/dashboard/page.tsx`: Added optional calibration fields to SpikeData interface
+- `canadian_llm_council_brain.py`: Fixed `backfill_actuals()` calendar buffer — was `horizon * 2` (too conservative, prevented records from ever being filled), changed to just `horizon` days with trading-day filter doing the real check
+- Manually backfilled SQLite accuracy records (18 filled), built council calibration (3 buckets), updated PostgreSQL with calibration data for all 80 existing spikes
+
+**Analysis Page Past Predictions (`src/app/dashboard/analysis/[id]/page.tsx`):**
+- Replaced confusing grouped bar chart (only showed 3-day) with multi-horizon table
+- Summary line: "{ticker} picked X times. Direction accuracy: Y/Z (W%). Avg predicted: +A%, Avg actual: +B%"
+- Table shows all three horizons with predicted/actual/hit-miss per appearance
+- Rows color-coded green/red based on actual returns
+
+**UI Polish:**
+- Confidence meter labels enlarged (text-[10px] → text-xs, font-medium)
+- Council Optimistic badge: enlarged, color now matches spike score (green/amber/red) not confidence
+- Dashboard summary bar: Avg Score and Top Score rounded to whole numbers to match tile display
+
+### What was tested:
+- TypeScript compilation: 0 errors across all 12 commits → PASS
+- Python syntax check → PASS
+- FMP `/stable/` API: batch quotes returning live prices → PASS (verified via portfolio GET)
+- Accuracy backfill triggered: 20 actuals filled for Mar 19 3-day horizon → PASS
+- AccuracyRecord created: 1 record (Mar 19, horizon 3, 35% hit rate) → PASS
+- SQLite backfill: 18 accuracy records filled, 3 calibration council rows created → PASS
+- PostgreSQL calibration update: all 80 spikes updated with historicalConfidence → PASS
+- All containers healthy on production → PASS
+
+### Key decisions made:
+- **Top 10 over Top 20**: Mar 19 data showed top 10 = 60% hit rate, bottom 10 = 10%. Cutting the tail concentrates on higher-conviction picks without changing model logic.
+- **Grok selectivity prompt**: Added "reject borderline or uncertain setups" and "only include picks where you have genuine directional conviction" — makes Grok an active filter, not just a ranker.
+- **FMP `/stable/` migration**: The v3 API returned 403 for the TS client (same issue found in Session 1 for Python). This was the silent root cause of multiple features appearing broken.
+- **Calendar buffer fix**: `horizon * 2` was too conservative — a 3-day horizon with `*2 = 6` calendar days wouldn't trigger until day 6, but 3 trading days pass by day 5 (over a weekend). Changed to just `horizon` calendar days with Python trading-day filter doing the exact check.
+- **Accuracy page no-toggle**: Removed horizon toggle entirely — all three timeframes visible simultaneously via scorecards. Much more digestible for laymen.
+
+### Quirks / gotchas discovered:
+- FMP v3 (`/api/v3`) returns 403 for both Python AND TypeScript — the TS client was never migrated when Python was fixed in Session 1
+- Two separate accuracy systems: PostgreSQL (TS cron at 4:30 PM) and SQLite (Python brain). They don't sync — TS backfill writes to Postgres, Python backfill writes to SQLite. Calibration engine only reads SQLite.
+- `build_council_calibration()` requires `accuracy_records.accurate IS NOT NULL` — which was always NULL because `backfill_actuals()` never ran due to the calendar buffer bug
+- Prisma client needed `npx prisma generate` after schema already had the fields — the generated types were stale
+
+### Files modified:
+- `src/lib/api/fmp.ts` — complete migration from v3 to /stable/
+- `src/app/api/accuracy/route.ts` — rewritten for all-horizon response
+- `src/app/accuracy/page.tsx` — rewritten: scorecards + paginated table
+- `canadian_llm_council_brain.py` — Top 10 (Pydantic, Grok prompt, consensus), backfill fix
+- `api_server.py` — picks[:10] mapping
+- `src/app/api/spikes/route.ts` — added calibration fields
+- `src/app/api/spikes/[id]/route.ts` — unchanged (already returns all fields)
+- `src/app/dashboard/page.tsx` — SpikeData interface + score rounding
+- `src/app/dashboard/analysis/[id]/page.tsx` — past predictions table redesign
+- `src/components/spikes/SpikeCard.tsx` — confidence meter sizing + Council Optimistic color
+- `src/lib/email/resend.ts` — slice(0, 10)
+- `src/lib/council/claude-council.ts` — fallback slice(0, 10)
+- `src/app/layout.tsx` — metadata "Top 10"
+- `src/app/settings/page.tsx` — notification label "Top 10"
+- `src/app/admin/page.tsx` — admin labels "Top 10"
+- `src/app/api/admin/analytics/route.ts` — XLSX header "In Top 10"
+
+### Checkpoint artifacts:
+- GitHub: `Steve25Vibe/spike-trades` commit `7a01ad5` — all changes pushed
+- Production: spiketrades.ca deployed with all fixes
+- PostgreSQL: 80 spikes with historicalConfidence populated
+- SQLite: 18 accuracy records filled, 3 calibration council buckets
+- First Top 10 run scheduled: tomorrow 10:45 AM AST
+
+### What the next session should do first:
+1. Verify tomorrow's 10:45 AM Top 10 run completes — should produce exactly 10 picks with calibration data
+2. Verify dual-bar confidence meter displays on new picks
+3. Verify accuracy backfill at 4:30 PM fills both PostgreSQL AND SQLite
+4. After 3-5 days of Top 10 data: compare hit rate vs the old Top 20 runs
+5. Continue with user's new feature request
+
+### Context window status:
+- Estimated usage: very heavy (12 commits, 16 files modified, multiple production deploys, data backfills, debugging across Python + TS + SQL)
+- Reason for stopping: user requested clean session transition for new feature
