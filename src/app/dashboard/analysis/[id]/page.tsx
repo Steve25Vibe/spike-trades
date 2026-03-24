@@ -11,7 +11,7 @@ import { usePortfolios } from '@/components/portfolio/usePortfolios';
 import { cn, formatCurrency, formatPercent, formatVolume, formatMarketCap, parseLocalDate } from '@/lib/utils';
 import {
   RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip
+  ResponsiveContainer
 } from 'recharts';
 
 // Plain-language labels for each scoring factor
@@ -204,12 +204,17 @@ export default function AnalysisPage() {
       fullMark: 100,
     }));
 
-  // Build ticker accuracy chart if available
-  const historyChart = tickerHistory.map((h: any) => ({
-    date: parseLocalDate(h.date).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' }),
-    predicted: h.predicted3Day,
-    actual: h.actual3Day,
-  }));
+  // Build ticker history stats
+  const historyWithActuals = tickerHistory.filter((h: any) => h.actual3Day !== null);
+  const historyWins = historyWithActuals.filter((h: any) => {
+    const pred = h.predicted3Day as number;
+    const act = h.actual3Day as number;
+    return (pred >= 0 && act >= 0) || (pred < 0 && act < 0);
+  });
+  const historyAvgPredicted = historyWithActuals.length > 0
+    ? historyWithActuals.reduce((sum: number, h: any) => sum + (h.predicted3Day || 0), 0) / historyWithActuals.length : 0;
+  const historyAvgActual = historyWithActuals.length > 0
+    ? historyWithActuals.reduce((sum: number, h: any) => sum + (h.actual3Day || 0), 0) / historyWithActuals.length : 0;
 
   return (
     <ResponsiveLayout>
@@ -461,27 +466,98 @@ export default function AnalysisPage() {
         </div>
 
         {/* ===== HISTORICAL ACCURACY FOR THIS TICKER ===== */}
-        {historyChart.length > 0 && (
+        {tickerHistory.length > 0 && (
           <div className="glass-card p-6 mb-6">
             <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-2">
               Past Predictions for {spike.ticker}
             </h3>
-            <p className="text-spike-text-dim text-sm mb-4">
-              How accurate were our previous 3-day predictions for this specific stock?
-            </p>
-            <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={historyChart}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1E3A5F" />
-                <XAxis dataKey="date" stroke="#64748B" fontSize={11} />
-                <YAxis stroke="#64748B" fontSize={11} tickFormatter={(v) => `${v}%`} />
-                <Tooltip
-                  contentStyle={{ background: '#111E33', border: '1px solid #1E3A5F', borderRadius: 8, fontSize: 12 }}
-                  formatter={(value: number) => [`${value?.toFixed(2)}%`]}
-                />
-                <Bar dataKey="predicted" fill="#00F0FF" fillOpacity={0.6} name="Predicted" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="actual" fill="#00FF88" fillOpacity={0.8} name="Actual" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+
+            {/* Summary line */}
+            {historyWithActuals.length > 0 ? (
+              <p className="text-sm text-spike-text-dim mb-4">
+                {spike.ticker} has been picked <span className="text-spike-text font-medium">{tickerHistory.length} time{tickerHistory.length !== 1 ? 's' : ''}</span>.
+                {' '}Direction accuracy: <span className={cn('font-medium mono', historyWins.length / historyWithActuals.length >= 0.5 ? 'text-spike-green' : 'text-spike-red')}>
+                  {historyWins.length}/{historyWithActuals.length} ({((historyWins.length / historyWithActuals.length) * 100).toFixed(0)}%)
+                </span>.
+                {' '}Avg predicted: <span className="text-spike-cyan mono">{historyAvgPredicted >= 0 ? '+' : ''}{historyAvgPredicted.toFixed(2)}%</span>,
+                {' '}Avg actual: <span className={cn('mono', historyAvgActual >= 0 ? 'text-spike-green' : 'text-spike-red')}>{historyAvgActual >= 0 ? '+' : ''}{historyAvgActual.toFixed(2)}%</span>
+              </p>
+            ) : (
+              <p className="text-sm text-spike-text-dim mb-4">
+                {spike.ticker} has been picked {tickerHistory.length} time{tickerHistory.length !== 1 ? 's' : ''}. Awaiting actual results.
+              </p>
+            )}
+
+            {/* History table */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-spike-border text-spike-text-dim text-[10px] uppercase tracking-wider">
+                    <th className="py-2 px-2 text-left">Date</th>
+                    <th className="py-2 px-2 text-center">Score</th>
+                    <th className="py-2 px-1 text-right">3D Pred</th>
+                    <th className="py-2 px-1 text-right">3D Act</th>
+                    <th className="py-2 px-1 text-right">5D Pred</th>
+                    <th className="py-2 px-1 text-right">5D Act</th>
+                    <th className="py-2 px-1 text-right">8D Pred</th>
+                    <th className="py-2 px-1 text-right">8D Act</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tickerHistory.map((h: any, idx: number) => {
+                    const has3 = h.actual3Day !== null;
+                    const hit3 = has3 && ((h.predicted3Day >= 0 && h.actual3Day >= 0) || (h.predicted3Day < 0 && h.actual3Day < 0));
+                    const has5 = h.actual5Day !== null;
+                    const hit5 = has5 && ((h.predicted5Day >= 0 && h.actual5Day >= 0) || (h.predicted5Day < 0 && h.actual5Day < 0));
+                    const has8 = h.actual8Day !== null;
+                    const hit8 = has8 && ((h.predicted8Day >= 0 && h.actual8Day >= 0) || (h.predicted8Day < 0 && h.actual8Day < 0));
+                    const anyWin = (has3 && h.actual3Day >= 0) || (has5 && h.actual5Day >= 0) || (has8 && h.actual8Day >= 0);
+                    const anyActual = has3 || has5 || has8;
+
+                    return (
+                      <tr
+                        key={idx}
+                        className={cn(
+                          'border-b border-spike-border/30 transition-colors hover:bg-spike-bg-hover',
+                          anyActual && anyWin ? 'bg-spike-green/[0.03]' : anyActual ? 'bg-spike-red/[0.03]' : ''
+                        )}
+                      >
+                        <td className="py-2 px-2 text-spike-text-dim text-xs mono">
+                          {parseLocalDate(h.date).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}
+                        </td>
+                        <td className="py-2 px-2 text-center">
+                          <span className={cn(
+                            'text-xs mono font-medium',
+                            h.score >= 80 ? 'text-spike-green' : h.score >= 60 ? 'text-spike-amber' : 'text-spike-red'
+                          )}>{h.score?.toFixed(0)}</span>
+                        </td>
+                        {/* 3-Day */}
+                        <td className="py-2 px-1 text-right mono text-xs text-spike-text-dim">
+                          {h.predicted3Day != null ? `${h.predicted3Day >= 0 ? '+' : ''}${h.predicted3Day.toFixed(1)}%` : '—'}
+                        </td>
+                        <td className={cn('py-2 px-1 text-right mono text-xs font-medium', has3 ? (h.actual3Day >= 0 ? 'text-spike-green' : 'text-spike-red') : 'text-spike-text-muted')}>
+                          {has3 ? <>{h.actual3Day >= 0 ? '+' : ''}{h.actual3Day.toFixed(1)}%<span className="ml-0.5 text-[9px]">{hit3 ? '✓' : '✗'}</span></> : '—'}
+                        </td>
+                        {/* 5-Day */}
+                        <td className="py-2 px-1 text-right mono text-xs text-spike-text-dim">
+                          {h.predicted5Day != null ? `${h.predicted5Day >= 0 ? '+' : ''}${h.predicted5Day.toFixed(1)}%` : '—'}
+                        </td>
+                        <td className={cn('py-2 px-1 text-right mono text-xs font-medium', has5 ? (h.actual5Day >= 0 ? 'text-spike-green' : 'text-spike-red') : 'text-spike-text-muted')}>
+                          {has5 ? <>{h.actual5Day >= 0 ? '+' : ''}{h.actual5Day.toFixed(1)}%<span className="ml-0.5 text-[9px]">{hit5 ? '✓' : '✗'}</span></> : '—'}
+                        </td>
+                        {/* 8-Day */}
+                        <td className="py-2 px-1 text-right mono text-xs text-spike-text-dim">
+                          {h.predicted8Day != null ? `${h.predicted8Day >= 0 ? '+' : ''}${h.predicted8Day.toFixed(1)}%` : '—'}
+                        </td>
+                        <td className={cn('py-2 px-1 text-right mono text-xs font-medium', has8 ? (h.actual8Day >= 0 ? 'text-spike-green' : 'text-spike-red') : 'text-spike-text-muted')}>
+                          {has8 ? <>{h.actual8Day >= 0 ? '+' : ''}{h.actual8Day.toFixed(1)}%<span className="ml-0.5 text-[9px]">{hit8 ? '✓' : '✗'}</span></> : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
