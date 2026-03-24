@@ -121,16 +121,19 @@ export default function SpikeCard({ spike, selected, onSelect, onLockIn, selecti
 
       {/* Dual confidence meter */}
       <div className="mt-3">
-        <div className="flex justify-between items-center mb-1">
-          <span className="text-[10px] text-spike-text-muted uppercase tracking-wider">Confidence</span>
+        <div className="flex justify-between items-center mb-1.5">
+          <span className="text-xs text-spike-text-muted uppercase tracking-wider font-medium">Confidence</span>
           {spike.overconfidenceFlag && (
-            <span className="text-[9px] text-spike-amber" title="Council confidence exceeds historical base rate by &gt;10 points">Council optimistic</span>
+            <span className={cn(
+              'text-xs font-medium',
+              spike.confidence >= 80 ? 'text-spike-green' : spike.confidence >= 60 ? 'text-spike-amber' : 'text-spike-red'
+            )} title="Council confidence exceeds historical base rate by &gt;10 points">Council Optimistic</span>
           )}
         </div>
         {/* Council bar */}
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-[9px] text-spike-text-muted w-12">{spike.historicalConfidence != null ? 'Council' : ''}</span>
-          <div className="flex-1 h-1.5 bg-spike-bg rounded-full overflow-hidden">
+        <div className="flex items-center gap-2 mb-1.5">
+          <span className="text-xs text-spike-text-muted w-14 font-medium">{spike.historicalConfidence != null ? 'Council' : ''}</span>
+          <div className="flex-1 h-2 bg-spike-bg rounded-full overflow-hidden">
             <div
               className="h-full rounded-full transition-all duration-1000"
               style={{
@@ -143,13 +146,13 @@ export default function SpikeCard({ spike, selected, onSelect, onLockIn, selecti
               }}
             />
           </div>
-          <span className="text-[10px] mono text-spike-text-dim w-8 text-right">{spike.confidence.toFixed(0)}%</span>
+          <span className="text-xs mono text-spike-text-dim w-9 text-right">{spike.confidence.toFixed(0)}%</span>
         </div>
         {/* History bar (only shown when calibration data exists) */}
         {spike.historicalConfidence != null && (
           <div className="flex items-center gap-2" title={`Based on ${spike.calibrationSamples?.toLocaleString() || '?'} similar historical setups`}>
-            <span className="text-[9px] text-spike-text-muted w-12">History</span>
-            <div className="flex-1 h-1.5 bg-spike-bg rounded-full overflow-hidden">
+            <span className="text-xs text-spike-text-muted w-14 font-medium">History</span>
+            <div className="flex-1 h-2 bg-spike-bg rounded-full overflow-hidden">
               <div
                 className="h-full rounded-full transition-all duration-1000 opacity-60"
                 style={{
@@ -162,7 +165,7 @@ export default function SpikeCard({ spike, selected, onSelect, onLockIn, selecti
                 }}
               />
             </div>
-            <span className="text-[10px] mono text-spike-text-dim w-8 text-right">{spike.historicalConfidence.toFixed(0)}%</span>
+            <span className="text-xs mono text-spike-text-dim w-9 text-right">{spike.historicalConfidence.toFixed(0)}%</span>
           </div>
         )}
       </div>
