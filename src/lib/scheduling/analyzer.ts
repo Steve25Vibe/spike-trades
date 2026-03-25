@@ -252,6 +252,10 @@ export async function runDailyAnalysis(useCached = false): Promise<{
       ema3: spike.ema3,
       ema8: spike.ema8,
       atr: spike.atr,
+      // Calibration data for dual-bar confidence meter
+      historicalConfidence: spike.historicalConfidence,
+      calibrationSamples: spike.calibrationSamples,
+      overconfidenceFlag: spike.overconfidenceFlag,
     }));
 
     const report = await prisma.dailyReport.upsert({
