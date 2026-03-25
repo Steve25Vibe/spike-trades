@@ -8,6 +8,7 @@ import LockInModal from '@/components/portfolio/LockInModal';
 import PortfolioChoiceModal from '@/components/portfolio/PortfolioChoiceModal';
 import { type SizingMode } from '@/components/portfolio/PortfolioSettings';
 import { usePortfolios } from '@/components/portfolio/usePortfolios';
+import PerformanceChart from '@/components/analysis/PerformanceChart';
 import { cn, formatCurrency, formatPercent, formatVolume, formatMarketCap, parseLocalDate } from '@/lib/utils';
 import {
   RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
@@ -464,6 +465,13 @@ export default function AnalysisPage() {
             ))}
           </div>
         </div>
+
+        {/* ===== PORTFOLIO PERFORMANCE CHART ===== */}
+        {data.portfolio.locked && (
+          <div className="glass-card p-6 mb-6">
+            <PerformanceChart spikeId={spike.id} ticker={spike.ticker} />
+          </div>
+        )}
 
         {/* ===== HISTORICAL ACCURACY FOR THIS TICKER ===== */}
         {tickerHistory.length > 0 && (
