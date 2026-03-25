@@ -61,16 +61,16 @@ export default function LoginPage() {
 
       <div className="relative z-10 w-full max-w-md">
         {/* Logo */}
-        <div className="text-center mb-12">
+        <div className="text-center mb-6">
           <Image
             src="/images/spike-logo.png"
             alt="Spike Trades"
-            width={320}
-            height={80}
-            className="mx-auto mb-4 drop-shadow-[0_0_15px_rgba(124,252,0,0.3)]"
+            width={440}
+            height={110}
+            className="mx-auto mb-2 drop-shadow-[0_0_15px_rgba(124,252,0,0.3)]"
             priority
           />
-          <p className="text-spike-text-dim mt-2 text-sm tracking-widest uppercase">
+          <p className="text-spike-text-dim text-sm tracking-widest uppercase">
             Today&apos;s Spikes
           </p>
         </div>

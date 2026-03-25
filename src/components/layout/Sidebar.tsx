@@ -85,13 +85,13 @@ export default function Sidebar({ open = true, onClose }: SidebarProps) {
       open ? 'translate-x-0' : '-translate-x-full'
     )}>
       {/* Logo */}
-      <div className="p-6 border-b border-spike-border">
+      <div className="px-4 py-3 border-b border-spike-border">
         <Link href="/dashboard" className="flex items-center" title="Go to today's top stock picks" onClick={handleNavClick}>
           <Image
             src="/images/spike-logo.png"
             alt="Spike Trades"
-            width={200}
-            height={50}
+            width={240}
+            height={60}
             className="drop-shadow-[0_0_8px_rgba(124,252,0,0.25)]"
             priority
           />
