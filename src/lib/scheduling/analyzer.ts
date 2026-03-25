@@ -76,6 +76,9 @@ interface CouncilMappedResponse {
       price_range_high: number;
       clarity_decay_note: string;
     }>;
+    historicalConfidence: number | null;
+    calibrationSamples: number | null;
+    overconfidenceFlag: boolean | null;
   }[];
   councilLog: Record<string, unknown>;
   riskSummary: Record<string, unknown>;
