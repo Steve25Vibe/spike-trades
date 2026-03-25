@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import Image from 'next/image';
 import ParticleBackground from '@/components/layout/ParticleBackground';
 
 export default function LoginPage() {
@@ -61,16 +60,19 @@ export default function LoginPage() {
 
       <div className="relative z-10 w-full max-w-md">
         {/* Logo */}
-        <div className="text-center mb-6">
-          <Image
-            src="/images/spike-logo.png"
-            alt="Spike Trades"
-            width={440}
-            height={110}
-            className="mx-auto mb-2 drop-shadow-[0_0_15px_rgba(124,252,0,0.3)]"
-            priority
-          />
-          <p className="text-spike-text-dim text-sm tracking-widest uppercase">
+        <div className="text-center mb-12">
+          <div className="inline-flex items-center gap-3 mb-4">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-spike-cyan to-spike-violet flex items-center justify-center">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#0A1428" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
+                <polyline points="16 7 22 7 22 13" />
+              </svg>
+            </div>
+          </div>
+          <h1 className="text-4xl font-display font-bold tracking-wider glow-cyan text-spike-cyan">
+            SPIKE TRADES
+          </h1>
+          <p className="text-spike-text-dim mt-2 text-sm tracking-widest uppercase">
             Today&apos;s Spikes
           </p>
         </div>

@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { cn, isMarketOpen } from '@/lib/utils';
 import { useAuth } from '@/components/providers/AuthProvider';
@@ -85,16 +84,22 @@ export default function Sidebar({ open = true, onClose }: SidebarProps) {
       open ? 'translate-x-0' : '-translate-x-full'
     )}>
       {/* Logo */}
-      <div className="px-4 py-3 border-b border-spike-border">
-        <Link href="/dashboard" className="flex items-center" title="Go to today's top stock picks" onClick={handleNavClick}>
-          <Image
-            src="/images/spike-logo.png"
-            alt="Spike Trades"
-            width={240}
-            height={60}
-            className="drop-shadow-[0_0_8px_rgba(124,252,0,0.25)]"
-            priority
-          />
+      <div className="p-6 border-b border-spike-border">
+        <Link href="/dashboard" className="flex items-center gap-3" title="Go to today's top stock picks" onClick={handleNavClick}>
+          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-spike-cyan to-spike-violet flex items-center justify-center flex-shrink-0">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0A1428" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
+              <polyline points="16 7 22 7 22 13" />
+            </svg>
+          </div>
+          <div>
+            <h1 className="text-lg font-display font-bold tracking-wider text-spike-cyan">
+              SPIKE TRADES
+            </h1>
+            <p className="text-[10px] text-spike-text-muted tracking-[0.2em] uppercase -mt-0.5">
+              Today&apos;s Spikes
+            </p>
+          </div>
         </Link>
       </div>
 
