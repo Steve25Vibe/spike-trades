@@ -3704,14 +3704,20 @@ class CanadianStockCouncilBrain:
             payloads_map = {p.ticker: p for p in payloads_list}
 
             # ── Step 5: Stage 1 — Sonnet ──
+            STAGE_WALL_CLOCK_TIMEOUT = 420  # 7 minutes max per stage
             logger.info(f"Step 5: Stage 1 (Sonnet) — {len(payloads_list)} tickers")
             # Batch size 15 to stay under Anthropic rate limits (~30K tokens/min)
             BATCH_SIZE = 15
             INTER_BATCH_DELAY = 15  # seconds between batches to avoid 429s
+            stage1_start = asyncio.get_event_loop().time()
             if len(payloads_list) > BATCH_SIZE:
                 stage1_all = []
                 n_batches = (len(payloads_list) + BATCH_SIZE - 1) // BATCH_SIZE
                 for i in range(0, len(payloads_list), BATCH_SIZE):
+                    elapsed_stage = asyncio.get_event_loop().time() - stage1_start
+                    if elapsed_stage > STAGE_WALL_CLOCK_TIMEOUT:
+                        logger.warning(f"Stage 1 wall-clock timeout ({STAGE_WALL_CLOCK_TIMEOUT}s) — aborting remaining batches ({len(stage1_all)} results so far)")
+                        break
                     batch = payloads_list[i:i + BATCH_SIZE]
                     batch_num = i // BATCH_SIZE + 1
                     logger.info(
@@ -3750,45 +3756,49 @@ class CanadianStockCouncilBrain:
             stage2_results = []
             stage2_skipped = False
             try:
-                if len(stage1_results) > GEMINI_BATCH_SIZE:
-                    s1_tickers_batched = [
-                        stage1_results[i:i + GEMINI_BATCH_SIZE]
-                        for i in range(0, len(stage1_results), GEMINI_BATCH_SIZE)
-                    ]
-                    # Run Gemini batches concurrently (2 at a time — Gemini rate limits are more generous)
-                    GEMINI_CONCURRENCY = 2
-                    gemini_sem = asyncio.Semaphore(GEMINI_CONCURRENCY)
+                async def _run_stage2_all() -> list[dict]:
+                    """Run all Stage 2 batches, wrapped by wall-clock timeout."""
+                    if len(stage1_results) > GEMINI_BATCH_SIZE:
+                        s1_tickers_batched = [
+                            stage1_results[i:i + GEMINI_BATCH_SIZE]
+                            for i in range(0, len(stage1_results), GEMINI_BATCH_SIZE)
+                        ]
+                        GEMINI_CONCURRENCY = 2
+                        gemini_sem = asyncio.Semaphore(GEMINI_CONCURRENCY)
 
-                    async def _run_gemini_batch(batch_idx: int, s1_batch: list[dict]) -> list[dict]:
-                        async with gemini_sem:
-                            batch_tickers = {r["ticker"] for r in s1_batch}
-                            batch_payloads = [p for p in payloads_list if p.ticker in batch_tickers]
-                            logger.info(f"Stage 2 batch {batch_idx + 1}/{len(s1_tickers_batched)}: {len(s1_batch)} tickers")
-                            return await run_stage2_gemini(
-                                self.google_key, batch_payloads, macro, s1_batch
-                            )
+                        async def _run_gemini_batch(batch_idx: int, s1_batch: list[dict]) -> list[dict]:
+                            async with gemini_sem:
+                                batch_tickers = {r["ticker"] for r in s1_batch}
+                                batch_payloads = [p for p in payloads_list if p.ticker in batch_tickers]
+                                logger.info(f"Stage 2 batch {batch_idx + 1}/{len(s1_tickers_batched)}: {len(s1_batch)} tickers")
+                                return await run_stage2_gemini(
+                                    self.google_key, batch_payloads, macro, s1_batch
+                                )
 
-                    batch_tasks = [
-                        _run_gemini_batch(idx, batch)
-                        for idx, batch in enumerate(s1_tickers_batched)
-                    ]
-                    batch_results_list = await asyncio.gather(*batch_tasks, return_exceptions=True)
+                        batch_tasks = [
+                            _run_gemini_batch(idx, batch)
+                            for idx, batch in enumerate(s1_tickers_batched)
+                        ]
+                        batch_results_list = await asyncio.gather(*batch_tasks, return_exceptions=True)
 
-                    stage2_all = []
-                    for idx, br in enumerate(batch_results_list):
-                        if isinstance(br, Exception):
-                            logger.warning(f"Stage 2 batch {idx + 1} failed: {br}")
-                        else:
-                            stage2_all.extend(br)
+                        all_results = []
+                        for idx, br in enumerate(batch_results_list):
+                            if isinstance(br, Exception):
+                                logger.warning(f"Stage 2 batch {idx + 1} failed: {br}")
+                            else:
+                                all_results.extend(br)
+                        return sorted(all_results, key=lambda x: x["score"]["total"], reverse=True)[:80]
+                    else:
+                        r = await run_stage2_gemini(self.google_key, payloads_list, macro, stage1_results)
+                        return r[:80]
 
-                    stage2_results = sorted(
-                        stage2_all, key=lambda x: x["score"]["total"], reverse=True
-                    )[:80]
-                else:
-                    stage2_results = await run_stage2_gemini(
-                        self.google_key, payloads_list, macro, stage1_results
-                    )
-                    stage2_results = stage2_results[:80]
+                stage2_results = await asyncio.wait_for(
+                    _run_stage2_all(), timeout=STAGE_WALL_CLOCK_TIMEOUT
+                )
+            except asyncio.TimeoutError:
+                logger.error(f"Stage 2 (Gemini) wall-clock timeout ({STAGE_WALL_CLOCK_TIMEOUT}s) — skipping entire stage")
+                stage2_skipped = True
+                skipped_stages.append({"stage": 2, "model": "gemini", "error": f"wall-clock timeout ({STAGE_WALL_CLOCK_TIMEOUT}s)"})
             except Exception as e:
                 logger.error(f"Stage 2 (Gemini) FAILED — skipping: {e}")
                 stage2_skipped = True
@@ -3809,6 +3819,7 @@ class CanadianStockCouncilBrain:
             stage3_results = []
             stage3_skipped = False
             try:
+                stage3_start = asyncio.get_event_loop().time()
                 if len(stage2_results) > OPUS_BATCH:
                     s2_tickers_batched = [
                         stage2_results[i:i + OPUS_BATCH]
@@ -3817,6 +3828,10 @@ class CanadianStockCouncilBrain:
                     # Opus batches run sequentially — Anthropic rate limits are tight
                     stage3_all = []
                     for batch_idx, s2_batch in enumerate(s2_tickers_batched):
+                        elapsed_stage = asyncio.get_event_loop().time() - stage3_start
+                        if elapsed_stage > STAGE_WALL_CLOCK_TIMEOUT:
+                            logger.warning(f"Stage 3 wall-clock timeout ({STAGE_WALL_CLOCK_TIMEOUT}s) — aborting remaining batches ({len(stage3_all)} results so far)")
+                            break
                         batch_tickers = {r["ticker"] for r in s2_batch}
                         batch_payloads = [p for p in payloads_list if p.ticker in batch_tickers]
                         s1_for_batch = [r for r in stage1_results if r["ticker"] in batch_tickers]
@@ -3859,12 +3874,19 @@ class CanadianStockCouncilBrain:
             stage4_results = []
             stage4_skipped = False
             try:
-                stage4_results = await run_stage4_grok(
-                    self.xai_key, self.anthropic_key,
-                    payloads_list, macro,
-                    stage1_results, stage2_results, stage3_results
+                stage4_raw = await asyncio.wait_for(
+                    run_stage4_grok(
+                        self.xai_key, self.anthropic_key,
+                        payloads_list, macro,
+                        stage1_results, stage2_results, stage3_results
+                    ),
+                    timeout=STAGE_WALL_CLOCK_TIMEOUT,
                 )
-                stage4_results = stage4_results[:20]
+                stage4_results = stage4_raw[:20]
+            except asyncio.TimeoutError:
+                logger.error(f"Stage 4 (Grok) wall-clock timeout ({STAGE_WALL_CLOCK_TIMEOUT}s) — skipping")
+                stage4_skipped = True
+                skipped_stages.append({"stage": 4, "model": "grok", "error": f"wall-clock timeout ({STAGE_WALL_CLOCK_TIMEOUT}s)"})
             except Exception as e:
                 logger.error(f"Stage 4 (Grok) FAILED — skipping: {e}")
                 stage4_skipped = True
