@@ -288,7 +288,7 @@ export default function AnalysisPage() {
                   </p>
                 )}
                 {p.value ? (
-                  <p className="text-[10px] text-spike-text-muted mt-1">{formatCurrency(spike.price * (1 + p.value / 100))} target</p>
+                  <p className="text-sm font-bold text-yellow-400 mt-1">{formatCurrency(spike.price * (1 + p.value / 100))} target</p>
                 ) : (
                   <p className="text-[10px] text-spike-text-muted mt-1">Not available</p>
                 )}
