@@ -134,7 +134,7 @@ export async function POST(request: NextRequest) {
       }
 
       // ---- 2. Deviation Alerts ----
-      if (!position.deviationAlert && pricePct <= -5) {
+      if (!position.deviationAlert && pricePct <= -1) {
         if (wantsDeviationAlerts) {
           await sendDeviationAlert({
             to: ownerEmail,
