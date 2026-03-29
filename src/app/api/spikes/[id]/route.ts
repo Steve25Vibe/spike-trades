@@ -178,6 +178,11 @@ export async function GET(
           actual8Day: p.actual8Day,
         })),
 
+        // Learning adjustments (if available)
+        learningAdjustments: (spike as Record<string, unknown>).learningAdjustments
+          ? JSON.parse((spike as Record<string, unknown>).learningAdjustments as string)
+          : null,
+
         // Data source attribution
         dataSources: {
           pricing: 'Financial Modeling Prep (FMP) — Real-time professional feed',
