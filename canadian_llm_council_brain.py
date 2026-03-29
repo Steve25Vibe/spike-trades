@@ -127,6 +127,14 @@ class AnalystConsensus(BaseModel):
     target_upside_pct: Optional[float] = Field(None, description="% upside to consensus target")
 
 
+class IVExpectedMove(BaseModel):
+    """ATR-based implied volatility proxy for expected move sizing."""
+    implied_volatility: float = Field(description="Annualized IV from ATR proxy")
+    expected_move_1sd_pct: float = Field(description="1SD expected move % for 3-day horizon")
+    expected_move_2sd_pct: float = Field(description="2SD expected move % for 3-day horizon")
+    iv_available: bool = Field(default=True)
+
+
 class StockDataPayload(BaseModel):
     """Complete data package for a single ticker, sent to LLM stages."""
     ticker: str = Field(..., description="TSX ticker e.g. RY.TO")
@@ -148,6 +156,7 @@ class StockDataPayload(BaseModel):
     insider_activity: Optional[InsiderActivity] = None
     analyst_consensus: Optional[AnalystConsensus] = None
     sector_relative_strength: Optional[float] = Field(None, description="Ticker change% minus sector avg")
+    iv_expected_move: Optional[IVExpectedMove] = Field(default=None)
     as_of: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     data_quality: str = Field(default="OK", description="OK or STALE_DATA or MISSING_FIELD")
 
@@ -726,6 +735,33 @@ class LiveDataFetcher:
             as_of=datetime.now(timezone.utc),
         )
 
+    # ── IV Expected Move (ATR-based proxy) ─────────────────────────
+
+    def compute_iv_expected_move(self, ticker: str, atr: float, price: float) -> Optional[IVExpectedMove]:
+        """Compute ATR-based IV proxy for expected move sizing."""
+        try:
+            if not atr or not price or price <= 0:
+                return None
+
+            # Annualize ATR: daily ATR / price * sqrt(252)
+            daily_vol = atr / price
+            annualized_iv = daily_vol * (252 ** 0.5)
+
+            # Expected move formula: S * (IV / sqrt(365)) * sqrt(D)
+            # For 3 trading days ~ 5 calendar days
+            em_1sd = price * (annualized_iv / (365 ** 0.5)) * (5 ** 0.5)
+            em_1sd_pct = (em_1sd / price) * 100
+            em_2sd_pct = em_1sd_pct * 2
+
+            return IVExpectedMove(
+                implied_volatility=round(annualized_iv, 4),
+                expected_move_1sd_pct=round(em_1sd_pct, 2),
+                expected_move_2sd_pct=round(em_2sd_pct, 2),
+                iv_available=True
+            )
+        except Exception:
+            return None
+
     # ── Payload Builder ───────────────────────────────────────────────
 
     async def build_payload(
@@ -778,6 +814,10 @@ class LiveDataFetcher:
                 news=news_items,
                 finnhub_sentiment=sentiment,
                 macro=macro,
+                iv_expected_move=(
+                    self.compute_iv_expected_move(ticker, technicals.atr, price)
+                    if technicals and technicals.atr else None
+                ),
                 as_of=datetime.now(timezone.utc),
             )
             return payload
@@ -1361,6 +1401,7 @@ async def run_stage1_sonnet(
     api_key: str,
     payloads: list[StockDataPayload],
     macro: MacroContext,
+    learning_engine: Optional["LearningEngine"] = None,
 ) -> list[dict]:
     """Stage 1: Sonnet screens universe to Top 100."""
     logger.info(f"Stage 1 (Sonnet): Processing {len(payloads)} tickers")
@@ -1380,10 +1421,13 @@ async def run_stage1_sonnet(
         f"{json.dumps(payload_dicts, **_COMPACT)}"
     )
 
+    prompt_context = learning_engine.build_prompt_context(1) if learning_engine else ""
+    system_prompt = SONNET_SYSTEM_PROMPT + prompt_context
+
     raw = await _call_anthropic(
         api_key=api_key,
         model="claude-sonnet-4-20250514",
-        system_prompt=SONNET_SYSTEM_PROMPT,
+        system_prompt=system_prompt,
         user_prompt=user_prompt,
         max_tokens=16384,
     )
@@ -1458,6 +1502,7 @@ async def run_stage2_gemini(
     payloads: list[StockDataPayload],
     macro: MacroContext,
     stage1_results: list[dict],
+    learning_engine: Optional["LearningEngine"] = None,
 ) -> list[dict]:
     """Stage 2: Gemini independently re-scores, narrows to Top 80."""
     logger.info(f"Stage 2 (Gemini): Processing {len(stage1_results)} tickers from Stage 1")
@@ -1473,6 +1518,9 @@ async def run_stage2_gemini(
             _slim_payload(d)
             payload_dicts.append(d)
 
+    prompt_context = learning_engine.build_prompt_context(2) if learning_engine else ""
+    system_prompt = GEMINI_SYSTEM_PROMPT + prompt_context
+
     user_prompt = (
         f"MACRO CONTEXT:\n{json.dumps(macro.model_dump(mode='json'), **_COMPACT)}\n\n"
         f"STAGE 1 (SONNET) RESULTS:\n{json.dumps(stage1_results, **_COMPACT)}\n\n"
@@ -1483,7 +1531,7 @@ async def run_stage2_gemini(
     raw = await _call_gemini(
         api_key=api_key,
         model="gemini-3.1-pro-preview",
-        system_prompt=GEMINI_SYSTEM_PROMPT,
+        system_prompt=system_prompt,
         user_prompt=user_prompt,
         max_tokens=32768,
     )
@@ -1561,6 +1609,7 @@ async def run_stage3_opus(
     macro: MacroContext,
     stage1_results: list[dict],
     stage2_results: list[dict],
+    learning_engine: Optional["LearningEngine"] = None,
 ) -> list[dict]:
     """Stage 3: Opus challenges picks, narrows to Top 40."""
     logger.info(f"Stage 3 (Opus): Processing {len(stage2_results)} tickers from Stage 2")
@@ -1575,6 +1624,9 @@ async def run_stage3_opus(
             _slim_payload(d)
             payload_dicts.append(d)
 
+    prompt_context = learning_engine.build_prompt_context(3) if learning_engine else ""
+    system_prompt = OPUS_SYSTEM_PROMPT + prompt_context
+
     user_prompt = (
         f"MACRO CONTEXT:\n{json.dumps(macro.model_dump(mode='json'), **_COMPACT)}\n\n"
         f"STAGE 1 (SONNET) RESULTS:\n{json.dumps(stage1_results, **_COMPACT)}\n\n"
@@ -1586,7 +1638,7 @@ async def run_stage3_opus(
     raw = await _call_anthropic(
         api_key=api_key,
         model="claude-opus-4-20250514",
-        system_prompt=OPUS_SYSTEM_PROMPT,
+        system_prompt=system_prompt,
         user_prompt=user_prompt,
         max_tokens=16384,
     )
@@ -1709,6 +1761,7 @@ async def run_stage4_grok(
     stage1_results: list[dict],
     stage2_results: list[dict],
     stage3_results: list[dict],
+    learning_engine: Optional["LearningEngine"] = None,
 ) -> list[dict]:
     """Stage 4: Grok (or Opus fallback) produces final Top 10 with probabilistic forecasts."""
     logger.info(f"Stage 4 (Grok): Processing {len(stage3_results)} tickers from Stage 3")
@@ -1722,6 +1775,9 @@ async def run_stage4_grok(
             d["historical_bars"] = d["historical_bars"][-5:]
             _slim_payload(d)
             payload_dicts.append(d)
+
+    prompt_context = learning_engine.build_prompt_context(4) if learning_engine else ""
+    system_prompt = GROK_SYSTEM_PROMPT + prompt_context
 
     user_prompt = (
         f"MACRO CONTEXT:\n{json.dumps(macro.model_dump(mode='json'), **_COMPACT)}\n\n"
@@ -1739,7 +1795,7 @@ async def run_stage4_grok(
             raw = await _call_grok(
                 api_key=xai_api_key,
                 model="grok-4-0709",
-                system_prompt=GROK_SYSTEM_PROMPT,
+                system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 max_tokens=16384,
             )
@@ -1752,7 +1808,7 @@ async def run_stage4_grok(
         raw = await _call_anthropic(
             api_key=anthropic_api_key,
             model="claude-opus-4-20250514",
-            system_prompt=GROK_SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             user_prompt=user_prompt,
             max_tokens=16384,
         )
@@ -1937,6 +1993,7 @@ def _build_consensus(
     regime: str,
     regime_filter: MacroRegimeFilter,
     earnings_map: dict[str, EarningsEvent] | None = None,
+    learning_engine: Optional["LearningEngine"] = None,
 ) -> list[FinalHotPick]:
     """Build consensus Top 10 from all 4 stage results.
 
@@ -1981,7 +2038,7 @@ def _build_consensus(
 
     # Compute consensus score: weighted average across stages that scored the ticker
     # Stage 4 (final) gets highest weight, Stage 1 gets lowest
-    STAGE_WEIGHTS = {1: 0.15, 2: 0.20, 3: 0.30, 4: 0.35}
+    STAGE_WEIGHTS = learning_engine.compute_stage_weights() if learning_engine else {1: 0.15, 2: 0.20, 3: 0.30, 4: 0.35}
 
     scored_tickers = []
     for ticker, data in stage_map.items():
@@ -1998,9 +2055,12 @@ def _build_consensus(
 
         consensus_score = weighted_sum / weight_sum if weight_sum > 0 else 0
 
-        # Apply macro regime adjustment
+        # Apply macro regime / sector adjustment
         payload = payloads.get(ticker)
-        if payload and regime_filter:
+        if learning_engine and payload:
+            sector_adj = learning_engine.compute_sector_multiplier(payload.sector)
+            consensus_score *= sector_adj
+        elif payload and regime_filter:
             consensus_score = regime_filter.adjust_score(
                 consensus_score, payload.sector, regime
             )
@@ -2058,6 +2118,28 @@ def _build_consensus(
             srs_adj = 1.0 + capped * 0.017
             consensus_score *= srs_adj
 
+        # (E) Stage disagreement learning adjustment
+        if learning_engine:
+            pick_stage_scores = {}
+            for stage_num in stages:
+                score_key = f"stage{stage_num}"
+                if score_key in data["scores"]:
+                    pick_stage_scores[stage_num] = data["scores"][score_key].get("total", 0)
+            disagreement_adj = learning_engine.compute_disagreement_adjustment(pick_stage_scores)
+            consensus_score *= disagreement_adj
+
+        # (F) IV Expected Move reality check
+        if payload and payload.iv_expected_move and payload.iv_expected_move.iv_available:
+            iv_data = payload.iv_expected_move
+            forecasts = data.get("forecasts", [])
+            f3 = next((f for f in forecasts if f.get("horizon_days") == 3), None)
+            if f3:
+                predicted_move = abs(f3.get("most_likely_move_pct", 0))
+                if predicted_move > iv_data.expected_move_2sd_pct:
+                    consensus_score *= 0.90  # 10% penalty for exceeding 2SD
+                elif predicted_move <= iv_data.expected_move_1sd_pct:
+                    consensus_score *= 1.03  # 3% boost for plausible move
+
         scored_tickers.append((ticker, consensus_score, len(stages), data))
 
     # Filter out strong bearish predictions (>65% probability of DOWN)
@@ -2081,10 +2163,11 @@ def _build_consensus(
     for rank, (ticker, consensus_score, n_stages, data) in enumerate(top_10, 1):
         payload = payloads.get(ticker)
 
-        # Determine conviction tier
-        if consensus_score >= 80 and n_stages >= 3:
+        # Determine conviction tier (adaptive thresholds)
+        high_t, med_t = learning_engine.compute_conviction_thresholds() if learning_engine else (80.0, 65.0)
+        if consensus_score >= high_t and n_stages >= 3:
             tier = ConvictionTier.HIGH
-        elif consensus_score >= 65 or n_stages >= 2:
+        elif consensus_score >= med_t or n_stages >= 2:
             tier = ConvictionTier.MEDIUM
         else:
             tier = ConvictionTier.LOW
@@ -3195,6 +3278,355 @@ class LearningEngine:
             conn.close()
 
         return states
+
+    def compute_stage_weights(self) -> dict[int, float]:
+        """
+        Compute stage weights based on recent directional accuracy.
+        Returns {1: w1, 2: w2, 3: w3, 4: w4} normalized to sum to 1.0.
+        Falls back to hardcoded {1: 0.15, 2: 0.20, 3: 0.30, 4: 0.35} if gate not met.
+        """
+        DEFAULT = {1: 0.15, 2: 0.20, 3: 0.30, 4: 0.35}
+        conn = sqlite3.connect(self.db_path)
+
+        try:
+            hit_rates = {}
+            for stage in [1, 2, 3, 4]:
+                rows = conn.execute(
+                    "SELECT ar.accurate FROM accuracy_records ar "
+                    "JOIN pick_history ph ON ar.pick_id = ph.id "
+                    "JOIN stage_scores ss ON ss.pick_id = ph.id AND ss.stage = ? "
+                    "WHERE ar.accurate IS NOT NULL AND ar.horizon_days = 3 "
+                    "AND ph.run_date >= date('now', ?)",
+                    (stage, f'-{self.STAGE_WEIGHT_WINDOW_DAYS} days')
+                ).fetchall()
+                if len(rows) < self.GATE_STAGE_WEIGHTS:
+                    return DEFAULT
+                hit_rates[stage] = sum(r[0] for r in rows) / len(rows)
+        finally:
+            conn.close()
+
+        # Convert hit rates to weights: higher accuracy = higher weight
+        total = sum(hit_rates.values())
+        if total == 0:
+            return DEFAULT
+        weights = {s: r / total for s, r in hit_rates.items()}
+
+        # Floor at 0.05 to prevent any stage from being completely ignored
+        for s in weights:
+            weights[s] = max(weights[s], 0.05)
+        # Re-normalize
+        total = sum(weights.values())
+        weights = {s: w / total for s, w in weights.items()}
+
+        return weights
+
+    def build_prompt_context(self, stage: int) -> str:
+        """
+        Build accuracy feedback paragraph for injection into LLM stage prompts.
+        Returns empty string if gate not met.
+        """
+        conn = sqlite3.connect(self.db_path)
+
+        try:
+            rows = conn.execute(
+                "SELECT ar.accurate, ar.predicted_move_pct, ar.actual_move_pct "
+                "FROM accuracy_records ar "
+                "JOIN pick_history ph ON ar.pick_id = ph.id "
+                "JOIN stage_scores ss ON ss.pick_id = ph.id AND ss.stage = ? "
+                "WHERE ar.accurate IS NOT NULL AND ar.horizon_days = 3 "
+                "AND ph.run_date >= date('now', ?)",
+                (stage, f'-{self.PROMPT_CONTEXT_WINDOW_DAYS} days')
+            ).fetchall()
+
+            if len(rows) < self.GATE_PROMPT_CONTEXT:
+                return ""
+
+            total = len(rows)
+            correct = sum(1 for r in rows if r[0] == 1)
+            hit_rate = correct / total
+            avg_predicted = sum(r[1] or 0 for r in rows) / total
+            avg_actual = sum(r[2] or 0 for r in rows) / total
+            bias = avg_predicted - avg_actual
+        finally:
+            conn.close()
+
+        direction = "overestimating" if bias > 0.5 else "underestimating" if bias < -0.5 else "roughly calibrated on"
+
+        return (
+            f"\n\nRECENT PERFORMANCE FEEDBACK (last {self.PROMPT_CONTEXT_WINDOW_DAYS} days):\n"
+            f"Your UP picks had {hit_rate:.0%} directional accuracy ({correct}/{total} correct at 3-day horizon).\n"
+            f"Average predicted move: {avg_predicted:+.2f}%. Average actual move: {avg_actual:+.2f}%.\n"
+            f"You are {direction} move magnitudes (bias: {bias:+.2f}%).\n"
+            f"Adjust your confidence and predicted moves accordingly. Be more selective — only pick stocks "
+            f"where you have genuine conviction they will move UP.\n"
+        )
+
+    def compute_sector_multiplier(self, sector: str) -> float:
+        """
+        Bayesian shrinkage sector multiplier.
+        Blends sector-specific hit rate with global hit rate.
+        Returns multiplier centered on 1.0 (0.85 - 1.15 range).
+        """
+        conn = sqlite3.connect(self.db_path)
+
+        try:
+            # Global hit rate
+            global_row = conn.execute(
+                "SELECT COUNT(*), SUM(accurate) FROM accuracy_records "
+                "WHERE accurate IS NOT NULL AND horizon_days = 3"
+            ).fetchone()
+            if not global_row[0] or global_row[0] == 0:
+                return 1.0
+            global_rate = global_row[1] / global_row[0]
+
+            # Sector hit rate
+            sector_row = conn.execute(
+                "SELECT COUNT(*), SUM(ar.accurate) FROM accuracy_records ar "
+                "JOIN pick_history ph ON ar.pick_id = ph.id "
+                "WHERE ar.accurate IS NOT NULL AND ar.horizon_days = 3 "
+                "AND ph.sector = ?",
+                (sector,)
+            ).fetchone()
+            sector_count = sector_row[0] or 0
+            sector_correct = sector_row[1] or 0
+        finally:
+            conn.close()
+
+        if sector_count == 0:
+            return 1.0
+
+        sector_rate = sector_correct / sector_count
+
+        # Bayesian shrinkage: blend toward global mean
+        weight = sector_count / (sector_count + self.BAYESIAN_PRIOR_STRENGTH)
+        blended_rate = weight * sector_rate + (1 - weight) * global_rate
+
+        # Convert to multiplier: 50% hit rate = 1.0, each 10% above/below = +/-0.15
+        multiplier = 1.0 + (blended_rate - 0.5) * 1.5
+        return max(0.85, min(1.15, multiplier))
+
+    def compute_conviction_thresholds(self) -> tuple[float, float]:
+        """
+        Compute data-driven HIGH/MEDIUM thresholds based on score-vs-accuracy curve.
+        Returns (high_threshold, medium_threshold).
+        Falls back to (80, 65) if gate not met.
+        """
+        DEFAULT = (80.0, 65.0)
+        conn = sqlite3.connect(self.db_path)
+
+        try:
+            total = conn.execute(
+                "SELECT COUNT(*) FROM accuracy_records WHERE accurate IS NOT NULL AND horizon_days = 3"
+            ).fetchone()[0]
+
+            if total < self.GATE_CONVICTION_THRESHOLDS:
+                return DEFAULT
+
+            # Get score buckets with hit rates (5-point buckets)
+            rows = conn.execute(
+                "SELECT CAST(ph.consensus_score / 5 AS INTEGER) * 5 as bucket, "
+                "COUNT(*) as n, SUM(ar.accurate) as correct "
+                "FROM accuracy_records ar "
+                "JOIN pick_history ph ON ar.pick_id = ph.id "
+                "WHERE ar.accurate IS NOT NULL AND ar.horizon_days = 3 "
+                "GROUP BY bucket ORDER BY bucket DESC"
+            ).fetchall()
+        finally:
+            conn.close()
+
+        if not rows:
+            return DEFAULT
+
+        # Find highest score bucket where hit rate > 55% with >= 5 samples
+        high_threshold = 80.0
+        medium_threshold = 65.0
+
+        for bucket, n, correct in rows:
+            if n >= 5:
+                rate = correct / n
+                if rate >= 0.55 and bucket < high_threshold:
+                    high_threshold = float(bucket)
+                if rate >= 0.50 and bucket < medium_threshold:
+                    medium_threshold = float(bucket)
+
+        # Ensure HIGH > MEDIUM
+        if high_threshold <= medium_threshold:
+            medium_threshold = high_threshold - 10
+
+        return (max(high_threshold, 60.0), max(medium_threshold, 50.0))
+
+    def compute_disagreement_adjustment(self, stage_scores: dict[int, float]) -> float:
+        """
+        When stages disagree by >15 points, adjust consensus based on which stage
+        is historically more accurate in disagreements.
+        Returns adjustment multiplier (0.9 - 1.1).
+        """
+        conn = sqlite3.connect(self.db_path)
+
+        try:
+            # Check gate
+            total_disagreements = conn.execute(
+                "SELECT COUNT(*) FROM stage_scores s1 "
+                "JOIN stage_scores s2 ON s1.pick_id = s2.pick_id AND s1.stage < s2.stage "
+                "WHERE ABS(s1.total_score - s2.total_score) > ?",
+                (self.DISAGREEMENT_THRESHOLD,)
+            ).fetchone()[0]
+
+            if total_disagreements < self.GATE_DISAGREEMENT:
+                return 1.0
+
+            # Find which pairs disagree in current pick
+            disagreeing_pairs = []
+            stages = sorted(stage_scores.keys())
+            for i, s1 in enumerate(stages):
+                for s2 in stages[i+1:]:
+                    if abs(stage_scores[s1] - stage_scores[s2]) > self.DISAGREEMENT_THRESHOLD:
+                        disagreeing_pairs.append((s1, s2))
+
+            if not disagreeing_pairs:
+                return 1.0
+
+            # For each disagreeing pair, check who's historically right
+            adjustments = []
+            for s1, s2 in disagreeing_pairs:
+                higher_stage = s1 if stage_scores[s1] > stage_scores[s2] else s2
+                lower_stage = s2 if higher_stage == s1 else s1
+
+                higher_wins = conn.execute(
+                    "SELECT COUNT(*) FROM stage_scores ss1 "
+                    "JOIN stage_scores ss2 ON ss1.pick_id = ss2.pick_id "
+                    "JOIN accuracy_records ar ON ar.pick_id = ss1.pick_id "
+                    "WHERE ss1.stage = ? AND ss2.stage = ? "
+                    "AND ABS(ss1.total_score - ss2.total_score) > ? "
+                    "AND ss1.total_score > ss2.total_score "
+                    "AND ar.accurate = 1 AND ar.horizon_days = 3",
+                    (higher_stage, lower_stage, self.DISAGREEMENT_THRESHOLD)
+                ).fetchone()[0]
+
+                total_cases = conn.execute(
+                    "SELECT COUNT(*) FROM stage_scores ss1 "
+                    "JOIN stage_scores ss2 ON ss1.pick_id = ss2.pick_id "
+                    "JOIN accuracy_records ar ON ar.pick_id = ss1.pick_id "
+                    "WHERE ss1.stage = ? AND ss2.stage = ? "
+                    "AND ABS(ss1.total_score - ss2.total_score) > ? "
+                    "AND ss1.total_score > ss2.total_score "
+                    "AND ar.accurate IS NOT NULL AND ar.horizon_days = 3",
+                    (higher_stage, lower_stage, self.DISAGREEMENT_THRESHOLD)
+                ).fetchone()[0]
+
+                if total_cases >= 5:
+                    bullish_accuracy = higher_wins / total_cases
+                    adj = 1.0 + (bullish_accuracy - 0.5) * 0.2  # +-10% max
+                    adjustments.append(adj)
+        finally:
+            conn.close()
+
+        if not adjustments:
+            return 1.0
+
+        return sum(adjustments) / len(adjustments)
+
+    def compute_factor_weights(self) -> dict[str, float] | None:
+        """
+        Compute correlation-based weights for the 5 scoring sub-factors.
+        Uses Spearman rank correlation between each factor and actual 3-day returns.
+        Returns {factor_name: weight} normalized to sum to 1.0, or None if gate not met.
+        """
+        conn = sqlite3.connect(self.db_path)
+
+        try:
+            total = conn.execute(
+                "SELECT COUNT(*) FROM accuracy_records WHERE accurate IS NOT NULL AND horizon_days = 3"
+            ).fetchone()[0]
+
+            if total < self.GATE_FACTOR_FEEDBACK:
+                return None
+
+            # Get factor scores + actual returns
+            rows = conn.execute(
+                "SELECT ss.technical_momentum, ss.sentiment_catalysts, "
+                "ss.options_volatility, ss.risk_reward, ss.conviction, "
+                "ar.actual_move_pct "
+                "FROM stage_scores ss "
+                "JOIN accuracy_records ar ON ar.pick_id = ss.pick_id "
+                "WHERE ar.accurate IS NOT NULL AND ar.horizon_days = 3 "
+                "AND ss.stage = 4 "
+                "AND ss.technical_momentum IS NOT NULL "
+                "AND ar.actual_move_pct IS NOT NULL"
+            ).fetchall()
+        finally:
+            conn.close()
+
+        if len(rows) < self.GATE_FACTOR_FEEDBACK:
+            return None
+
+        from scipy.stats import spearmanr
+
+        factors = ['technical_momentum', 'sentiment_catalysts', 'options_volatility',
+                   'risk_reward', 'conviction']
+        actual_returns = [r[5] for r in rows]
+
+        correlations = {}
+        for i, factor in enumerate(factors):
+            factor_values = [r[i] for r in rows]
+            corr, pvalue = spearmanr(factor_values, actual_returns)
+            # Only count positive correlations (factor predicts UP correctly)
+            correlations[factor] = max(corr, 0.05)  # Floor at 0.05
+
+        # Normalize to weights summing to 1.0
+        total_corr = sum(correlations.values())
+        weights = {f: c / total_corr for f, c in correlations.items()}
+
+        return weights
+
+    def compute_prefilter_adjustments(self) -> dict | None:
+        """
+        Analyze which RSI/ADX/volume ranges historically produce winning picks.
+        Returns adjusted ideal ranges or None if gate not met.
+        """
+        conn = sqlite3.connect(self.db_path)
+
+        try:
+            total = conn.execute(
+                "SELECT COUNT(*) FROM accuracy_records WHERE accurate IS NOT NULL"
+            ).fetchone()[0]
+
+            if total < self.GATE_PREFILTER:
+                return None
+
+            # Analyze winning picks' technical characteristics
+            rows = conn.execute(
+                "SELECT rsi_bucket, adx_bucket, rel_volume_bucket, up_probability, sample_count "
+                "FROM calibration_base_rates WHERE horizon_days = 3 AND sample_count >= 10"
+            ).fetchall()
+        finally:
+            conn.close()
+
+        if not rows:
+            return None
+
+        # Find RSI range with best up_probability
+        best_rsi_buckets = sorted(
+            [(r[0], r[3], r[4]) for r in rows],
+            key=lambda x: x[1], reverse=True
+        )[:3]
+
+        # Find ADX range with best up_probability
+        adx_map: dict[str, dict] = {}
+        for r in rows:
+            adx_b = r[1]
+            if adx_b not in adx_map:
+                adx_map[adx_b] = {'total_prob': 0, 'total_samples': 0}
+            adx_map[adx_b]['total_prob'] += r[3] * r[4]
+            adx_map[adx_b]['total_samples'] += r[4]
+
+        best_adx = {k: v['total_prob'] / v['total_samples']
+                    for k, v in adx_map.items() if v['total_samples'] >= 20}
+
+        return {
+            'best_rsi_buckets': best_rsi_buckets,
+            'best_adx_ranges': best_adx,
+        }
 
 
 # ═══════════════════════════════════════════════════════════════════════════
