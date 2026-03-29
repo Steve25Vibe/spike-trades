@@ -2196,6 +2196,7 @@ class HistoricalPerformanceAnalyzer:
                     forecast_3d_direction TEXT,
                     forecast_5d_direction TEXT,
                     forecast_8d_direction TEXT,
+                    sector TEXT,
                     recorded_at TEXT NOT NULL DEFAULT (datetime('now'))
                 );
 
@@ -2239,6 +2240,12 @@ class HistoricalPerformanceAnalyzer:
                 CREATE INDEX IF NOT EXISTS idx_stage_scores_run_date ON stage_scores(run_date);
             """)
             conn.commit()
+            # Migration: add sector column to existing databases
+            try:
+                conn.execute("ALTER TABLE pick_history ADD COLUMN sector TEXT")
+                conn.commit()
+            except Exception:
+                pass  # Column already exists
         finally:
             conn.close()
         logger.info(f"HistoricalPerformanceAnalyzer: DB initialized at {self.db_path}")
@@ -2260,13 +2267,14 @@ class HistoricalPerformanceAnalyzer:
                 f5 = next((f for f in forecasts if f.get("horizon_days") == 5), {})
                 f8 = next((f for f in forecasts if f.get("horizon_days") == 8), {})
 
+                sector = pick.get("sector", pick.get("payload", {}).get("sector", "Unknown"))
                 conn.execute("""
                     INSERT INTO pick_history
                     (run_date, run_id, ticker, predicted_direction, consensus_score,
                      conviction_tier, entry_price, forecast_3d_move_pct, forecast_5d_move_pct,
                      forecast_8d_move_pct, forecast_3d_direction, forecast_5d_direction,
-                     forecast_8d_direction)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     forecast_8d_direction, sector)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     str(run_date), run_id, ticker,
                     f3.get("predicted_direction", "UP"),
@@ -2279,6 +2287,7 @@ class HistoricalPerformanceAnalyzer:
                     f3.get("predicted_direction"),
                     f5.get("predicted_direction"),
                     f8.get("predicted_direction"),
+                    sector,
                 ))
                 recorded += 1
 
