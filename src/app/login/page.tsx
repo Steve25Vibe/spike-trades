@@ -147,7 +147,7 @@ export default function LoginPage() {
         <p className="text-center text-spike-text-muted text-[10px] mt-8 leading-relaxed">
           For educational and informational purposes only. Not financial advice.<br />
           Past performance is no guarantee of future results.<br />
-          Ver 2.5
+          Ver 3.0
         </p>
       </div>
     </div>

@@ -115,6 +115,7 @@ interface SpikeDetail {
   portfolio: { locked: boolean; entryPrice?: number; shares?: number; entryDate?: string };
   tickerHistory: any[];
   dataSources: Record<string, string>;
+  learningAdjustments?: Record<string, any> | null;
 }
 
 export default function AnalysisPage() {
@@ -717,7 +718,7 @@ export default function AnalysisPage() {
             Trading stocks involves risk. You may lose your entire investment.
           </p>
           <p className="mt-2">
-            &copy; {new Date().getFullYear()} Spike Trades &mdash; spiketrades.ca. All rights reserved. &middot; Ver 2.5
+            &copy; {new Date().getFullYear()} Spike Trades &mdash; spiketrades.ca. All rights reserved. &middot; Ver 3.0
           </p>
         </div>
 

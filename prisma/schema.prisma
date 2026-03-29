@@ -138,6 +138,9 @@ model Spike {
   calibrationSamples  Int?     // number of historical samples
   overconfidenceFlag  Boolean? // true if council >> history
 
+  // Learning engine adjustments
+  learningAdjustments String?  // JSON blob of per-pick learning adjustments
+
   // Technical indicators snapshot
   rsi             Float?
   macd            Float?
