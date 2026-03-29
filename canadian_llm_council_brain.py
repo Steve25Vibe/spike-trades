@@ -3062,6 +3062,142 @@ class HistoricalCalibrationEngine:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# LEARNING ENGINE (Session 16)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class LearningEngine:
+    """
+    Orchestrates all learning mechanisms. Each mechanism has:
+    - An activation gate (minimum data required)
+    - A compute method (returns adjustment values)
+    - A state property (for admin panel visibility)
+    """
+
+    # Activation gates
+    GATE_STAGE_WEIGHTS = 30          # resolved picks per stage, 20-day window
+    GATE_PROMPT_CONTEXT = 10         # resolved picks, 15-day window
+    GATE_SECTOR_SCORING = 0          # Bayesian — no hard gate
+    GATE_CONVICTION_THRESHOLDS = 50  # total resolved picks
+    GATE_DISAGREEMENT = 20           # disagreements with >15pt gap
+    GATE_FACTOR_FEEDBACK = 100       # total resolved picks
+    GATE_PREFILTER = 300             # total resolved picks across all horizons
+    GATE_IV_EXPECTED_MOVE = 0        # always active when IV data available
+
+    STAGE_WEIGHT_WINDOW_DAYS = 20    # rolling window for stage weights
+    PROMPT_CONTEXT_WINDOW_DAYS = 15  # rolling window for prompt context
+    BAYESIAN_PRIOR_STRENGTH = 15     # shrinkage denominator for sector scoring
+    DISAGREEMENT_THRESHOLD = 15      # minimum score gap to count as disagreement
+
+    def __init__(self, db_path: str):
+        self.db_path = db_path
+        self._state_cache: dict = {}
+
+    def get_mechanism_states(self) -> list[dict]:
+        """Return activation status of all 8 mechanisms for admin panel."""
+        conn = sqlite3.connect(self.db_path)
+        states = []
+
+        try:
+            # 1. Dynamic stage weights
+            stage1_count = 0
+            for stage in [1, 2, 3, 4]:
+                count = conn.execute(
+                    "SELECT COUNT(*) FROM accuracy_records ar "
+                    "JOIN pick_history ph ON ar.pick_id = ph.id "
+                    "JOIN stage_scores ss ON ss.pick_id = ph.id AND ss.stage = ? "
+                    "WHERE ar.accurate IS NOT NULL "
+                    "AND ph.run_date >= date('now', ?)",
+                    (stage, f'-{self.STAGE_WEIGHT_WINDOW_DAYS} days')
+                ).fetchone()[0]
+                if stage == 1:
+                    stage1_count = count
+            states.append({
+                'name': 'Dynamic Stage Weights',
+                'active': stage1_count >= self.GATE_STAGE_WEIGHTS,
+                'progress': min(stage1_count, self.GATE_STAGE_WEIGHTS),
+                'gate': self.GATE_STAGE_WEIGHTS,
+            })
+
+            # 2. Prompt accuracy context
+            prompt_count = conn.execute(
+                "SELECT COUNT(*) FROM accuracy_records "
+                "WHERE accurate IS NOT NULL AND checked_at >= date('now', ?)",
+                (f'-{self.PROMPT_CONTEXT_WINDOW_DAYS} days',)
+            ).fetchone()[0]
+            states.append({
+                'name': 'Prompt Accuracy Context',
+                'active': prompt_count >= self.GATE_PROMPT_CONTEXT,
+                'progress': min(prompt_count, self.GATE_PROMPT_CONTEXT),
+                'gate': self.GATE_PROMPT_CONTEXT,
+            })
+
+            # 3. Sector scoring (always active — Bayesian)
+            states.append({
+                'name': 'Sector-Aware Scoring',
+                'active': True,
+                'progress': 'Bayesian (always active)',
+                'gate': 0,
+            })
+
+            # 4. Conviction thresholds
+            total_resolved = conn.execute(
+                "SELECT COUNT(*) FROM accuracy_records WHERE accurate IS NOT NULL"
+            ).fetchone()[0]
+            states.append({
+                'name': 'Adaptive Conviction Thresholds',
+                'active': total_resolved >= self.GATE_CONVICTION_THRESHOLDS,
+                'progress': min(total_resolved, self.GATE_CONVICTION_THRESHOLDS),
+                'gate': self.GATE_CONVICTION_THRESHOLDS,
+            })
+
+            # 5. Stage disagreement learning
+            disagreements = conn.execute(
+                "SELECT COUNT(*) FROM stage_scores s1 "
+                "JOIN stage_scores s2 ON s1.pick_id = s2.pick_id AND s1.stage < s2.stage "
+                "WHERE ABS(s1.total_score - s2.total_score) > ?",
+                (self.DISAGREEMENT_THRESHOLD,)
+            ).fetchone()[0]
+            states.append({
+                'name': 'Stage Disagreement Learning',
+                'active': disagreements >= self.GATE_DISAGREEMENT,
+                'progress': min(disagreements, self.GATE_DISAGREEMENT),
+                'gate': self.GATE_DISAGREEMENT,
+            })
+
+            # 6. Factor-level feedback
+            states.append({
+                'name': 'Factor-Level Feedback',
+                'active': total_resolved >= self.GATE_FACTOR_FEEDBACK,
+                'progress': min(total_resolved, self.GATE_FACTOR_FEEDBACK),
+                'gate': self.GATE_FACTOR_FEEDBACK,
+            })
+
+            # 7. Adaptive pre-filter
+            total_all_horizons = conn.execute(
+                "SELECT COUNT(*) FROM accuracy_records WHERE accurate IS NOT NULL"
+            ).fetchone()[0]
+            states.append({
+                'name': 'Adaptive Pre-Filter',
+                'active': total_all_horizons >= self.GATE_PREFILTER,
+                'progress': min(total_all_horizons, self.GATE_PREFILTER),
+                'gate': self.GATE_PREFILTER,
+            })
+
+            # 8. IV Expected Move
+            states.append({
+                'name': 'IV Expected Move',
+                'active': True,
+                'progress': 'Always active (when IV data available)',
+                'gate': 0,
+            })
+        finally:
+            conn.close()
+
+        return states
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # RISK PORTFOLIO ENGINE (Session 4)
 # ═══════════════════════════════════════════════════════════════════════════
 
