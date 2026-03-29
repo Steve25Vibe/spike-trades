@@ -4017,6 +4017,7 @@ class CanadianStockCouncilBrain:
         self.regime_filter = MacroRegimeFilter()
         self.historical_analyzer = HistoricalPerformanceAnalyzer()
         self.calibration_engine = HistoricalCalibrationEngine()
+        self.learning_engine = LearningEngine(db_path=DB_PATH)
         self.risk_engine = RiskPortfolioEngine()
         self.roadmap_engine = CompoundingRoadmapEngine()
 
@@ -4045,6 +4046,16 @@ class CanadianStockCouncilBrain:
             f"{datetime.now(timezone.utc).isoformat()}".encode()
         ).hexdigest()[:12]
         logger.info(f"=== Council Run {run_id} started ===")
+
+        # Log learning mechanism states
+        try:
+            states = self.learning_engine.get_mechanism_states()
+            active = [s['name'] for s in states if s['active']]
+            waiting = [s['name'] for s in states if not s['active']]
+            logger.info(f"Learning mechanisms active: {active}")
+            logger.info(f"Learning mechanisms waiting: {waiting}")
+        except Exception as e:
+            logger.warning(f"Could not read learning states: {e}")
 
         try:
             # ── Step 1: Macro context ──
@@ -4303,7 +4314,8 @@ class CanadianStockCouncilBrain:
                     )
                     try:
                         batch_results = await run_stage1_sonnet(
-                            self.anthropic_key, batch, macro
+                            self.anthropic_key, batch, macro,
+                            learning_engine=self.learning_engine,
                         )
                         stage1_all.extend(batch_results)
                     except Exception as batch_e:
@@ -4316,7 +4328,8 @@ class CanadianStockCouncilBrain:
                 )[:100]
             else:
                 stage1_results = await run_stage1_sonnet(
-                    self.anthropic_key, payloads_list, macro
+                    self.anthropic_key, payloads_list, macro,
+                    learning_engine=self.learning_engine,
                 )
                 stage1_results = stage1_results[:100]
 
@@ -4349,7 +4362,8 @@ class CanadianStockCouncilBrain:
                                 batch_payloads = [p for p in payloads_list if p.ticker in batch_tickers]
                                 logger.info(f"Stage 2 batch {batch_idx + 1}/{len(s1_tickers_batched)}: {len(s1_batch)} tickers")
                                 return await run_stage2_gemini(
-                                    self.google_key, batch_payloads, macro, s1_batch
+                                    self.google_key, batch_payloads, macro, s1_batch,
+                                    learning_engine=self.learning_engine,
                                 )
 
                         batch_tasks = [
@@ -4366,7 +4380,8 @@ class CanadianStockCouncilBrain:
                                 all_results.extend(br)
                         return sorted(all_results, key=lambda x: x["score"]["total"], reverse=True)[:80]
                     else:
-                        r = await run_stage2_gemini(self.google_key, payloads_list, macro, stage1_results)
+                        r = await run_stage2_gemini(self.google_key, payloads_list, macro, stage1_results,
+                                                     learning_engine=self.learning_engine)
                         return r[:80]
 
                 stage2_results = await asyncio.wait_for(
@@ -4416,7 +4431,8 @@ class CanadianStockCouncilBrain:
                         try:
                             batch_results = await run_stage3_opus(
                                 self.anthropic_key, batch_payloads, macro,
-                                s1_for_batch, s2_batch
+                                s1_for_batch, s2_batch,
+                                learning_engine=self.learning_engine,
                             )
                             stage3_all.extend(batch_results)
                         except Exception as batch_e:
@@ -4429,7 +4445,8 @@ class CanadianStockCouncilBrain:
                 else:
                     stage3_results = await run_stage3_opus(
                         self.anthropic_key, payloads_list, macro,
-                        stage1_results, stage2_results
+                        stage1_results, stage2_results,
+                        learning_engine=self.learning_engine,
                     )
                     stage3_results = stage3_results[:40]
             except Exception as e:
@@ -4455,7 +4472,8 @@ class CanadianStockCouncilBrain:
                     run_stage4_grok(
                         self.xai_key, self.anthropic_key,
                         payloads_list, macro,
-                        stage1_results, stage2_results, stage3_results
+                        stage1_results, stage2_results, stage3_results,
+                        learning_engine=self.learning_engine,
                     ),
                     timeout=STAGE_WALL_CLOCK_TIMEOUT,
                 )
@@ -4500,6 +4518,7 @@ class CanadianStockCouncilBrain:
                 stage1_results, stage2_results, stage3_results, stage4_results,
                 payloads_map, regime, self.regime_filter,
                 earnings_map=earnings_map,
+                learning_engine=self.learning_engine,
             )
 
             # ── Step 10b: Apply historical calibration ──
@@ -4558,6 +4577,13 @@ class CanadianStockCouncilBrain:
             )
 
             result_dict = result.model_dump(mode="json")
+
+            # Include learning state in output
+            try:
+                result_dict["learning_state"] = self.learning_engine.get_mechanism_states()
+                result_dict["stage_weights_used"] = self.learning_engine.compute_stage_weights()
+            except Exception as e:
+                logger.warning(f"Could not include learning state in output: {e}")
 
             # ── Step 15: Record picks to history ──
             logger.info("Step 15: Recording picks to history")
