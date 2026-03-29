@@ -235,6 +235,8 @@ def _map_to_prisma(council_output: dict) -> dict:
             "historicalConfidence": round(cal.get("calibrated_confidence", 0) * 100, 1) if (cal := pick.get("calibration")) else None,
             "calibrationSamples": cal.get("sample_count") if (cal := pick.get("calibration")) else None,
             "overconfidenceFlag": cal.get("overconfidence_flag") if (cal := pick.get("calibration")) else None,
+            # Learning engine adjustments
+            "learningAdjustments": json.dumps(pick.get("learning_adjustments", {})) if pick.get("learning_adjustments") else None,
         })
 
     # Build council log

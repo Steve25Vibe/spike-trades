@@ -246,6 +246,7 @@ class FinalHotPick(BaseModel):
     insider_signal: Optional[float] = Field(None, ge=-1.0, le=1.0)
     analyst_upside_pct: Optional[float] = None
     sector_relative_strength: Optional[float] = None
+    learning_adjustments: Optional[dict] = Field(default=None, description="Per-pick learning engine adjustments")
     as_of: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -2055,8 +2056,12 @@ def _build_consensus(
 
         consensus_score = weighted_sum / weight_sum if weight_sum > 0 else 0
 
+        # Track learning adjustments for per-pick transparency
+        adjustments: dict[str, Any] = {"stage_weights": dict(STAGE_WEIGHTS)}
+
         # Apply macro regime / sector adjustment
         payload = payloads.get(ticker)
+        sector_adj = 1.0
         if learning_engine and payload:
             sector_adj = learning_engine.compute_sector_multiplier(payload.sector)
             consensus_score *= sector_adj
@@ -2064,6 +2069,7 @@ def _build_consensus(
             consensus_score = regime_filter.adjust_score(
                 consensus_score, payload.sector, regime
             )
+        adjustments["sector_multiplier"] = sector_adj
 
         # Apply directional adjustment from Stage 4 forecasts
         # Boost UP-predicted stocks, penalize DOWN-predicted stocks
@@ -2075,10 +2081,8 @@ def _build_consensus(
                 prob = f3.get("direction_probability", 0.5)
                 move = abs(f3.get("most_likely_move_pct", 0))
                 if direction == "UP":
-                    # Boost: e.g. prob=0.75, move=4.5% → multiplier ~1.34
                     directional_multiplier = 1.0 + (prob - 0.5) * move / 10
                 else:
-                    # Penalize DOWN: e.g. prob=0.6, move=3% → multiplier ~0.70
                     directional_multiplier = 1.0 - (prob - 0.5) * move / 5
                 consensus_score *= max(directional_multiplier, 0.1)
 
@@ -2086,39 +2090,49 @@ def _build_consensus(
         _earnings_map = earnings_map or {}
 
         # (A) Earnings proximity penalty
+        earnings_mult = 1.0
         if ticker in _earnings_map:
             earn = _earnings_map[ticker]
             if earn.days_until <= 2:
-                consensus_score *= 0.70  # Heavy: earnings in 0-2 days
+                earnings_mult = 0.70
             elif earn.days_until <= 5:
-                consensus_score *= 0.85  # Moderate: 3-5 days
+                earnings_mult = 0.85
             elif earn.days_until <= 8:
-                consensus_score *= 0.92  # Light: 6-8 days
+                earnings_mult = 0.92
+            consensus_score *= earnings_mult
+        adjustments["earnings_penalty"] = earnings_mult
 
         # (B) Insider trading boost/penalty
+        insider_adj = 1.0
         if payload and payload.insider_activity:
             ins = payload.insider_activity
             insider_adj = 1.0 + ins.recency_weighted_score * 0.08
             consensus_score *= insider_adj
+        adjustments["insider_adj"] = insider_adj
 
         # (C) Analyst consensus adjustment
+        analyst_adj = 1.0
         if payload and payload.analyst_consensus:
             ac = payload.analyst_consensus
             analyst_adj = 1.0 + ac.sentiment_score * 0.05
             if ac.target_upside_pct and ac.target_upside_pct > 15:
                 analyst_adj += 0.03
             if ac.sentiment_score < -0.3 and consensus_score > 70:
-                analyst_adj *= 0.95  # Divergence warning haircut
+                analyst_adj *= 0.95
             consensus_score *= analyst_adj
+        adjustments["analyst_adj"] = analyst_adj
 
         # (D) Sector-relative strength adjustment
+        srs_adj = 1.0
         if payload and payload.sector_relative_strength is not None:
             srs = payload.sector_relative_strength
             capped = max(-3.0, min(3.0, srs))
             srs_adj = 1.0 + capped * 0.017
             consensus_score *= srs_adj
+        adjustments["srs_adj"] = srs_adj
 
         # (E) Stage disagreement learning adjustment
+        disagreement_adj = 1.0
         if learning_engine:
             pick_stage_scores = {}
             for stage_num in stages:
@@ -2127,19 +2141,24 @@ def _build_consensus(
                     pick_stage_scores[stage_num] = data["scores"][score_key].get("total", 0)
             disagreement_adj = learning_engine.compute_disagreement_adjustment(pick_stage_scores)
             consensus_score *= disagreement_adj
+        adjustments["disagreement_adj"] = disagreement_adj
 
         # (F) IV Expected Move reality check
+        iv_check = 1.0
         if payload and payload.iv_expected_move and payload.iv_expected_move.iv_available:
             iv_data = payload.iv_expected_move
-            forecasts = data.get("forecasts", [])
-            f3 = next((f for f in forecasts if f.get("horizon_days") == 3), None)
-            if f3:
-                predicted_move = abs(f3.get("most_likely_move_pct", 0))
+            forecasts_for_iv = data.get("forecasts", [])
+            f3_iv = next((f for f in forecasts_for_iv if f.get("horizon_days") == 3), None)
+            if f3_iv:
+                predicted_move = abs(f3_iv.get("most_likely_move_pct", 0))
                 if predicted_move > iv_data.expected_move_2sd_pct:
-                    consensus_score *= 0.90  # 10% penalty for exceeding 2SD
+                    iv_check = 0.90
                 elif predicted_move <= iv_data.expected_move_1sd_pct:
-                    consensus_score *= 1.03  # 3% boost for plausible move
+                    iv_check = 1.03
+                consensus_score *= iv_check
+        adjustments["iv_check"] = iv_check
 
+        data["learning_adjustments"] = adjustments
         scored_tickers.append((ticker, consensus_score, len(stages), data))
 
     # Filter out strong bearish predictions (>65% probability of DOWN)
@@ -2165,6 +2184,7 @@ def _build_consensus(
 
         # Determine conviction tier (adaptive thresholds)
         high_t, med_t = learning_engine.compute_conviction_thresholds() if learning_engine else (80.0, 65.0)
+        data["learning_adjustments"]["conviction_thresholds"] = (high_t, med_t)
         if consensus_score >= high_t and n_stages >= 3:
             tier = ConvictionTier.HIGH
         elif consensus_score >= med_t or n_stages >= 2:
@@ -2227,6 +2247,7 @@ def _build_consensus(
             sector_relative_strength=(
                 payload.sector_relative_strength if payload else None
             ),
+            learning_adjustments=data.get("learning_adjustments"),
         )
         picks.append(pick)
 
