@@ -302,6 +302,24 @@ async def health():
     }
 
 
+@app.get("/learning-state")
+async def learning_state():
+    """Return current learning mechanism states for admin panel."""
+    try:
+        from canadian_llm_council_brain import LearningEngine, DB_PATH
+        le = LearningEngine(db_path=DB_PATH)
+        states = le.get_mechanism_states()
+        weights = le.compute_stage_weights()
+        return {
+            "success": True,
+            "mechanisms": states,
+            "current_stage_weights": weights,
+        }
+    except Exception as e:
+        logger.error(f"Learning state failed: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
 @app.get("/stage-analytics")
 async def stage_analytics():
     """Return per-stage LLM performance analytics."""
