@@ -1294,3 +1294,99 @@ When ending a session, Claude Code should append an entry like this:
 ### Context window status:
 - Estimated usage: very heavy (12 commits, 16 files modified, multiple production deploys, data backfills, debugging across Python + TS + SQL)
 - Reason for stopping: user requested clean session transition for new feature
+
+---
+
+## Session 15 Checkpoint — 2026-03-29
+
+### What was built:
+
+**Dual-bar confidence meter fix (root cause found and fixed):**
+- `src/lib/scheduling/analyzer.ts` was the only file in the pipeline that didn't pass through `historicalConfidence`, `calibrationSamples`, `overconfidenceFlag` to Prisma
+- Added 3 fields to both the `CouncilMappedResponse` interface and the `spikeData` mapping
+- Backfilled all 10 of today's spikes with calibration data from the JSON output
+
+**Portfolio performance line chart (new feature):**
+- New API: `/api/spikes/[id]/chart` — fetches FMP historical bars + portfolio reference levels
+- New component: `PerformanceChart.tsx` — recharts ComposedChart with Area + Line
+- Green/red area fill (above/below entry price), reference lines for entry, 3D/5D/8D targets, stop loss
+- Only renders for locked-in portfolio positions on the analysis detail page
+- Positioned above the existing Past Predictions table
+
+**Target price styling:**
+- Dollar amounts in analysis cards enlarged (text-sm), bold, yellow (#FBBF24)
+
+**Logo reverted:**
+- Removed PNG logo, restored original SVG icon + SPIKE TRADES text on login and sidebar
+
+**Password reset:**
+- Admin password reset directly in PostgreSQL via bcrypt hash
+
+**7-minute per-stage wall-clock timeout (deployed):**
+- Prevents Gemini's slow 503 responses from stalling the entire pipeline
+- Today's run correctly skipped Gemini Stage 2 when it exceeded 420s wall-clock
+
+**Accuracy backfill sweep fix (planned):**
+- Identified design flaw: single-date-per-horizon query means missed cron = permanently lost actuals
+- Plan written in `.claude/plans/mellow-popping-crescent.md`: sweep ALL unfilled actuals with `lte: cutoffDate`
+
+**Learning Engine — complete design and planning:**
+- Deep analysis of council brain's 12 hand-tuned formulas (all documented with exact formulas)
+- Designed 8 learning mechanisms with progressive activation gates:
+  1. Dynamic stage weights (30/stage, 20-day window)
+  2. Prompt accuracy context (10 picks, 15-day window)
+  3. Sector-aware scoring (Bayesian shrinkage, no hard gate)
+  4. Adaptive conviction thresholds (50 total resolved)
+  5. Stage disagreement learning (20 disagreements >15pt gap)
+  6. Factor-level feedback (100 resolved, Spearman correlation)
+  7. Adaptive pre-filter thresholds (300 resolved)
+  8. IV Expected Move signal (always active, ATR-based proxy)
+- Phase 4 (XGBoost meta-learner at 600 picks) will also auto-activate
+- Admin panel "Learning System" tab designed (mechanism dashboard + current weights)
+- Analysis page "Learning Adjustments" section designed (per-pick adjustment breakdown)
+- Three implementation plans written:
+  - Plan A: `docs/superpowers/plans/2026-03-29-learning-engine-core.md` (13 tasks, 8 mechanisms)
+  - Plan B+C: `docs/superpowers/plans/2026-03-29-learning-admin-panel.md` (6 tasks, admin + analysis UI)
+
+### Key decisions made:
+- **Bayesian shrinkage over hard gates** for sector scoring (every sample contributes proportionally)
+- **Rolling windows** (15-20 days) for stage weights and prompt context — keeps learning responsive to regime changes
+- **Dashboard cards stay clean** — learning adjustments only shown on analysis detail page (Approach A)
+- **Phase 4 auto-activates** at 600 resolved picks (XGBoost meta-learner)
+- **LSTM (Phase 4b) is manually enabled** — requires infrastructure decision
+- **Overconfidence finding**: calibration data shows inverse correlation between score and accuracy (75-85 bucket: 25% vs 55-60 bucket: 61.5%)
+
+### Pending items NOT done in this session:
+- Accuracy backfill sweep fix (plan written, not implemented)
+- Learning engine implementation (plans written, not implemented)
+- Admin Learning tab (plan written, not implemented)
+- Analysis page Learning Adjustments section (plan written, not implemented)
+- 7-minute timeout was coded and deployed by a background agent but the main session was interrupted — verify it's working
+
+### Files modified:
+- `src/lib/scheduling/analyzer.ts` — calibration fields in mapping + interface
+- `src/app/api/spikes/[id]/chart/route.ts` — created (chart API)
+- `src/components/analysis/PerformanceChart.tsx` — created (chart component)
+- `src/app/dashboard/analysis/[id]/page.tsx` — chart section + target price styling
+- `src/app/login/page.tsx` — logo reverted to SVG
+- `src/components/layout/Sidebar.tsx` — logo reverted to SVG
+- `docs/superpowers/plans/2026-03-29-learning-engine-core.md` — created (Plan A)
+- `docs/superpowers/plans/2026-03-29-learning-admin-panel.md` — created (Plans B+C)
+
+### Checkpoint artifacts:
+- GitHub: `Steve25Vibe/spike-trades` commit `1c0ecd2`
+- Production: spiketrades.ca deployed with dual-bar fix, performance chart, timeout fix
+- Tag: `v2.5-session15` backup created
+- Local backup: `~/spiketrades-backup-2026-03-25-session15.tar.gz`
+
+### What the next session should do first:
+1. **Implement accuracy backfill sweep fix** (plan at `.claude/plans/mellow-popping-crescent.md`) — 1 file, ~30 lines
+2. **Execute Plan A** (Learning Engine Core) — 13 tasks in `canadian_llm_council_brain.py`
+3. **Execute Plans B+C** (Admin tab + Analysis adjustments) — 6 tasks
+4. **Version bump to Ver 3.0** after all learning engine work is deployed
+5. Verify 7-minute stage timeout is working on next trading day's run
+6. Check if 5-day and 8-day accuracy data is populating correctly
+
+### Context window status:
+- Estimated usage: extremely heavy (deep code analysis, brainstorming, formula documentation, 3 implementation plans, multiple deploys, debugging)
+- Reason for stopping: context window saturated after extensive design work — clean breakpoint with all plans written and committed
