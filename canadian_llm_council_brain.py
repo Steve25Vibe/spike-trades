@@ -2177,13 +2177,15 @@ def _build_consensus(
     scored_tickers.sort(key=lambda x: (-x[1], -x[2]))
     top_10 = scored_tickers[:10]
 
+    # Compute conviction thresholds once (not per-pick)
+    high_t, med_t = learning_engine.compute_conviction_thresholds() if learning_engine else (80.0, 65.0)
+
     # Build FinalHotPick objects
     picks: list[FinalHotPick] = []
     for rank, (ticker, consensus_score, n_stages, data) in enumerate(top_10, 1):
         payload = payloads.get(ticker)
 
         # Determine conviction tier (adaptive thresholds)
-        high_t, med_t = learning_engine.compute_conviction_thresholds() if learning_engine else (80.0, 65.0)
         data["learning_adjustments"]["conviction_thresholds"] = (high_t, med_t)
         if consensus_score >= high_t and n_stages >= 3:
             tier = ConvictionTier.HIGH
@@ -4603,6 +4605,16 @@ class CanadianStockCouncilBrain:
             try:
                 result_dict["learning_state"] = self.learning_engine.get_mechanism_states()
                 result_dict["stage_weights_used"] = self.learning_engine.compute_stage_weights()
+                # Mechanism #6: Factor-level feedback weights (logged for transparency)
+                factor_weights = self.learning_engine.compute_factor_weights()
+                if factor_weights:
+                    result_dict["factor_weights"] = factor_weights
+                    logger.info(f"Factor weights (mechanism #6): {factor_weights}")
+                # Mechanism #7: Adaptive pre-filter adjustments (logged for transparency)
+                prefilter_adj = self.learning_engine.compute_prefilter_adjustments()
+                if prefilter_adj:
+                    result_dict["prefilter_adjustments"] = prefilter_adj
+                    logger.info(f"Pre-filter adjustments (mechanism #7): {prefilter_adj}")
             except Exception as e:
                 logger.warning(f"Could not include learning state in output: {e}")
 

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth';
 
-const COUNCIL_URL = process.env.COUNCIL_API_URL || 'http://council:8100';
+const COUNCIL_API_URL = process.env.COUNCIL_API_URL || 'http://localhost:8100';
 
 export async function GET() {
   const admin = await requireAdmin();
@@ -13,7 +13,7 @@ export async function GET() {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
 
-    const res = await fetch(`${COUNCIL_URL}/learning-state`, {
+    const res = await fetch(`${COUNCIL_API_URL}/learning-state`, {
       signal: controller.signal,
     });
     clearTimeout(timeout);
