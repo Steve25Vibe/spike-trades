@@ -437,6 +437,99 @@ export default function AnalysisPage() {
           </div>
         </div>
 
+        {/* ===== LEARNING ADJUSTMENTS ===== */}
+        {data.learningAdjustments && (
+          <div className="glass-card p-6 mb-6">
+            <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-4">
+              Learning Adjustments
+            </h3>
+            <p className="text-spike-text-dim text-xs mb-4">
+              How the self-improving learning system adjusted this pick&apos;s score based on historical accuracy data.
+            </p>
+            <div className="space-y-3">
+              {(() => {
+                const adj = data.learningAdjustments;
+                const items = [
+                  {
+                    label: 'Stage Weights',
+                    value: adj.stage_weights
+                      ? `S1=${(adj.stage_weights['1'] * 100).toFixed(0)}% S2=${(adj.stage_weights['2'] * 100).toFixed(0)}% S3=${(adj.stage_weights['3'] * 100).toFixed(0)}% S4=${(adj.stage_weights['4'] * 100).toFixed(0)}%`
+                      : 'Default (15/20/30/35)',
+                    neutral: !adj.stage_weights || JSON.stringify(adj.stage_weights) === JSON.stringify({1: 0.15, 2: 0.20, 3: 0.30, 4: 0.35}),
+                  },
+                  {
+                    label: 'Sector Multiplier',
+                    value: adj.sector_multiplier ? `${(adj.sector_multiplier * 100).toFixed(1)}%` : '100%',
+                    neutral: !adj.sector_multiplier || Math.abs(adj.sector_multiplier - 1.0) < 0.01,
+                    positive: (adj.sector_multiplier || 1) > 1.0,
+                  },
+                  {
+                    label: 'Earnings Proximity',
+                    value: adj.earnings_penalty ? `${(adj.earnings_penalty * 100).toFixed(0)}%` : 'No penalty',
+                    neutral: !adj.earnings_penalty || adj.earnings_penalty >= 0.99,
+                    positive: false,
+                  },
+                  {
+                    label: 'Insider Signal',
+                    value: adj.insider_adj ? `${(adj.insider_adj * 100).toFixed(1)}%` : '100%',
+                    neutral: !adj.insider_adj || Math.abs(adj.insider_adj - 1.0) < 0.01,
+                    positive: (adj.insider_adj || 1) > 1.0,
+                  },
+                  {
+                    label: 'Analyst Consensus',
+                    value: adj.analyst_adj ? `${(adj.analyst_adj * 100).toFixed(1)}%` : '100%',
+                    neutral: !adj.analyst_adj || Math.abs(adj.analyst_adj - 1.0) < 0.01,
+                    positive: (adj.analyst_adj || 1) > 1.0,
+                  },
+                  {
+                    label: 'Sector Relative Strength',
+                    value: adj.srs_adj ? `${(adj.srs_adj * 100).toFixed(1)}%` : '100%',
+                    neutral: !adj.srs_adj || Math.abs(adj.srs_adj - 1.0) < 0.01,
+                    positive: (adj.srs_adj || 1) > 1.0,
+                  },
+                  {
+                    label: 'Stage Disagreement',
+                    value: adj.disagreement_adj ? `${(adj.disagreement_adj * 100).toFixed(1)}%` : 'No disagreement',
+                    neutral: !adj.disagreement_adj || Math.abs(adj.disagreement_adj - 1.0) < 0.01,
+                    positive: (adj.disagreement_adj || 1) > 1.0,
+                  },
+                  {
+                    label: 'IV Reality Check',
+                    value: adj.iv_check ? `${(adj.iv_check * 100).toFixed(0)}%` : 'No IV data',
+                    neutral: !adj.iv_check || Math.abs(adj.iv_check - 1.0) < 0.01,
+                    positive: (adj.iv_check || 1) > 1.0,
+                  },
+                ].filter(item => !item.neutral);
+
+                if (items.length === 0) {
+                  return (
+                    <p className="text-spike-text-muted text-sm">
+                      No learning adjustments applied to this pick (all mechanisms at default values).
+                    </p>
+                  );
+                }
+
+                return items.map((item) => (
+                  <div key={item.label} className="flex items-center justify-between py-2 border-b border-spike-border/30">
+                    <span className="text-sm text-spike-text-dim">{item.label}</span>
+                    <span className={cn(
+                      'text-sm font-bold mono',
+                      item.positive ? 'text-spike-green' : 'text-spike-red'
+                    )}>
+                      {item.value}
+                    </span>
+                  </div>
+                ));
+              })()}
+            </div>
+            {data.learningAdjustments.conviction_thresholds && (
+              <p className="text-[10px] text-spike-text-muted mt-3">
+                Conviction thresholds: HIGH &ge; {data.learningAdjustments.conviction_thresholds[0]}, MEDIUM &ge; {data.learningAdjustments.conviction_thresholds[1]}
+              </p>
+            )}
+          </div>
+        )}
+
         {/* ===== MARKET CONTEXT ===== */}
         <div className="glass-card p-6 mb-6">
           <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-4">Market Context at Time of Analysis</h3>
