@@ -1326,9 +1326,11 @@ When ending a session, Claude Code should append an entry like this:
 - Prevents Gemini's slow 503 responses from stalling the entire pipeline
 - Today's run correctly skipped Gemini Stage 2 when it exceeded 420s wall-clock
 
-**Accuracy backfill sweep fix (planned):**
+**Accuracy backfill sweep fix (implemented and deployed — commit `7c4a07a`):**
 - Identified design flaw: single-date-per-horizon query means missed cron = permanently lost actuals
-- Plan written in `.claude/plans/mellow-popping-crescent.md`: sweep ALL unfilled actuals with `lte: cutoffDate`
+- Fixed: replaced single-date query with sweep of ALL unfilled actuals using `lte: cutoffDate`
+- Groups metrics by report date for AccuracyRecord computation
+- Deployed to production — 20 five-day actuals filled for Mar 19
 
 **Learning Engine — complete design and planning:**
 - Deep analysis of council brain's 12 hand-tuned formulas (all documented with exact formulas)
@@ -1357,11 +1359,9 @@ When ending a session, Claude Code should append an entry like this:
 - **Overconfidence finding**: calibration data shows inverse correlation between score and accuracy (75-85 bucket: 25% vs 55-60 bucket: 61.5%)
 
 ### Pending items NOT done in this session:
-- Accuracy backfill sweep fix (plan written, not implemented)
 - Learning engine implementation (plans written, not implemented)
 - Admin Learning tab (plan written, not implemented)
 - Analysis page Learning Adjustments section (plan written, not implemented)
-- 7-minute timeout was coded and deployed by a background agent but the main session was interrupted — verify it's working
 
 ### Files modified:
 - `src/lib/scheduling/analyzer.ts` — calibration fields in mapping + interface
@@ -1370,22 +1370,24 @@ When ending a session, Claude Code should append an entry like this:
 - `src/app/dashboard/analysis/[id]/page.tsx` — chart section + target price styling
 - `src/app/login/page.tsx` — logo reverted to SVG
 - `src/components/layout/Sidebar.tsx` — logo reverted to SVG
+- `canadian_llm_council_brain.py` — 7-minute wall-clock timeout (commit `68844e5`)
+- `src/app/api/accuracy/check/route.ts` — backfill sweep fix (commit `7c4a07a`)
 - `docs/superpowers/plans/2026-03-29-learning-engine-core.md` — created (Plan A)
 - `docs/superpowers/plans/2026-03-29-learning-admin-panel.md` — created (Plans B+C)
 
 ### Checkpoint artifacts:
-- GitHub: `Steve25Vibe/spike-trades` commit `1c0ecd2`
-- Production: spiketrades.ca deployed with dual-bar fix, performance chart, timeout fix
+- GitHub: `Steve25Vibe/spike-trades` commit `561b52d` (all changes pushed)
+- Production: spiketrades.ca deployed at commit `1f1abe1` (dual-bar fix, performance chart, timeout fix, backfill sweep)
 - Tag: `v2.5-session15` backup created
 - Local backup: `~/spiketrades-backup-2026-03-25-session15.tar.gz`
 
 ### What the next session should do first:
-1. **Implement accuracy backfill sweep fix** (plan at `.claude/plans/mellow-popping-crescent.md`) — 1 file, ~30 lines
-2. **Execute Plan A** (Learning Engine Core) — 13 tasks in `canadian_llm_council_brain.py`
-3. **Execute Plans B+C** (Admin tab + Analysis adjustments) — 6 tasks
-4. **Version bump to Ver 3.0** after all learning engine work is deployed
-5. Verify 7-minute stage timeout is working on next trading day's run
-6. Check if 5-day and 8-day accuracy data is populating correctly
+1. **Execute Plan A** (Learning Engine Core) — 13 tasks in `docs/superpowers/plans/2026-03-29-learning-engine-core.md`
+2. **Execute Plans B+C** (Admin tab + Analysis adjustments) — 6 tasks in `docs/superpowers/plans/2026-03-29-learning-admin-panel.md`
+3. **Version bump to Ver 3.0** after all learning engine work is deployed
+4. Verify 7-minute stage timeout continues working on next trading day's run (confirmed working Mar 27)
+5. Verify accuracy backfill sweep is catching up missed dates (confirmed working — filled 20 five-day actuals)
+6. Check 8-day accuracy — first data expected Mar 31 (Mar 19 + 8 trading days)
 
 ### Context window status:
 - Estimated usage: extremely heavy (deep code analysis, brainstorming, formula documentation, 3 implementation plans, multiple deploys, debugging)
