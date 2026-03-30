@@ -90,6 +90,7 @@ services:
       CRON_TIMEZONE: America/Halifax
       ANALYSIS_CRON_HOUR: ${ANALYSIS_CRON_HOUR:-10}
       ANALYSIS_CRON_MINUTE: ${ANALYSIS_CRON_MINUTE:-45}
+      COUNCIL_API_URL: http://council:8100
 
   # Nginx Reverse Proxy + SSL
   nginx:
