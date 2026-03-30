@@ -34,6 +34,25 @@ interface ActivityUser {
   lastActive: string | null;
 }
 
+interface StageInfo {
+  status: 'pending' | 'running' | 'complete' | 'skipped';
+  picks?: number;
+  duration_seconds?: number;
+}
+
+interface RunStatus {
+  running: boolean;
+  trigger?: string;
+  elapsed_seconds?: number;
+  current_stage?: string;
+  stages?: Record<string, StageInfo>;
+  last_completed_run?: {
+    trigger?: string;
+    duration_seconds?: number;
+    stages_summary?: Record<string, StageInfo>;
+  } | null;
+}
+
 interface CouncilStatus {
   councilHealth: { status?: string; council_running?: boolean; last_run_time?: number; last_run_error?: string };
   runInProgress: boolean;
@@ -41,6 +60,7 @@ interface CouncilStatus {
   latestLog: { date: string; processingTimeMs: number | null; consensusScore: number | null } | null;
   recentReports: { id: string; date: string; generatedAt: string; regime: string | null; spikeCount: number }[];
   fmpHealth?: { run_date?: string; endpoints?: Record<string, Record<string, number>> } | null;
+  runStatus?: RunStatus | null;
 }
 
 function formatDuration(seconds: number): string {
@@ -141,10 +161,10 @@ export default function AdminPage() {
     timerRef.current = setInterval(() => {
       setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
     }, 1000);
-    // Status poll — every 30 seconds
+    // Status poll — every 10 seconds
     pollRef.current = setInterval(() => {
       fetchCouncilStatus();
-    }, 30000);
+    }, 10000);
   };
 
   const stopPolling = () => {
@@ -480,21 +500,7 @@ export default function AdminPage() {
         {tab === 'council' && (
           <div className="space-y-6">
             {/* Status Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="glass-card p-4 text-center">
-                <p className="text-[9px] text-spike-text-muted uppercase tracking-wider mb-1">Status</p>
-                {isRunning ? (
-                  <div className="flex items-center justify-center gap-2">
-                    <span className="inline-block w-2 h-2 rounded-full bg-spike-amber animate-pulse" />
-                    <p className="text-xl font-bold text-spike-amber mono">Running</p>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-center gap-2">
-                    <span className="inline-block w-2 h-2 rounded-full bg-spike-green" />
-                    <p className="text-xl font-bold text-spike-green mono">Idle</p>
-                  </div>
-                )}
-              </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="glass-card p-4 text-center">
                 <p className="text-[9px] text-spike-text-muted uppercase tracking-wider mb-1">Last Run</p>
                 <p className="text-xl font-bold text-spike-cyan mono">
@@ -513,20 +519,109 @@ export default function AdminPage() {
               </div>
             </div>
 
-            {/* Running indicator with elapsed time */}
-            {isRunning && (
-              <div className="glass-card p-4 border border-spike-amber/30">
-                <div className="flex items-center gap-3">
-                  <span className="inline-block w-3 h-3 rounded-full bg-spike-amber animate-pulse" />
-                  <div>
-                    <p className="text-spike-amber font-bold text-sm">Council scan in progress...</p>
-                    <p className="text-spike-text-dim text-xs">
-                      Elapsed: {formatDuration(elapsedTime)} — Polling every 30s for updates
-                    </p>
+            {/* Stage Pipeline Visualization */}
+            {(() => {
+              const STAGE_KEYS = ['pre_filter', 'stage1_sonnet', 'stage2_gemini', 'stage3_opus', 'stage4_grok', 'consensus'] as const;
+              const STAGE_LABELS: Record<string, string> = {
+                pre_filter: 'Filter',
+                stage1_sonnet: 'Sonnet',
+                stage2_gemini: 'Gemini',
+                stage3_opus: 'Opus',
+                stage4_grok: 'Grok',
+                consensus: 'Consensus',
+              };
+
+              const runStatus = council?.runStatus;
+              const isLive = runStatus?.running ?? false;
+              const stagesData: Record<string, StageInfo> = isLive
+                ? (runStatus?.stages ?? {})
+                : (runStatus?.last_completed_run?.stages_summary ?? {});
+
+              const triggerLabel = isLive
+                ? (runStatus?.trigger === 'manual' ? 'Manual run' : 'Scheduled run')
+                : runStatus?.last_completed_run?.trigger === 'manual'
+                  ? 'Manual run'
+                  : runStatus?.last_completed_run?.trigger
+                    ? 'Scheduled run'
+                    : null;
+
+              const headerDuration = isLive
+                ? formatDuration(runStatus?.elapsed_seconds ?? elapsedTime)
+                : runStatus?.last_completed_run?.duration_seconds != null
+                  ? formatDuration(runStatus.last_completed_run.duration_seconds)
+                  : null;
+
+              return (
+                <div className="glass-card p-5">
+                  {/* Header row */}
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      {isLive && (
+                        <span className="inline-block w-2.5 h-2.5 rounded-full bg-spike-amber animate-pulse" />
+                      )}
+                      <span className="text-xs font-bold text-spike-text-dim uppercase tracking-wider">
+                        {isLive ? 'Pipeline' : 'Last Pipeline Run'}
+                      </span>
+                      {triggerLabel && (
+                        <span className="text-xs text-spike-text-muted">— {triggerLabel}</span>
+                      )}
+                    </div>
+                    {headerDuration && (
+                      <span className="text-xs mono text-spike-text-dim">
+                        {isLive ? `Elapsed: ${headerDuration}` : headerDuration}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Stage cards */}
+                  <div className="flex gap-2 flex-wrap sm:flex-nowrap">
+                    {STAGE_KEYS.map((key) => {
+                      const stage = stagesData[key];
+                      const status = stage?.status ?? 'pending';
+                      const label = STAGE_LABELS[key];
+
+                      let cardClass = 'bg-gray-800/50 border border-gray-700/30';
+                      let textClass = 'text-spike-text-muted';
+                      if (status === 'running') {
+                        cardClass = 'bg-amber-500/10 border border-amber-500/30 animate-pulse';
+                        textClass = 'text-spike-amber';
+                      } else if (status === 'complete') {
+                        cardClass = 'bg-green-500/10 border border-green-500/30';
+                        textClass = 'text-spike-green';
+                      } else if (status === 'skipped') {
+                        cardClass = 'bg-red-500/10 border border-red-500/30';
+                        textClass = 'text-spike-red';
+                      }
+
+                      return (
+                        <div
+                          key={key}
+                          className={cn('flex-1 min-w-[60px] rounded-lg p-2.5 text-center', cardClass)}
+                        >
+                          <p className={cn('text-[10px] font-bold uppercase tracking-wide', textClass)}>{label}</p>
+                          {status === 'complete' && (
+                            <>
+                              {stage?.picks != null && (
+                                <p className="text-[11px] font-bold text-spike-green mono mt-0.5">{stage.picks}</p>
+                              )}
+                              {stage?.duration_seconds != null && (
+                                <p className="text-[9px] text-spike-text-muted mono">{formatDuration(Math.round(stage.duration_seconds))}</p>
+                              )}
+                            </>
+                          )}
+                          {status === 'skipped' && (
+                            <p className="text-[9px] text-spike-red mono mt-0.5">Skip</p>
+                          )}
+                          {status === 'running' && (
+                            <p className="text-[9px] text-spike-amber mono mt-0.5">…</p>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Last trigger result */}
             {council?.lastTriggerResult?.completedAt && (
