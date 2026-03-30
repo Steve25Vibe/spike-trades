@@ -251,3 +251,36 @@ export async function getStockNews(
     return [];
   }
 }
+
+export interface DividendInfo {
+  exDate: string;       // "2026-04-03"
+  paymentDate: string;  // "2026-04-15"
+  amount: number;       // 0.52
+  yield: number;        // 3.8 (percentage)
+  frequency: string;    // "Quarterly"
+}
+
+export async function getDividendInfo(ticker: string): Promise<DividendInfo | null> {
+  try {
+    const data = await fmpFetch<any[]>(
+      `/stock-dividend-calendar?symbol=${encodeURIComponent(ticker)}`
+    );
+    if (!data || data.length === 0) return null;
+    const now = new Date();
+    const sorted = data
+      .filter((d: any) => d.date)
+      .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    const upcoming = sorted.find((d: any) => new Date(d.date) >= now);
+    const entry = upcoming || sorted[0];
+    if (!entry) return null;
+    return {
+      exDate: entry.date,
+      paymentDate: entry.paymentDate || entry.date,
+      amount: entry.dividend || entry.adjDividend || 0,
+      yield: entry.yield || 0,
+      frequency: entry.frequency || 'Unknown',
+    };
+  } catch {
+    return null;
+  }
+}
