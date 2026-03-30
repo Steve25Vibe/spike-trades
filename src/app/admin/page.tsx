@@ -40,6 +40,7 @@ interface CouncilStatus {
   lastTriggerResult: { success: boolean; error?: string; startedAt?: string; completedAt?: string; spikeCount?: number } | null;
   latestLog: { date: string; processingTimeMs: number | null; consensusScore: number | null } | null;
   recentReports: { id: string; date: string; generatedAt: string; regime: string | null; spikeCount: number }[];
+  fmpHealth?: { run_date?: string; endpoints?: Record<string, Record<string, number>> } | null;
 }
 
 function formatDuration(seconds: number): string {
@@ -644,6 +645,70 @@ export default function AdminPage() {
                 </div>
               )}
             </div>
+
+            {/* Data Source Health */}
+            {council?.fmpHealth?.endpoints && (
+              <div className="glass-card p-6">
+                <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-2">
+                  Data Source Health
+                </h3>
+                <p className="text-spike-text-dim text-xs mb-4">
+                  FMP API endpoint status from the most recent council run ({council.fmpHealth.run_date || 'unknown'}).
+                </p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-spike-text-muted text-[10px] uppercase tracking-wider border-b border-spike-border/30">
+                        <th className="py-2 text-left">Endpoint</th>
+                        <th className="py-2 text-center">OK</th>
+                        <th className="py-2 text-center">404</th>
+                        <th className="py-2 text-center">429</th>
+                        <th className="py-2 text-center">Error</th>
+                        <th className="py-2 text-center">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(council.fmpHealth.endpoints as Record<string, Record<string, number>>).map(([endpoint, counts]) => {
+                        const ok = counts.ok || 0;
+                        const not_found = counts['404'] || 0;
+                        const rate_limited = counts['429'] || 0;
+                        const errors = counts.error || 0;
+                        const total = ok + not_found + rate_limited + errors;
+                        const healthPct = total > 0 ? (ok / total) * 100 : 0;
+                        const status = not_found > 0 && ok === 0
+                          ? 'DEPRECATED'
+                          : rate_limited > ok
+                            ? 'THROTTLED'
+                            : healthPct >= 90
+                              ? 'HEALTHY'
+                              : healthPct >= 50
+                                ? 'DEGRADED'
+                                : 'FAILING';
+                        const statusColor = {
+                          HEALTHY: 'text-spike-green',
+                          DEGRADED: 'text-spike-amber',
+                          THROTTLED: 'text-spike-amber',
+                          DEPRECATED: 'text-spike-red',
+                          FAILING: 'text-spike-red',
+                        }[status];
+                        return (
+                          <tr key={endpoint} className="border-b border-spike-border/10">
+                            <td className="py-2 mono text-spike-text text-xs">{endpoint}</td>
+                            <td className="py-2 text-center mono text-spike-green">{ok || '-'}</td>
+                            <td className="py-2 text-center mono text-spike-red">{not_found || '-'}</td>
+                            <td className="py-2 text-center mono text-spike-amber">{rate_limited || '-'}</td>
+                            <td className="py-2 text-center mono text-spike-red">{errors || '-'}</td>
+                            <td className={cn('py-2 text-center font-bold text-[10px] uppercase', statusColor)}>
+                              {status}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

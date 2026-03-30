@@ -45,6 +45,18 @@ export async function GET() {
       select: { processingTime: true, consensusScore: true, date: true },
     });
 
+    // Fetch FMP endpoint health from council
+    let fmpHealth: Record<string, unknown> | null = null;
+    try {
+      const fmpRes = await fetch(`${COUNCIL_API_URL}/fmp-health`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      const fmpJson = await fmpRes.json();
+      if (fmpJson.success) fmpHealth = fmpJson;
+    } catch {
+      // Council unreachable — fmpHealth stays null
+    }
+
     return NextResponse.json({
       success: true,
       data: {
@@ -56,6 +68,7 @@ export async function GET() {
           processingTimeMs: latestLog.processingTime,
           consensusScore: latestLog.consensusScore,
         } : null,
+        fmpHealth,
         recentReports: recentReports.map((r) => ({
           id: r.id,
           date: r.date,
