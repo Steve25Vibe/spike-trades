@@ -48,8 +48,9 @@ export async function GET(request: NextRequest) {
     }
 
     // Fetch previous day's report for comparison arrows
+    // Use report.date (not targetDate) so weekend/fallback views compare correctly
     const prevReport = await prisma.dailyReport.findFirst({
-      where: { date: { lt: targetDate } },
+      where: { date: { lt: report.date } },
       orderBy: { date: 'desc' },
       select: { oilPrice: true, goldPrice: true, btcPrice: true, cadUsd: true },
     });
