@@ -1294,34 +1294,39 @@ def _is_transient(exc: Exception) -> bool:
 
 
 async def _call_gemini(
-    api_key: str,
     model: str,
     system_prompt: str,
     user_prompt: str,
     max_tokens: int = 8192,
     temperature: float = 0.3,
 ) -> str:
-    """Call Google Gemini API with retry on transient failures."""
-    from google import genai
-    from google.genai import types
-    client = genai.Client(api_key=api_key)
+    """Call Google Gemini via Vertex AI with retry on transient failures."""
+    import vertexai
+    from vertexai.generative_models import GenerativeModel, GenerationConfig
+
+    gcp_project = os.getenv("GCP_PROJECT_ID", "spiketrades")
+    gcp_location = os.getenv("GCP_LOCATION", "northamerica-northeast1")
+    vertexai.init(project=gcp_project, location=gcp_location)
+
+    model_obj = GenerativeModel(model, system_instruction=[system_prompt])
+    gen_config = GenerationConfig(
+        max_output_tokens=max_tokens,
+        temperature=temperature,
+        response_mime_type="application/json",
+    )
+
     max_retries = 4
     for attempt in range(max_retries):
         try:
-            resp = client.models.generate_content(
-                model=model,
-                contents=user_prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction=system_prompt,
-                    max_output_tokens=max_tokens,
-                    temperature=temperature,
-                    response_mime_type="application/json",
-                ),
+            resp = await asyncio.to_thread(
+                model_obj.generate_content,
+                user_prompt,
+                generation_config=gen_config,
             )
             return resp.text
         except Exception as e:
             if _is_transient(e) and attempt < max_retries - 1:
-                wait = min(30 * (2 ** attempt), 300)  # 30s, 60s, 120s, 300s
+                wait = min(30 * (2 ** attempt), 300)
                 logger.warning(f"Gemini {model} transient error, retrying in {wait}s (attempt {attempt + 1}/{max_retries}): {e}")
                 await asyncio.sleep(wait)
             else:
@@ -1544,7 +1549,6 @@ Sort by total score descending. Return the top 80 (or all if fewer than 80).
 
 
 async def run_stage2_gemini(
-    api_key: str,
     payloads: list[StockDataPayload],
     macro: MacroContext,
     stage1_results: list[dict],
@@ -1575,7 +1579,6 @@ async def run_stage2_gemini(
     )
 
     raw = await _call_gemini(
-        api_key=api_key,
         model="gemini-3.1-pro-preview",
         system_prompt=system_prompt,
         user_prompt=user_prompt,
@@ -4430,7 +4433,7 @@ class CanadianStockCouncilBrain:
                                 batch_payloads = [p for p in payloads_list if p.ticker in batch_tickers]
                                 logger.info(f"Stage 2 batch {batch_idx + 1}/{len(s1_tickers_batched)}: {len(s1_batch)} tickers")
                                 return await run_stage2_gemini(
-                                    self.google_key, batch_payloads, macro, s1_batch,
+                                    batch_payloads, macro, s1_batch,
                                     learning_engine=self.learning_engine,
                                 )
 
@@ -4448,7 +4451,7 @@ class CanadianStockCouncilBrain:
                                 all_results.extend(br)
                         return sorted(all_results, key=lambda x: x["score"]["total"], reverse=True)[:80]
                     else:
-                        r = await run_stage2_gemini(self.google_key, payloads_list, macro, stage1_results,
+                        r = await run_stage2_gemini(payloads_list, macro, stage1_results,
                                                      learning_engine=self.learning_engine)
                         return r[:80]
 

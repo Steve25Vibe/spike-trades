@@ -80,7 +80,6 @@ def _get_brain() -> CanadianStockCouncilBrain:
     """Instantiate the brain with env keys."""
     return CanadianStockCouncilBrain(
         anthropic_api_key=os.environ["ANTHROPIC_API_KEY"],
-        google_api_key=os.environ["GOOGLE_API_KEY"],
         xai_api_key=os.environ.get("XAI_API_KEY", ""),
         fmp_api_key=os.environ["FMP_API_KEY"],
         finnhub_api_key=os.environ.get("FINNHUB_API_KEY", ""),
