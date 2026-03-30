@@ -179,9 +179,12 @@ export async function GET(
         })),
 
         // Learning adjustments (if available)
-        learningAdjustments: (spike as Record<string, unknown>).learningAdjustments
-          ? JSON.parse((spike as Record<string, unknown>).learningAdjustments as string)
-          : null,
+        learningAdjustments: (() => {
+          try {
+            const raw = (spike as Record<string, unknown>).learningAdjustments;
+            return raw ? JSON.parse(raw as string) : null;
+          } catch { return null; }
+        })(),
 
         // Data source attribution
         dataSources: {
