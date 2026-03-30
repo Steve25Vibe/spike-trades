@@ -71,6 +71,74 @@ LATEST_OUTPUT_FILE = OUTPUT_DIR / "latest_council_output.json"
 _council_running = False
 _last_run_time: Optional[float] = None
 _last_run_error: Optional[str] = None
+_run_progress: "ProgressTracker | None" = None
+_last_completed_run: Optional[dict] = None
+
+
+# ── ProgressTracker ──────────────────────────────────────────────────────
+
+
+class ProgressTracker:
+    """Tracks council run progress for the /run-status endpoint."""
+
+    STAGE_ORDER = ["pre_filter", "stage1_sonnet", "stage2_gemini", "stage3_opus", "stage4_grok", "consensus"]
+
+    def __init__(self, trigger: str = "manual"):
+        self.data: dict = {
+            "running": True,
+            "trigger": trigger,
+            "started_at": datetime.now(ZoneInfo("America/Halifax")).isoformat(),
+            "current_stage": None,
+            "stages": {s: {"status": "pending"} for s in self.STAGE_ORDER},
+            "skipped_stages": [],
+            "elapsed_s": 0,
+        }
+        self._start_time = time.time()
+        self._stage_start: float | None = None
+
+    def start_stage(self, stage: str, **kwargs):
+        self.data["current_stage"] = stage
+        self.data["stages"][stage] = {"status": "running", **kwargs}
+        self._stage_start = time.time()
+        self._update_elapsed()
+
+    def update_batch(self, stage: str, batches_done: int):
+        if stage in self.data["stages"]:
+            self.data["stages"][stage]["batches_done"] = batches_done
+        self._update_elapsed()
+
+    def complete_stage(self, stage: str, **kwargs):
+        duration = round(time.time() - self._stage_start) if self._stage_start else 0
+        self.data["stages"][stage] = {"status": "complete", "duration_s": duration, **kwargs}
+        self._stage_start = None
+        self._update_elapsed()
+
+    def skip_stage(self, stage: str, reason: str):
+        duration = round(time.time() - self._stage_start) if self._stage_start else 0
+        self.data["stages"][stage] = {"status": "skipped", "reason": reason, "duration_s": duration}
+        self.data["skipped_stages"].append(stage)
+        self._stage_start = None
+        self._update_elapsed()
+
+    def finish(self, picks: int):
+        self.data["running"] = False
+        self.data["current_stage"] = None
+        self._update_elapsed()
+        return {
+            "trigger": self.data["trigger"],
+            "completed_at": datetime.now(ZoneInfo("America/Halifax")).isoformat(),
+            "total_duration_s": self.data["elapsed_s"],
+            "picks": picks,
+            "skipped_stages": self.data["skipped_stages"],
+            "stages_summary": {k: v for k, v in self.data["stages"].items()},
+        }
+
+    def _update_elapsed(self):
+        self.data["elapsed_s"] = round(time.time() - self._start_time)
+
+    def to_dict(self) -> dict:
+        self._update_elapsed()
+        return dict(self.data)
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
@@ -301,6 +369,24 @@ async def health():
     }
 
 
+@app.get("/run-status")
+async def run_status():
+    """Return current council run progress or last completed run summary."""
+    if _run_progress and _run_progress.data["running"]:
+        result = _run_progress.to_dict()
+    else:
+        result = {
+            "running": False,
+            "trigger": None,
+            "current_stage": None,
+            "stages": {},
+            "skipped_stages": [],
+            "elapsed_s": 0,
+        }
+    result["last_completed_run"] = _last_completed_run
+    return result
+
+
 @app.get("/learning-state")
 async def learning_state():
     """Return current learning mechanism states for admin panel."""
@@ -392,18 +478,19 @@ async def calibration_status():
 
 
 @app.post("/run-council")
-async def run_council(request: RunCouncilRequest | None = None):
+async def run_council(request: RunCouncilRequest | None = None, trigger: str = "manual"):
     """
     Trigger a full council pipeline run.
     Returns the raw CouncilResult JSON.
     """
-    global _council_running, _last_run_time, _last_run_error
+    global _council_running, _last_run_time, _last_run_error, _run_progress, _last_completed_run
 
     if _council_running:
         raise HTTPException(409, "Council is already running")
 
     _council_running = True
     _last_run_error = None
+    _run_progress = ProgressTracker(trigger=trigger)
     start = time.time()
 
     try:
@@ -411,9 +498,9 @@ async def run_council(request: RunCouncilRequest | None = None):
         tickers = request.tickers if request else None
 
         if tickers:
-            result = await brain.run_council(starting_universe=tickers)
+            result = await brain.run_council(starting_universe=tickers, tracker=_run_progress)
         else:
-            result = await brain.run_council()
+            result = await brain.run_council(tracker=_run_progress)
 
         # result is already a dict (run_council does model_dump internally)
         result_dict = result
@@ -426,6 +513,9 @@ async def run_council(request: RunCouncilRequest | None = None):
         _last_run_time = time.time() - start
         logger.info(f"Council completed in {_last_run_time:.1f}s")
 
+        pick_count = len(result_dict.get("top_picks", []))
+        _last_completed_run = _run_progress.finish(picks=pick_count)
+
         return result_dict
 
     except Exception as e:
@@ -435,16 +525,17 @@ async def run_council(request: RunCouncilRequest | None = None):
 
     finally:
         _council_running = False
+        _run_progress = None
 
 
 @app.post("/run-council-mapped")
-async def run_council_mapped(request: RunCouncilRequest | None = None):
+async def run_council_mapped(request: RunCouncilRequest | None = None, trigger: str = "scheduled"):
     """
     Trigger council + return output mapped to Prisma schema.
     This is what analyzer.ts should call.
     """
     # Run the council first
-    raw_result = await run_council(request)
+    raw_result = await run_council(request, trigger=trigger)
     # Map to Prisma format
     return _map_to_prisma(raw_result)
 
