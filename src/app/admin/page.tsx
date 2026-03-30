@@ -721,15 +721,45 @@ export default function AdminPage() {
               <p className="text-spike-text-muted">No analytics data available. Run a council scan first.</p>
             ) : (
               <>
-                {/* Export button */}
-                <div className="flex justify-end">
-                  <a
-                    href="/api/admin/analytics?export=xlsx"
-                    className="px-4 py-2 rounded-lg bg-gradient-to-r from-spike-cyan to-spike-violet text-spike-bg font-bold text-sm hover:opacity-90 transition-all"
-                    title="Download full analytics as Excel spreadsheet"
-                  >
-                    Download XLSX
-                  </a>
+                {/* Last updated + Export row */}
+                <div className="flex items-center justify-between gap-4">
+                  {/* Last computed timestamp */}
+                  <div className="flex items-center gap-2">
+                    {analytics.summary?.last_updated ? (() => {
+                      const lastUpdated = new Date(analytics.summary.last_updated);
+                      const now = new Date();
+                      const hoursOld = (now.getTime() - lastUpdated.getTime()) / (1000 * 60 * 60);
+                      const dayOfWeek = now.getDay(); // 0=Sun, 6=Sat
+                      const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
+                      const isStale = hoursOld > 24 && isWeekday;
+                      const formatted = lastUpdated.toLocaleString('en-CA', {
+                        month: 'short', day: 'numeric', year: 'numeric',
+                        hour: '2-digit', minute: '2-digit',
+                      });
+                      return (
+                        <>
+                          <span className="text-xs text-spike-text-muted">Last computed: {formatted}</span>
+                          {isStale && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-spike-red/10 text-spike-red border border-spike-red/30">
+                              Stale data
+                            </span>
+                          )}
+                        </>
+                      );
+                    })() : (
+                      <span className="text-xs text-spike-text-muted">Last computed: —</span>
+                    )}
+                  </div>
+                  {/* Export button */}
+                  <div>
+                    <a
+                      href="/api/admin/analytics?export=xlsx"
+                      className="px-4 py-2 rounded-lg bg-gradient-to-r from-spike-cyan to-spike-violet text-spike-bg font-bold text-sm hover:opacity-90 transition-all"
+                      title="Download full analytics as Excel spreadsheet"
+                    >
+                      Download XLSX
+                    </a>
+                  </div>
                 </div>
 
                 {/* Summary Cards */}
@@ -743,21 +773,42 @@ export default function AdminPage() {
                     <p className={cn('text-xl font-bold mono', hitRateColor(analytics.summary?.hit_rate_3d))}>
                       {analytics.summary?.hit_rate_3d != null ? `${(analytics.summary.hit_rate_3d * 100).toFixed(1)}%` : '—'}
                     </p>
-                    <p className="text-[8px] text-spike-text-muted">{analytics.summary?.checked_3d || 0} checked</p>
+                    <div className="flex items-center justify-center gap-1.5 mt-1">
+                      <span className="text-[8px] text-spike-text-muted mono">
+                        n={analytics.summary?.total_picks_with_3d ?? '—'}
+                      </span>
+                      {(analytics.summary?.total_picks_with_3d ?? 0) > 0 && (analytics.summary?.total_picks_with_3d ?? 0) < 10 && (
+                        <span className="px-1 py-0 rounded text-[8px] font-bold uppercase bg-spike-amber/10 text-spike-amber border border-spike-amber/30">Low sample</span>
+                      )}
+                    </div>
                   </div>
                   <div className="glass-card p-4 text-center">
                     <p className="text-[9px] text-spike-text-muted uppercase tracking-wider mb-1">5-Day Hit Rate</p>
                     <p className={cn('text-xl font-bold mono', hitRateColor(analytics.summary?.hit_rate_5d))}>
                       {analytics.summary?.hit_rate_5d != null ? `${(analytics.summary.hit_rate_5d * 100).toFixed(1)}%` : '—'}
                     </p>
-                    <p className="text-[8px] text-spike-text-muted">{analytics.summary?.checked_5d || 0} checked</p>
+                    <div className="flex items-center justify-center gap-1.5 mt-1">
+                      <span className="text-[8px] text-spike-text-muted mono">
+                        n={analytics.summary?.total_picks_with_5d ?? '—'}
+                      </span>
+                      {(analytics.summary?.total_picks_with_5d ?? 0) > 0 && (analytics.summary?.total_picks_with_5d ?? 0) < 10 && (
+                        <span className="px-1 py-0 rounded text-[8px] font-bold uppercase bg-spike-amber/10 text-spike-amber border border-spike-amber/30">Low sample</span>
+                      )}
+                    </div>
                   </div>
                   <div className="glass-card p-4 text-center">
                     <p className="text-[9px] text-spike-text-muted uppercase tracking-wider mb-1">8-Day Hit Rate</p>
                     <p className={cn('text-xl font-bold mono', hitRateColor(analytics.summary?.hit_rate_8d))}>
                       {analytics.summary?.hit_rate_8d != null ? `${(analytics.summary.hit_rate_8d * 100).toFixed(1)}%` : '—'}
                     </p>
-                    <p className="text-[8px] text-spike-text-muted">{analytics.summary?.checked_8d || 0} checked</p>
+                    <div className="flex items-center justify-center gap-1.5 mt-1">
+                      <span className="text-[8px] text-spike-text-muted mono">
+                        n={analytics.summary?.total_picks_with_8d ?? '—'}
+                      </span>
+                      {(analytics.summary?.total_picks_with_8d ?? 0) > 0 && (analytics.summary?.total_picks_with_8d ?? 0) < 10 && (
+                        <span className="px-1 py-0 rounded text-[8px] font-bold uppercase bg-spike-amber/10 text-spike-amber border border-spike-amber/30">Low sample</span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -765,7 +816,7 @@ export default function AdminPage() {
                 <div className="glass-card p-6">
                   <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-4">LLM Stage Performance</h3>
                   <div className="overflow-x-auto">
-                  <table className="w-full text-sm min-w-[700px]">
+                  <table className="w-full text-sm min-w-[800px]">
                     <thead>
                       <tr className="text-spike-text-muted text-xs uppercase border-b border-spike-border">
                         <th className="text-left py-3 px-2">Stage</th>
@@ -792,13 +843,31 @@ export default function AdminPage() {
                           </td>
                           <td className="py-3 px-2 text-center text-spike-text mono">{s.picks_in_top20 as number}</td>
                           <td className={cn('py-3 px-2 text-center mono', hitRateColor(s.hit_rate_3d as number | null))}>
-                            {s.hit_rate_3d != null ? `${((s.hit_rate_3d as number) * 100).toFixed(1)}%` : '—'}
+                            <div>{s.hit_rate_3d != null ? `${((s.hit_rate_3d as number) * 100).toFixed(1)}%` : '—'}</div>
+                            <div className="flex items-center justify-center gap-1 mt-0.5">
+                              <span className="text-[8px] text-spike-text-muted">n={(s.sample_count_3d as number | null) ?? '—'}</span>
+                              {(s.sample_count_3d as number | null) != null && (s.sample_count_3d as number) < 10 && (
+                                <span className="px-1 rounded text-[7px] font-bold uppercase bg-spike-amber/10 text-spike-amber border border-spike-amber/30">Low</span>
+                              )}
+                            </div>
                           </td>
                           <td className={cn('py-3 px-2 text-center mono', hitRateColor(s.hit_rate_5d as number | null))}>
-                            {s.hit_rate_5d != null ? `${((s.hit_rate_5d as number) * 100).toFixed(1)}%` : '—'}
+                            <div>{s.hit_rate_5d != null ? `${((s.hit_rate_5d as number) * 100).toFixed(1)}%` : '—'}</div>
+                            <div className="flex items-center justify-center gap-1 mt-0.5">
+                              <span className="text-[8px] text-spike-text-muted">n={(s.sample_count_5d as number | null) ?? '—'}</span>
+                              {(s.sample_count_5d as number | null) != null && (s.sample_count_5d as number) < 10 && (
+                                <span className="px-1 rounded text-[7px] font-bold uppercase bg-spike-amber/10 text-spike-amber border border-spike-amber/30">Low</span>
+                              )}
+                            </div>
                           </td>
                           <td className={cn('py-3 px-2 text-center mono', hitRateColor(s.hit_rate_8d as number | null))}>
-                            {s.hit_rate_8d != null ? `${((s.hit_rate_8d as number) * 100).toFixed(1)}%` : '—'}
+                            <div>{s.hit_rate_8d != null ? `${((s.hit_rate_8d as number) * 100).toFixed(1)}%` : '—'}</div>
+                            <div className="flex items-center justify-center gap-1 mt-0.5">
+                              <span className="text-[8px] text-spike-text-muted">n={(s.sample_count_8d as number | null) ?? '—'}</span>
+                              {(s.sample_count_8d as number | null) != null && (s.sample_count_8d as number) < 10 && (
+                                <span className="px-1 rounded text-[7px] font-bold uppercase bg-spike-amber/10 text-spike-amber border border-spike-amber/30">Low</span>
+                              )}
+                            </div>
                           </td>
                           <td className="py-3 px-2 text-center text-spike-text-dim mono">
                             {s.bias != null ? `${(s.bias as number) > 0 ? '+' : ''}${(s.bias as number).toFixed(2)}%` : '—'}
