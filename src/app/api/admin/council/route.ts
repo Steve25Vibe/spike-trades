@@ -57,6 +57,13 @@ export async function GET() {
       // Council unreachable — fmpHealth stays null
     }
 
+    // Fetch run-status from Python council
+    let runStatus = null;
+    try {
+      const statusRes = await fetch(`${COUNCIL_API_URL}/run-status`, { next: { revalidate: 0 } });
+      if (statusRes.ok) runStatus = await statusRes.json();
+    } catch {}
+
     return NextResponse.json({
       success: true,
       data: {
@@ -69,6 +76,7 @@ export async function GET() {
           consensusScore: latestLog.consensusScore,
         } : null,
         fmpHealth,
+        runStatus,
         recentReports: recentReports.map((r) => ({
           id: r.id,
           date: r.date,
@@ -115,7 +123,7 @@ export async function POST() {
   _lastTriggerResult = { success: false, startedAt: new Date().toISOString() };
 
   // Fire and forget — run in background
-  runDailyAnalysis(false)
+  runDailyAnalysis(false, 'manual')
     .then((result) => {
       _lastTriggerResult = {
         success: true,

@@ -87,7 +87,7 @@ interface CouncilMappedResponse {
   rawCouncilOutput: Record<string, unknown>;
 }
 
-export async function runDailyAnalysis(useCached = false): Promise<{
+export async function runDailyAnalysis(useCached = false, trigger = 'scheduled'): Promise<{
   success: boolean;
   spikesGenerated: number;
   error?: string;
@@ -141,12 +141,12 @@ export async function runDailyAnalysis(useCached = false): Promise<{
       // The council pipeline takes 45-60 minutes with no response until complete
       const http = await import('http');
       councilResponse = await new Promise<Response>((resolve, reject) => {
-        const url = new URL(`${COUNCIL_API_URL}/run-council-mapped`);
+        const url = new URL(`${COUNCIL_API_URL}/run-council-mapped?trigger=${trigger}`);
         const req = http.request(
           {
             hostname: url.hostname,
             port: url.port,
-            path: url.pathname,
+            path: url.pathname + url.search,
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             timeout: 3_600_000, // 1 hour socket timeout
