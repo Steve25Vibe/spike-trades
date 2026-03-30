@@ -2227,7 +2227,7 @@ def _build_consensus(
             sector=payload.sector if payload else "Unknown",
             price=payload.price if payload else 0.01,
             change_pct=payload.change_pct if payload else 0.0,
-            consensus_score=round(consensus_score, 2),
+            consensus_score=round(min(max(consensus_score, 0), 100), 2),
             conviction_tier=tier,
             stages_appeared=n_stages,
             stage_scores=stage_scores,
