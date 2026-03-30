@@ -37,18 +37,25 @@ interface ActivityUser {
 interface StageInfo {
   status: 'pending' | 'running' | 'complete' | 'skipped';
   picks?: number;
-  duration_seconds?: number;
+  duration_s?: number;
+  batches_done?: number;
+  batches_total?: number;
+  tickers_in?: number;
+  tickers_out?: number;
+  reason?: string;
 }
 
 interface RunStatus {
   running: boolean;
   trigger?: string;
-  elapsed_seconds?: number;
+  elapsed_s?: number;
   current_stage?: string;
   stages?: Record<string, StageInfo>;
   last_completed_run?: {
     trigger?: string;
-    duration_seconds?: number;
+    total_duration_s?: number;
+    picks?: number;
+    skipped_stages?: string[];
     stages_summary?: Record<string, StageInfo>;
   } | null;
 }
@@ -546,9 +553,9 @@ export default function AdminPage() {
                     : null;
 
               const headerDuration = isLive
-                ? formatDuration(runStatus?.elapsed_seconds ?? elapsedTime)
-                : runStatus?.last_completed_run?.duration_seconds != null
-                  ? formatDuration(runStatus.last_completed_run.duration_seconds)
+                ? formatDuration(runStatus?.elapsed_s ?? elapsedTime)
+                : runStatus?.last_completed_run?.total_duration_s != null
+                  ? formatDuration(runStatus.last_completed_run.total_duration_s!)
                   : null;
 
               return (
@@ -604,8 +611,8 @@ export default function AdminPage() {
                               {stage?.picks != null && (
                                 <p className="text-[11px] font-bold text-spike-green mono mt-0.5">{stage.picks}</p>
                               )}
-                              {stage?.duration_seconds != null && (
-                                <p className="text-[9px] text-spike-text-muted mono">{formatDuration(Math.round(stage.duration_seconds))}</p>
+                              {stage?.duration_s != null && (
+                                <p className="text-[9px] text-spike-text-muted mono">{formatDuration(Math.round(stage.duration_s))}</p>
                               )}
                             </>
                           )}
