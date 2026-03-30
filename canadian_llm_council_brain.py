@@ -329,6 +329,8 @@ class LiveDataFetcher:
         self.finnhub_key = finnhub_api_key
         self._session: Optional[aiohttp.ClientSession] = None
         self._profile_cache: dict[str, dict] = {}
+        # Endpoint health tracking: {path: {"ok": N, "404": N, "429": N, "error": N}}
+        self.endpoint_health: dict[str, dict[str, int]] = {}
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -344,6 +346,13 @@ class LiveDataFetcher:
         if self._session and not self._session.closed:
             await self._session.close()
 
+    def _track_endpoint(self, path: str, status: str) -> None:
+        """Track FMP endpoint health for admin dashboard."""
+        base_path = path.split("?")[0]
+        if base_path not in self.endpoint_health:
+            self.endpoint_health[base_path] = {"ok": 0, "404": 0, "429": 0, "error": 0}
+        self.endpoint_health[base_path][status] = self.endpoint_health[base_path].get(status, 0) + 1
+
     async def _fmp_get(self, path: str, params: dict | None = None) -> Any:
         """Make a GET request to FMP /stable/ API with retry on 429."""
         session = await self._get_session()
@@ -353,15 +362,25 @@ class LiveDataFetcher:
         for attempt in range(5):
             async with session.get(url, params=params) as resp:
                 if resp.status == 429:
+                    self._track_endpoint(path, "429")
                     wait = 5 * (2 ** attempt)  # 5s, 10s, 20s, 40s, 80s
                     logger.warning(f"FMP {path} rate limited, retrying in {wait}s (attempt {attempt + 1}/5)")
                     await asyncio.sleep(wait)
                     continue
+                if resp.status == 404:
+                    self._track_endpoint(path, "404")
+                    # Log once per endpoint, not per ticker (reduce noise)
+                    if self.endpoint_health.get(path.split("?")[0], {}).get("404", 0) == 1:
+                        logger.warning(f"FMP {path} returned 404 — endpoint may be deprecated")
+                    return None
                 if resp.status != 200:
+                    self._track_endpoint(path, "error")
                     text = await resp.text()
                     logger.error(f"FMP {path} returned {resp.status}: {text[:200]}")
                     return None
+                self._track_endpoint(path, "ok")
                 return await resp.json()
+        self._track_endpoint(path, "429")
         logger.error(f"FMP {path} failed after 5 retries (429)")
         return None
 
@@ -867,7 +886,13 @@ async def fetch_earnings_calendar(
 async def fetch_insider_trades(
     fetcher: "LiveDataFetcher", ticker: str, days_back: int = 30
 ) -> Optional[InsiderActivity]:
-    """Fetch recent insider trades for a ticker and compute aggregated signal."""
+    """Fetch recent insider trades for a ticker and compute aggregated signal.
+    Note: FMP /insider-trading endpoint returns 404 as of Mar 2026.
+    Skipping API call until FMP restores the endpoint.
+    """
+    # FMP /insider-trading removed from /stable/ API — skip to avoid 404 spam
+    return None
+    # Original code preserved below for when FMP restores the endpoint:
     data = await fetcher._fmp_get("/insider-trading", params={"symbol": ticker, "limit": 50})
     if not data or not isinstance(data, list):
         return None
@@ -915,19 +940,39 @@ async def fetch_insider_trades(
 async def fetch_analyst_consensus(
     fetcher: "LiveDataFetcher", ticker: str, current_price: float
 ) -> Optional[AnalystConsensus]:
-    """Fetch analyst grades + price target consensus."""
+    """Fetch analyst grades + price target consensus.
+    Uses /grades (raw actions) since /grades-summary was removed from FMP stable API.
+    Computes buy/hold/sell summary from the most recent grade per analyst firm (last 12 months).
+    """
     grades_data, target_data = await asyncio.gather(
-        fetcher._fmp_get("/grades-summary", params={"symbol": ticker}),
+        fetcher._fmp_get("/grades", params={"symbol": ticker}),
         fetcher._fmp_get("/price-target-consensus", params={"symbol": ticker}),
     )
-    if not grades_data and not target_data:
-        return None
-    g = grades_data[0] if grades_data and isinstance(grades_data, list) else {}
-    sb = int(g.get("strongBuy", 0) or 0)
-    b = int(g.get("buy", 0) or 0)
-    h = int(g.get("hold", 0) or 0)
-    s = int(g.get("sell", 0) or 0)
-    ss = int(g.get("strongSell", 0) or 0)
+    # Compute grades summary from raw /grades data
+    sb, b, h, s, ss = 0, 0, 0, 0, 0
+    if grades_data and isinstance(grades_data, list):
+        cutoff = (date.today() - timedelta(days=365)).isoformat()
+        # Take most recent grade per analyst firm (deduplicate)
+        seen_firms: set[str] = set()
+        for entry in grades_data:
+            entry_date = str(entry.get("date", ""))[:10]
+            if entry_date < cutoff:
+                break  # Results are sorted newest-first
+            firm = entry.get("gradingCompany", "")
+            if firm in seen_firms:
+                continue
+            seen_firms.add(firm)
+            grade = str(entry.get("newGrade", "")).lower()
+            if grade in ("strong buy", "strong-buy"):
+                sb += 1
+            elif grade in ("buy", "outperform", "overweight", "positive"):
+                b += 1
+            elif grade in ("hold", "neutral", "equal-weight", "market perform", "sector perform", "peer perform"):
+                h += 1
+            elif grade in ("sell", "underperform", "underweight", "negative"):
+                s += 1
+            elif grade in ("strong sell", "strong-sell"):
+                ss += 1
     total_grades = sb + b + h + s + ss
     sentiment = ((sb * 2 + b * 1 + h * 0 + s * -1 + ss * -2) / max(total_grades, 1)) / 2.0
     t = target_data[0] if target_data and isinstance(target_data, list) else {}
@@ -4600,6 +4645,9 @@ class CanadianStockCouncilBrain:
             )
 
             result_dict = result.model_dump(mode="json")
+
+            # Include FMP endpoint health in output
+            result_dict["fmp_endpoint_health"] = dict(self.fetcher.endpoint_health)
 
             # Include learning state in output
             try:
