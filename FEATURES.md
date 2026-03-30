@@ -2,6 +2,34 @@
 
 ---
 
+## Ver 3.1 — Reliability & Admin Intelligence (March 30, 2026)
+
+### Vertex AI Migration
+- Stage 2 (Gemini) migrated from public API to Vertex AI — eliminates recurring 503 errors
+- Uses Google Cloud regional infrastructure (Montreal) with SLAs for reliable Stage 2 execution
+- Service account authentication replaces API key
+
+### Analytics Audit & Fix
+- Fixed orphaned Python backfill — SQLite accuracy records now populated by 4:35 PM cron
+- Analytics tab shows last_updated timestamps and sample counts on every metric
+- Low sample (<10) and stale data (>24h) badges warn when numbers are not trustworthy
+- Learning Engine calibration now receives correct accuracy data
+
+### Live Run Status
+- Real-time stage pipeline visualization on Admin Council tab
+- Shows: Pre-filter, Sonnet, Gemini, Opus, Grok, Consensus with batch progress
+- Completed stages show pick counts and duration, skipped stages show reason
+- Works for both scheduled (10:45 AM) and manually triggered runs
+- Polling interval reduced to 10 seconds during active runs
+
+### Dividend Display
+- Dividend badge on analysis page header for dividend-paying stocks (amount + ex-date)
+- Ex-dividend warning banner when ex-date falls within the 3-8 day prediction window
+- Display-only — does not affect council scoring or LLM prompts
+- Graceful degradation if FMP dividend endpoint unavailable
+
+---
+
 ## Ver 1.0 — Foundation Release (March 19, 2026)
 
 ### Core LLM Council Brain (Sessions 1-4)
