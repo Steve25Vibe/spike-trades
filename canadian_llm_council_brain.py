@@ -2714,6 +2714,18 @@ class HistoricalPerformanceAnalyzer:
                         h_correct = h_row[1] or 0
                         stage_info[f"hit_rate_{horizon}d"] = round(h_correct / h_total, 4) if h_total > 0 else None
 
+                # Per-stage sample counts for trust signals
+                for horizon, key in [(3, "sample_count_3d"), (5, "sample_count_5d"), (8, "sample_count_8d")]:
+                    sc_row = conn.execute("""
+                        SELECT COUNT(DISTINCT ar.pick_id)
+                        FROM stage_scores ss
+                        INNER JOIN accuracy_records ar ON ss.pick_id = ar.pick_id
+                        WHERE ss.stage = ?
+                          AND ar.horizon_days = ?
+                          AND ar.actual_move_pct IS NOT NULL
+                    """, (stage_num, horizon)).fetchone()
+                    stage_info[key] = sc_row[0] or 0
+
                 stages.append(stage_info)
 
             # ── Score vs Outcome buckets ──
@@ -2810,6 +2822,21 @@ class HistoricalPerformanceAnalyzer:
                 FROM pick_history ph
                 LEFT JOIN accuracy_records ar ON ph.id = ar.pick_id
             """).fetchone()
+
+            # Count distinct picks that have non-null accuracy data per horizon
+            picks_with_3d = conn.execute("""
+                SELECT COUNT(DISTINCT pick_id) FROM accuracy_records
+                WHERE horizon_days = 3 AND actual_move_pct IS NOT NULL
+            """).fetchone()[0] or 0
+            picks_with_5d = conn.execute("""
+                SELECT COUNT(DISTINCT pick_id) FROM accuracy_records
+                WHERE horizon_days = 5 AND actual_move_pct IS NOT NULL
+            """).fetchone()[0] or 0
+            picks_with_8d = conn.execute("""
+                SELECT COUNT(DISTINCT pick_id) FROM accuracy_records
+                WHERE horizon_days = 8 AND actual_move_pct IS NOT NULL
+            """).fetchone()[0] or 0
+
             summary = {
                 "total_picks": overall[0] or 0,
                 "hit_rate_3d": round(overall[1] / overall[2], 4) if overall[2] and overall[2] > 0 else None,
@@ -2818,6 +2845,10 @@ class HistoricalPerformanceAnalyzer:
                 "checked_3d": overall[2] or 0,
                 "checked_5d": overall[4] or 0,
                 "checked_8d": overall[6] or 0,
+                "last_updated": datetime.now(ZoneInfo("America/Halifax")).isoformat(),
+                "total_picks_with_3d": picks_with_3d,
+                "total_picks_with_5d": picks_with_5d,
+                "total_picks_with_8d": picks_with_8d,
             }
 
             return {
