@@ -324,7 +324,9 @@ async def learning_state():
 async def fmp_health():
     """Return FMP endpoint health from the most recent council run."""
     try:
-        output = _get_latest_output()
+        if not LATEST_OUTPUT_FILE.exists():
+            return {"success": False, "error": "No council output available"}
+        output = json.loads(LATEST_OUTPUT_FILE.read_text())
         if not output:
             return {"success": False, "error": "No council output available"}
         health = output.get("fmp_endpoint_health", {})
