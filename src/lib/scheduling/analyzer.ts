@@ -79,6 +79,7 @@ interface CouncilMappedResponse {
     historicalConfidence: number | null;
     calibrationSamples: number | null;
     overconfidenceFlag: boolean | null;
+    learningAdjustments: string | null;
   }[];
   councilLog: Record<string, unknown>;
   riskSummary: Record<string, unknown>;
@@ -259,6 +260,7 @@ export async function runDailyAnalysis(useCached = false): Promise<{
       historicalConfidence: spike.historicalConfidence,
       calibrationSamples: spike.calibrationSamples,
       overconfidenceFlag: spike.overconfidenceFlag,
+      learningAdjustments: spike.learningAdjustments,
     }));
 
     const report = await prisma.dailyReport.upsert({
