@@ -4073,7 +4073,6 @@ class CanadianStockCouncilBrain:
     def __init__(
         self,
         anthropic_api_key: str | None = None,
-        google_api_key: str | None = None,
         xai_api_key: str | None = None,
         fmp_api_key: str | None = None,
         finnhub_api_key: str | None = None,
@@ -4081,7 +4080,6 @@ class CanadianStockCouncilBrain:
         self.fmp_key = fmp_api_key or os.environ.get("FMP_API_KEY", "")
         self.finnhub_key = finnhub_api_key or os.environ.get("FINNHUB_API_KEY", "")
         self.anthropic_key = anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY", "")
-        self.google_key = google_api_key or os.environ.get("GOOGLE_API_KEY", "")
         self.xai_key = xai_api_key or os.environ.get("XAI_API_KEY", "")
 
         self.fetcher = LiveDataFetcher(self.fmp_key, self.finnhub_key)
