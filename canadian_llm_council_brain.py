@@ -816,8 +816,8 @@ class LiveDataFetcher:
                 finnhub_sentiment=sentiment,
                 macro=macro,
                 iv_expected_move=(
-                    self.compute_iv_expected_move(ticker, technicals.atr, price)
-                    if technicals and technicals.atr else None
+                    self.compute_iv_expected_move(ticker, technicals.atr_14, price)
+                    if technicals and technicals.atr_14 else None
                 ),
                 as_of=datetime.now(timezone.utc),
             )
