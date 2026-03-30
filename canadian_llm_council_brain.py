@@ -4125,6 +4125,7 @@ class CanadianStockCouncilBrain:
         self,
         starting_universe: list[str] | None = None,
         max_workers: int = 8,
+        tracker=None,
     ) -> dict:
         """Run the full 4-stage council pipeline.
 
@@ -4263,6 +4264,8 @@ class CanadianStockCouncilBrain:
                 logger.info(f"Step 4b: {len(payloads_list)} tickers after noise filter")
 
             # ── Step 4c: Technical pre-filter (reduce universe before LLM stages) ──
+            if tracker:
+                tracker.start_stage("pre_filter", tickers_in=len(payloads_list))
             MAX_STAGE1_TICKERS = 150
             if len(payloads_list) > MAX_STAGE1_TICKERS:
                 logger.info(f"Step 4c: Technical pre-filter — scoring {len(payloads_list)} tickers")
@@ -4354,6 +4357,9 @@ class CanadianStockCouncilBrain:
             else:
                 logger.info(f"Step 4c: Pre-filter not needed ({len(payloads_list)} <= {MAX_STAGE1_TICKERS})")
 
+            if tracker:
+                tracker.complete_stage("pre_filter", tickers_out=len(payloads_list))
+
             # ── Step 4d: Fetch earnings calendar (1 API call) ──
             logger.info("Step 4d: Fetching earnings calendar")
             try:
@@ -4398,6 +4404,9 @@ class CanadianStockCouncilBrain:
             BATCH_SIZE = 15
             INTER_BATCH_DELAY = 15  # seconds between batches to avoid 429s
             stage1_start = asyncio.get_event_loop().time()
+            _stage1_batch_count = (len(payloads_list) + BATCH_SIZE - 1) // BATCH_SIZE
+            if tracker:
+                tracker.start_stage("stage1_sonnet", batches_total=_stage1_batch_count)
             if len(payloads_list) > BATCH_SIZE:
                 stage1_all = []
                 n_batches = (len(payloads_list) + BATCH_SIZE - 1) // BATCH_SIZE
@@ -4418,6 +4427,8 @@ class CanadianStockCouncilBrain:
                             learning_engine=self.learning_engine,
                         )
                         stage1_all.extend(batch_results)
+                        if tracker:
+                            tracker.update_batch("stage1_sonnet", batch_num)
                     except Exception as batch_e:
                         logger.warning(f"Stage 1 batch {batch_num} failed: {batch_e}")
                     if i + BATCH_SIZE < len(payloads_list):
@@ -4433,6 +4444,8 @@ class CanadianStockCouncilBrain:
                 )
                 stage1_results = stage1_results[:100]
 
+            if tracker:
+                tracker.complete_stage("stage1_sonnet", picks=len(stage1_results))
             logger.info(f"Step 5: Stage 1 produced {len(stage1_results)} results")
             if not stage1_results:
                 raise RuntimeError("Stage 1 produced no results")
@@ -4443,6 +4456,9 @@ class CanadianStockCouncilBrain:
             # ── Step 6: Stage 2 — Gemini (skippable) ──
             GEMINI_BATCH_SIZE = 15  # Smaller batches for Gemini to avoid token limit truncation
             logger.info(f"Step 6: Stage 2 (Gemini) — {len(stage1_results)} tickers")
+            _gemini_batch_count = (len(stage1_results) + GEMINI_BATCH_SIZE - 1) // GEMINI_BATCH_SIZE
+            if tracker:
+                tracker.start_stage("stage2_gemini", batches_total=_gemini_batch_count)
             stage2_results = []
             stage2_skipped = False
             try:
@@ -4461,10 +4477,13 @@ class CanadianStockCouncilBrain:
                                 batch_tickers = {r["ticker"] for r in s1_batch}
                                 batch_payloads = [p for p in payloads_list if p.ticker in batch_tickers]
                                 logger.info(f"Stage 2 batch {batch_idx + 1}/{len(s1_tickers_batched)}: {len(s1_batch)} tickers")
-                                return await run_stage2_gemini(
+                                result = await run_stage2_gemini(
                                     batch_payloads, macro, s1_batch,
                                     learning_engine=self.learning_engine,
                                 )
+                                if tracker:
+                                    tracker.update_batch("stage2_gemini", batch_idx + 1)
+                                return result
 
                         batch_tasks = [
                             _run_gemini_batch(idx, batch)
@@ -4491,23 +4510,34 @@ class CanadianStockCouncilBrain:
                 logger.error(f"Stage 2 (Gemini) wall-clock timeout ({STAGE_WALL_CLOCK_TIMEOUT}s) — skipping entire stage")
                 stage2_skipped = True
                 skipped_stages.append({"stage": 2, "model": "gemini", "error": f"wall-clock timeout ({STAGE_WALL_CLOCK_TIMEOUT}s)"})
+                if tracker:
+                    tracker.skip_stage("stage2_gemini", reason=f"wall-clock timeout ({STAGE_WALL_CLOCK_TIMEOUT}s)")
             except Exception as e:
                 logger.error(f"Stage 2 (Gemini) FAILED — skipping: {e}")
                 stage2_skipped = True
                 skipped_stages.append({"stage": 2, "model": "gemini", "error": str(e)})
+                if tracker:
+                    tracker.skip_stage("stage2_gemini", reason=str(e))
 
             if stage2_skipped or not stage2_results:
                 if not stage2_skipped:
                     logger.warning("Stage 2 (Gemini) returned 0 results — passing Stage 1 results through")
                     skipped_stages.append({"stage": 2, "model": "gemini", "error": "empty results"})
+                    if tracker:
+                        tracker.skip_stage("stage2_gemini", reason="empty results")
                 stage2_results = stage1_results[:80]
                 logger.info(f"Step 6: Stage 2 SKIPPED — passing through {len(stage2_results)} Stage 1 results")
             else:
+                if tracker:
+                    tracker.complete_stage("stage2_gemini", picks=len(stage2_results))
                 logger.info(f"Step 6: Stage 2 produced {len(stage2_results)} results")
 
             # ── Step 7: Stage 3 — Opus (skippable) ──
             logger.info(f"Step 7: Stage 3 (Opus) — {len(stage2_results)} tickers")
             OPUS_BATCH = 20  # Smaller batches for expensive Opus calls
+            _opus_batch_count = (len(stage2_results) + OPUS_BATCH - 1) // OPUS_BATCH
+            if tracker:
+                tracker.start_stage("stage3_opus", batches_total=_opus_batch_count)
             stage3_results = []
             stage3_skipped = False
             try:
@@ -4535,6 +4565,8 @@ class CanadianStockCouncilBrain:
                                 learning_engine=self.learning_engine,
                             )
                             stage3_all.extend(batch_results)
+                            if tracker:
+                                tracker.update_batch("stage3_opus", batch_idx + 1)
                         except Exception as batch_e:
                             logger.warning(f"Stage 3 batch {batch_idx + 1} failed: {batch_e}")
                         if batch_idx + 1 < len(s2_tickers_batched):
@@ -4553,18 +4585,26 @@ class CanadianStockCouncilBrain:
                 logger.error(f"Stage 3 (Opus) FAILED — skipping: {e}")
                 stage3_skipped = True
                 skipped_stages.append({"stage": 3, "model": "opus", "error": str(e)})
+                if tracker:
+                    tracker.skip_stage("stage3_opus", reason=str(e))
 
             if stage3_skipped or not stage3_results:
                 if not stage3_skipped:
                     logger.warning("Stage 3 (Opus) returned 0 results — passing Stage 2 results through")
                     skipped_stages.append({"stage": 3, "model": "opus", "error": "empty results"})
+                    if tracker:
+                        tracker.skip_stage("stage3_opus", reason="empty results")
                 stage3_results = stage2_results[:40]
                 logger.info(f"Step 7: Stage 3 SKIPPED — passing through {len(stage3_results)} Stage 2 results")
             else:
+                if tracker:
+                    tracker.complete_stage("stage3_opus", picks=len(stage3_results))
                 logger.info(f"Step 7: Stage 3 produced {len(stage3_results)} results")
 
             # ── Step 8: Stage 4 — Grok (skippable) ──
             logger.info(f"Step 8: Stage 4 (Grok) — {len(stage3_results)} tickers")
+            if tracker:
+                tracker.start_stage("stage4_grok")
             stage4_results = []
             stage4_skipped = False
             try:
@@ -4582,18 +4622,26 @@ class CanadianStockCouncilBrain:
                 logger.error(f"Stage 4 (Grok) wall-clock timeout ({STAGE_WALL_CLOCK_TIMEOUT}s) — skipping")
                 stage4_skipped = True
                 skipped_stages.append({"stage": 4, "model": "grok", "error": f"wall-clock timeout ({STAGE_WALL_CLOCK_TIMEOUT}s)"})
+                if tracker:
+                    tracker.skip_stage("stage4_grok", reason=f"wall-clock timeout ({STAGE_WALL_CLOCK_TIMEOUT}s)")
             except Exception as e:
                 logger.error(f"Stage 4 (Grok) FAILED — skipping: {e}")
                 stage4_skipped = True
                 skipped_stages.append({"stage": 4, "model": "grok", "error": str(e)})
+                if tracker:
+                    tracker.skip_stage("stage4_grok", reason=str(e))
 
             if stage4_skipped or not stage4_results:
                 if not stage4_skipped:
                     logger.warning("Stage 4 (Grok) returned 0 results — passing Stage 3 results through")
                     skipped_stages.append({"stage": 4, "model": "grok", "error": "empty results"})
+                    if tracker:
+                        tracker.skip_stage("stage4_grok", reason="empty results")
                 stage4_results = stage3_results[:20]
                 logger.info(f"Step 8: Stage 4 SKIPPED — passing through {len(stage4_results)} Stage 3 results")
             else:
+                if tracker:
+                    tracker.complete_stage("stage4_grok", picks=len(stage4_results))
                 logger.info(f"Step 8: Stage 4 produced {len(stage4_results)} results")
 
             # Log alert summary for any skipped stages
@@ -4614,12 +4662,16 @@ class CanadianStockCouncilBrain:
 
             # ── Step 10: Consensus + conviction ──
             logger.info("Step 10: Building consensus")
+            if tracker:
+                tracker.start_stage("consensus")
             top_picks = _build_consensus(
                 stage1_results, stage2_results, stage3_results, stage4_results,
                 payloads_map, regime, self.regime_filter,
                 earnings_map=earnings_map,
                 learning_engine=self.learning_engine,
             )
+            if tracker:
+                tracker.complete_stage("consensus", picks=len(top_picks))
 
             # ── Step 10b: Apply historical calibration ──
             logger.info("Step 10b: Applying historical calibration")
