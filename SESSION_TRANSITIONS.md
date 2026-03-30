@@ -1392,3 +1392,105 @@ When ending a session, Claude Code should append an entry like this:
 ### Context window status:
 - Estimated usage: extremely heavy (deep code analysis, brainstorming, formula documentation, 3 implementation plans, multiple deploys, debugging)
 - Reason for stopping: context window saturated after extensive design work — clean breakpoint with all plans written and committed
+
+---
+
+## Session 16 Checkpoint — 2026-03-30
+
+### What was built:
+
+**Learning Engine Core (Plan A — 13 tasks, all complete):**
+- `LearningEngine` class with 8 progressively-activating mechanisms:
+  1. Dynamic Stage Weights (30/stage gate, 20-day window)
+  2. Prompt Accuracy Context (10-pick gate, injected into all 4 LLM stage prompts)
+  3. Bayesian Sector-Aware Scoring (always active, shrinkage toward global mean)
+  4. Adaptive Conviction Thresholds (50-pick gate, score-vs-accuracy curve)
+  5. Stage Disagreement Learning (20-disagreement gate, historical winner tracking)
+  6. Factor-Level Feedback (100-pick gate, Spearman correlation via scipy)
+  7. Adaptive Pre-Filter Thresholds (300-pick gate, RSI/ADX bucket analysis)
+  8. IV Expected Move Signal (always active, ATR-based proxy with 2SD penalty/1SD boost)
+- `IVExpectedMove` Pydantic model + `compute_iv_expected_move()` on LiveDataFetcher
+- Per-pick `learning_adjustments` dict tracking all multipliers applied during consensus
+- `sector` column added to `pick_history` table for sector-aware learning
+- `scipy>=1.11` added to requirements-council.txt
+
+**Admin Panel Learning Tab (Plan B — 3 tasks):**
+- `/learning-state` endpoint on council FastAPI
+- `/api/admin/learning` Next.js proxy route with auth
+- Admin 6th "Learning" tab: 8 mechanism cards (Active/Waiting + progress bars) + stage weights display
+
+**Analysis Page Learning Adjustments (Plan C — 3 tasks):**
+- `learningAdjustments String?` field added to Prisma Spike model
+- `learningAdjustments` passed through analyzer.ts to Prisma spike.create()
+- Learning Adjustments section on analysis detail page (non-neutral values only)
+
+**FMP Endpoint Resilience:**
+- `/grades-summary` → `/grades` (compute summary from raw analyst grade actions, deduplicated by firm)
+- `/insider-trading` → skipped (endpoint returns 404, removed from stable API)
+- FMP endpoint health tracking in `_fmp_get()` (ok/404/429/error counts per endpoint)
+- 404s log once per endpoint per run instead of per-ticker (noise reduction)
+- `/fmp-health` endpoint on council FastAPI
+- Data Source Health table on Admin → Council tab (HEALTHY/DEGRADED/THROTTLED/DEPRECATED/FAILING)
+
+**Bug fixes:**
+- `technicals.atr` → `technicals.atr_14` (crashed all payload builds)
+- `consensus_score` clamped to 0-100 (learning multipliers exceeded Pydantic le=100)
+- `analyzer.ts` now passes `learningAdjustments` to Prisma (was always NULL)
+- JSON.parse try/catch on learningAdjustments in spike detail API
+- Admin learning route URL: `COUNCIL_URL` → `COUNCIL_API_URL` with localhost default
+- `compute_conviction_thresholds()` moved outside per-pick loop (was querying DB 10x)
+- Mechanisms #6/#7 wired into output (were defined but never called)
+- Market header arrows fixed for weekend/fallback views (prevReport used targetDate instead of report.date)
+- Deviation alert threshold changed from -5% to -1%
+- `/fmp-health` endpoint fixed (referenced non-existent function)
+
+**Version bump:** All 8 pages updated to Ver 3.0
+
+### What was tested:
+- Python syntax: PASS
+- TypeScript compile: 0 errors
+- LearningEngine instantiation with 8 mechanisms: PASS
+- Production: 6/8 mechanisms ACTIVE (Prompt Context, Sector Scoring, Conviction Thresholds, Disagreement, Factor Feedback, IV Expected Move), 2 WAITING (Stage Weights 13/30, Pre-Filter 140/300)
+- Full pipeline run: 10 picks generated in 1073s with learning engine active
+- FMP /grades endpoint: 100% OK for TSX tickers (analyst data now flowing)
+- Accuracy backfill: 30 records filled manually (Mar 25 3-day + Mar 23 5-day)
+- Code review audit: all 10 files checked, 1 issue found and fixed (JSON.parse safety)
+
+### Key decisions made:
+- **Bayesian shrinkage over hard gates** for sector scoring — every sample contributes proportionally
+- **Rolling windows** (15-20 days) keep learning responsive to regime changes
+- **Consensus score clamped** — multiplicative learning adjustments can exceed 100
+- **Insider trading skipped** — FMP removed endpoint from stable API, returns None immediately
+- **Analyst grades from raw /grades** — compute buy/hold/sell summary from individual actions
+- **FMP health tracking** — per-endpoint counters exposed to admin panel for monitoring
+
+### Files modified:
+- `canadian_llm_council_brain.py` — LearningEngine class, 8 mechanisms, IV model, health tracking, FMP fixes (~700 lines added)
+- `api_server.py` — /learning-state, /fmp-health endpoints, learningAdjustments mapping
+- `requirements-council.txt` — scipy>=1.11
+- `prisma/schema.prisma` — learningAdjustments String?
+- `src/lib/scheduling/analyzer.ts` — learningAdjustments passthrough to Prisma
+- `src/app/api/admin/learning/route.ts` — created (admin learning API)
+- `src/app/api/admin/council/route.ts` — fmpHealth in response
+- `src/app/admin/page.tsx` — Learning tab + Data Source Health section
+- `src/app/api/spikes/[id]/route.ts` — learningAdjustments with JSON.parse safety
+- `src/app/dashboard/analysis/[id]/page.tsx` — Learning Adjustments section
+- `src/app/api/spikes/route.ts` — arrow fix (report.date vs targetDate)
+- `src/app/api/portfolio/alerts/route.ts` — deviation threshold -5% → -1%
+- 8 page files — Ver 3.0 version bump
+
+### Checkpoint artifacts:
+- GitHub: `Steve25Vibe/spike-trades` commit `076fd25` (all changes pushed)
+- Production: spiketrades.ca deployed at Ver 3.0 with learning engine active
+- Database: learningAdjustments populated for Mar 30 spikes, accuracy backfilled through Mar 25
+
+### What the next session should do first:
+1. Verify tomorrow's (Mar 31) council run completes with learning engine + FMP health tracking
+2. Check Admin → Council → Data Source Health table populates after run
+3. Check Admin → Learning tab shows mechanism states
+4. Check accuracy page — 8-day actuals for Mar 19 should fill on Mar 31
+5. Brainstorm and plan new features as directed by user
+
+### Context window status:
+- Estimated usage: extremely heavy (full learning engine implementation, 3 plans executed, 6 bug fixes, FMP endpoint investigation, code review, accuracy debugging, multiple deploys)
+- Reason for stopping: user requested session transition for new feature planning
