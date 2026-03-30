@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isAuthenticated } from '@/lib/auth';
 import prisma from '@/lib/db/prisma';
+import { getDividendInfo } from '@/lib/api/fmp';
 
 // GET /api/spikes/[id] — Get full analyst detail for a single spike
 export async function GET(
@@ -49,6 +50,9 @@ export async function GET(
     const existingPosition = await prisma.portfolioEntry.findFirst({
       where: { spikeId: spike.id, status: 'active' },
     });
+
+    // Fetch live dividend info from FMP (graceful degradation — null if unavailable)
+    const dividend = await getDividendInfo(spike.ticker);
 
     // Get historical accuracy for this ticker (past predictions)
     const pastPredictions = await prisma.spike.findMany({
@@ -185,6 +189,9 @@ export async function GET(
             return raw ? JSON.parse(raw as string) : null;
           } catch { return null; }
         })(),
+
+        // Live dividend info (null if ticker pays no dividend or FMP has no data)
+        dividend,
 
         // Data source attribution
         dataSources: {

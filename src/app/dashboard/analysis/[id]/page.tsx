@@ -108,6 +108,14 @@ const TECHNICAL_EXPLANATIONS: Record<string, { label: string; plain: string; goo
   },
 };
 
+interface DividendInfo {
+  exDate: string;
+  paymentDate: string;
+  amount: number;
+  yield: number;
+  frequency: string;
+}
+
 interface SpikeDetail {
   spike: any;
   marketContext: any;
@@ -116,6 +124,7 @@ interface SpikeDetail {
   tickerHistory: any[];
   dataSources: Record<string, string>;
   learningAdjustments?: Record<string, any> | null;
+  dividend?: DividendInfo | null;
 }
 
 export default function AnalysisPage() {
@@ -250,6 +259,11 @@ export default function AnalysisPage() {
                   <a href={`https://finance.yahoo.com/quote/${spike.ticker}`} target="_blank" rel="noopener noreferrer" title={`View ${spike.ticker} on Yahoo Finance`} className="text-3xl font-bold text-spike-text hover:text-spike-cyan transition-colors">{spike.ticker}</a>
                   <span className="text-sm font-medium px-3 py-1 rounded-full bg-spike-border/50 text-spike-text-dim">#{spike.rank}</span>
                   <span className="text-sm px-3 py-1 rounded-full bg-spike-violet/10 text-spike-violet">{spike.sector}</span>
+                  {data.dividend && (
+                    <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                      DIV ${data.dividend.amount.toFixed(2)} | Ex: {new Date(data.dividend.exDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </span>
+                  )}
                 </div>
                 <p className="text-spike-text-dim">{spike.name} &middot; {spike.exchange}</p>
                 <p className="text-2xl font-bold mono mt-1">{formatCurrency(spike.price)}</p>
@@ -296,6 +310,26 @@ export default function AnalysisPage() {
               </div>
             ))}
           </div>
+
+          {/* Ex-dividend warning banner */}
+          {data.dividend && (() => {
+            const exDate = new Date(data.dividend.exDate);
+            const reportDate = new Date(data.spike.report?.date || data.spike.createdAt);
+            const daysDiff = Math.floor((exDate.getTime() - reportDate.getTime()) / (1000 * 60 * 60 * 24));
+            if (daysDiff >= 1 && daysDiff <= 12) {
+              const pctImpact = ((data.dividend.amount / (data.spike.price || 1)) * 100).toFixed(1);
+              return (
+                <div className="mt-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                  <p className="text-sm text-amber-300">
+                    <span className="font-medium">Ex-dividend warning:</span>{' '}
+                    Ex-date ({new Date(data.dividend.exDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}) falls within the prediction window.
+                    Stock price typically drops by approximately the dividend amount (${data.dividend.amount.toFixed(2)} / ~{pctImpact}%) on this date.
+                  </p>
+                </div>
+              );
+            }
+            return null;
+          })()}
         </div>
 
         {/* ===== WHY THIS STOCK? — Plain Language Reasoning ===== */}
