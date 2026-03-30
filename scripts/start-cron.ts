@@ -88,6 +88,26 @@ cron.schedule(
   { timezone: TIMEZONE }
 );
 
+// SQLite backfill actuals — weekdays at 4:35pm AST (5 minutes after PostgreSQL backfill)
+const councilUrl = process.env.COUNCIL_API_URL || 'http://localhost:8100';
+cron.schedule(
+  '35 16 * * 1-5',
+  async () => {
+    console.log(`[Cron] Triggering backfill-actuals at ${new Date().toISOString()}`);
+    try {
+      const result = await httpRequest(`${councilUrl}/backfill-actuals`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 300_000, // 5 minute timeout
+      });
+      console.log(`[Cron] Backfill-actuals result (status ${result.status}):`, result.body);
+    } catch (error) {
+      console.error(`[Cron] Backfill-actuals failed:`, error);
+    }
+  },
+  { timezone: TIMEZONE }
+);
+
 // Portfolio alerts check — every 15 minutes during market hours
 cron.schedule(
   '*/15 9-16 * * 1-5',

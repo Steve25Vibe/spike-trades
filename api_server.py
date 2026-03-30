@@ -351,6 +351,22 @@ async def stage_analytics():
         raise HTTPException(500, f"Stage analytics failed: {e}")
 
 
+@app.post("/backfill-actuals")
+async def backfill_actuals():
+    """Backfill SQLite accuracy records for past picks, then rebuild calibration."""
+    brain = _get_brain()
+    try:
+        updated = await brain.historical_analyzer.backfill_actuals(brain.fetcher)
+        if updated:
+            brain.calibration_engine.build_council_calibration()
+        return {"success": True, "records_updated": updated}
+    except Exception as e:
+        logger.error(f"Backfill actuals failed: {e}", exc_info=True)
+        raise HTTPException(500, f"Backfill actuals failed: {e}")
+    finally:
+        await brain.fetcher.close()
+
+
 @app.post("/run-backtest")
 async def run_backtest():
     """Trigger a 6-month historical backtest for calibration base rates.
