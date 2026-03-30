@@ -1494,3 +1494,119 @@ When ending a session, Claude Code should append an entry like this:
 ### Context window status:
 - Estimated usage: extremely heavy (full learning engine implementation, 3 plans executed, 6 bug fixes, FMP endpoint investigation, code review, accuracy debugging, multiple deploys)
 - Reason for stopping: user requested session transition for new feature planning
+
+---
+
+## Session 17 Checkpoint — 2026-03-30
+
+### What was built:
+
+**Ver 3.1 — 5 features, 16 commits, all pushed to GitHub (`284fdfa`)**
+
+**Feature 1: Vertex AI Migration (Stage 2 Gemini)**
+- `_call_gemini()` rewritten to use `google-genai` SDK in Vertex AI mode (`vertexai=True`)
+- Auth via service account (`GOOGLE_APPLICATION_CREDENTIALS`) instead of API key
+- Model: `gemini-3.1-pro-preview` (configurable via `GEMINI_MODEL` env var)
+- Location: `global` (required for 3.1 preview models)
+- `thinking_config` with `ThinkingLevel.LOW` + `response_mime_type="application/json"` required for Vertex AI
+- `api_key` parameter removed from `_call_gemini()`, `run_stage2_gemini()`, and all call sites
+- `google_api_key` removed from brain constructor and `_get_brain()`
+- `docker-compose.yml` updated with GCP env vars + service account volume mount
+
+**Feature 2: Analytics Audit & Fix**
+- Root cause found: Python `backfill_actuals()` was orphaned — never called from any endpoint
+- New `/backfill-actuals` POST endpoint on council FastAPI
+- New cron at 4:35 PM AST in `start-cron.ts` (5 min after PostgreSQL backfill)
+- `get_stage_analytics()` now returns `last_updated`, `total_picks_with_3d/5d/8d`, per-stage `sample_count_3d/5d/8d`
+- Admin Analytics tab shows trust signals: sample counts (n=X), "Low sample" badge (<10), "Stale data" badge (>24h on weekday)
+
+**Feature 3: Live Run Status**
+- `ProgressTracker` class in `api_server.py` with `start_stage/complete_stage/skip_stage/update_batch/finish` methods
+- 23 tracker calls wired into `run_council()` across all 6 stages (pre_filter, sonnet, gemini, opus, grok, consensus)
+- All calls guarded with `if tracker:` for backward compatibility
+- `/run-status` GET endpoint returns live progress or last completed run summary
+- Stage pipeline visualization on Admin Council tab: horizontal steps with status colors, batch progress, duration
+- Trigger type passthrough: "Scheduled run (10:45 AM)" vs "Manual run (triggered by admin)"
+- Poll interval: 10 seconds (down from 30s)
+
+**Feature 4: Dividend Display**
+- `getDividendInfo(ticker)` in `src/lib/api/fmp.ts` — calls FMP dividend calendar endpoint
+- Dividend badge on analysis page header (amber pill: `DIV $0.52 | Ex: Apr 3`)
+- Ex-dividend warning banner below target cards when ex-date within prediction window (1-12 calendar days)
+- Display-only — no scoring changes, no LLM prompt changes
+- Graceful degradation: badge simply doesn't render if FMP returns empty/error
+
+**Feature 5: Version Bump to 3.1**
+- All 8 page footers updated from Ver 3.0 → Ver 3.1
+- FEATURES.md changelog entry for Ver 3.1
+
+### GCP Setup Completed:
+- GCP project: `gen-lang-client-0879620722` (display name: "spiketrades")
+- Org policy restrictions resolved: `iam.disableServiceAccountKeyCreation` reset at project level (both legacy + managed)
+- Vertex AI API enabled
+- Service account: `spiketrades-council@gen-lang-client-0879620722.iam.gserviceaccount.com` with Vertex AI User role
+- Service account JSON key: `spiketrades-sa.json` (local only, in .gitignore)
+- `gcloud` CLI installed via Homebrew, authenticated as `steve@boomerang.energy`
+- Vertex AI connection tested and confirmed working with `gemini-3.1-pro-preview` via `global` endpoint
+
+### What was tested:
+- Python syntax: PASS (both files)
+- TypeScript compilation: 0 errors
+- Vertex AI live test with `gemini-3.1-pro-preview`: PASS (JSON response confirmed)
+- Systematic 5-phase verification: all PASS
+  - Phase 1: Vertex AI call path (10 steps) — all links verified
+  - Phase 2: Analytics backfill data flow (5 steps) — all links verified
+  - Phase 3: ProgressTracker integration (8 steps, 23 tracker calls) — all verified
+  - Phase 4: Dividend feature (3 steps) — all verified
+  - Phase 5: Regression check (5 steps) — no regressions found
+- Code review: 1 critical (field name mismatch) + 2 important (docker-compose, unused dep) found and fixed
+
+### Key decisions made:
+- **Vertex AI via google-genai SDK** (not google-cloud-aiplatform): Same SDK interface, simpler, Google's recommended path
+- **Location: global** (not us-central1 or northamerica-northeast1): Only `global` supports gemini-3.1-pro-preview
+- **ThinkingConfig.LOW**: Required for 3.1 thinking models on Vertex AI, sufficient for structured JSON output
+- **No DCF model**: User asked about adding Discounted Cash Flow to scoring — rejected as wrong time horizon for 3-8 day momentum system
+- **Dividend display-only**: No scoring changes or LLM prompt injection — human stays in the loop for ex-dividend judgment
+
+### Files modified:
+- `canadian_llm_council_brain.py` — Vertex AI migration, ProgressTracker wiring, analytics trust signals
+- `api_server.py` — ProgressTracker class, /backfill-actuals, /run-status, _get_brain cleanup, trigger type
+- `requirements-council.txt` — google-genai>=1.0.0 (removed google-cloud-aiplatform)
+- `.env.example` — GCP vars replacing GOOGLE_API_KEY
+- `.gitignore` — spiketrades-sa.json
+- `docker-compose.yml` — GCP env vars + service account volume mount
+- `scripts/start-cron.ts` — 4:35 PM SQLite backfill cron
+- `src/app/admin/page.tsx` — Analytics trust signals + stage pipeline visualization
+- `src/app/api/admin/council/route.ts` — /run-status proxy + trigger passthrough
+- `src/app/api/admin/analytics/route.ts` — passthrough (no changes needed)
+- `src/lib/scheduling/analyzer.ts` — trigger param in runDailyAnalysis
+- `src/lib/api/fmp.ts` — getDividendInfo()
+- `src/app/api/spikes/[id]/route.ts` — dividend data in response
+- `src/app/dashboard/analysis/[id]/page.tsx` — dividend badge + warning banner
+- 8 page files — Ver 3.1 footer
+- `FEATURES.md` — Ver 3.1 changelog
+- `docs/superpowers/specs/2026-03-30-ver-3.1-design.md` — design spec
+- `docs/superpowers/plans/2026-03-30-ver-3.1-implementation.md` — implementation plan
+
+### Checkpoint artifacts:
+- GitHub: `Steve25Vibe/spike-trades` commit `284fdfa` (all changes pushed)
+- Local: `spiketrades-sa.json` service account key (NOT in git)
+- GCP: `spiketrades-council` service account with Vertex AI User role
+
+### What the next session should do:
+1. **Deploy Ver 3.1 to production server** (147.182.150.30):
+   - SCP `spiketrades-sa.json` to server
+   - Update server `.env` with: `GCP_PROJECT_ID=gen-lang-client-0879620722`, `GCP_LOCATION=global`, `GOOGLE_APPLICATION_CREDENTIALS=/app/credentials/spiketrades-sa.json`
+   - `git pull` on server
+   - Rebuild Docker containers (`docker-compose up -d --build`)
+   - Verify all containers healthy
+2. **Verify Vertex AI works in production**: Trigger manual scan via Admin → Council, confirm Stage 2 completes (not skipped)
+3. **Verify analytics backfill**: Wait for 4:35 PM cron or trigger `/backfill-actuals` manually, check Analytics tab shows non-null 5D/8D hit rates
+4. **Verify live run status**: During the manual scan, confirm stage pipeline visualization updates in real-time
+5. **Verify dividend display**: Navigate to analysis page for a dividend stock (e.g., RY.TO), confirm badge + warning banner
+6. **Verify all existing features still work**: Dashboard, portfolio, accuracy page, learning tab
+7. **Write Session 17 completion to SESSION_TRANSITIONS.md** after deployment verified
+
+### Context window status:
+- Estimated usage: extremely heavy (brainstorming, 12 implementation tasks, GCP Vertex AI setup with org policy debugging, code review, systematic 5-phase debugging, 16 commits)
+- Reason for stopping: context saturated — clean breakpoint with all code pushed, deployment is next
