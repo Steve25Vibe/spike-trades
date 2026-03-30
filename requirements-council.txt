@@ -5,6 +5,7 @@ aiohttp>=3.9.0
 certifi
 python-dotenv
 anthropic>=0.39.0
+google-genai>=1.0.0
 google-cloud-aiplatform>=1.50.0
 openai>=1.0.0
 pandas>=2.0.0

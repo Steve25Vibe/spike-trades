@@ -1300,28 +1300,27 @@ async def _call_gemini(
     max_tokens: int = 8192,
     temperature: float = 0.3,
 ) -> str:
-    """Call Google Gemini via Vertex AI with retry on transient failures."""
-    import vertexai
-    from vertexai.generative_models import GenerativeModel, GenerationConfig
+    """Call Google Gemini via Vertex AI with retry on transient failures.
+    Uses google-genai SDK in Vertex AI mode (vertexai=True) for reliable
+    infrastructure with SLAs. Auth via GOOGLE_APPLICATION_CREDENTIALS."""
+    from google import genai
+    from google.genai import types
 
-    gcp_project = os.getenv("GCP_PROJECT_ID", "spiketrades")
-    gcp_location = os.getenv("GCP_LOCATION", "northamerica-northeast1")
-    vertexai.init(project=gcp_project, location=gcp_location)
-
-    model_obj = GenerativeModel(model, system_instruction=[system_prompt])
-    gen_config = GenerationConfig(
-        max_output_tokens=max_tokens,
-        temperature=temperature,
-        response_mime_type="application/json",
-    )
+    gcp_project = os.getenv("GCP_PROJECT_ID", "gen-lang-client-0879620722")
+    gcp_location = os.getenv("GCP_LOCATION", "us-central1")
+    client = genai.Client(vertexai=True, project=gcp_project, location=gcp_location)
 
     max_retries = 4
     for attempt in range(max_retries):
         try:
-            resp = await asyncio.to_thread(
-                model_obj.generate_content,
-                user_prompt,
-                generation_config=gen_config,
+            resp = client.models.generate_content(
+                model=model,
+                contents=user_prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    max_output_tokens=max_tokens,
+                    temperature=temperature,
+                ),
             )
             return resp.text
         except Exception as e:
@@ -1579,7 +1578,7 @@ async def run_stage2_gemini(
     )
 
     raw = await _call_gemini(
-        model="gemini-3.1-pro-preview",
+        model=os.getenv("GEMINI_MODEL", "gemini-2.5-pro"),
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         max_tokens=32768,
