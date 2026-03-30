@@ -320,6 +320,25 @@ async def learning_state():
         return {"success": False, "error": str(e)}
 
 
+@app.get("/fmp-health")
+async def fmp_health():
+    """Return FMP endpoint health from the most recent council run."""
+    try:
+        output = _get_latest_output()
+        if not output:
+            return {"success": False, "error": "No council output available"}
+        health = output.get("fmp_endpoint_health", {})
+        run_date = output.get("run_date", "unknown")
+        return {
+            "success": True,
+            "run_date": run_date,
+            "endpoints": health,
+        }
+    except Exception as e:
+        logger.error(f"FMP health check failed: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
 @app.get("/stage-analytics")
 async def stage_analytics():
     """Return per-stage LLM performance analytics."""
