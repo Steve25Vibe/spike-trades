@@ -1307,7 +1307,7 @@ async def _call_gemini(
     from google.genai import types
 
     gcp_project = os.getenv("GCP_PROJECT_ID", "gen-lang-client-0879620722")
-    gcp_location = os.getenv("GCP_LOCATION", "us-central1")
+    gcp_location = os.getenv("GCP_LOCATION", "global")
     client = genai.Client(vertexai=True, project=gcp_project, location=gcp_location)
 
     max_retries = 4
@@ -1320,6 +1320,10 @@ async def _call_gemini(
                     system_instruction=system_prompt,
                     max_output_tokens=max_tokens,
                     temperature=temperature,
+                    response_mime_type="application/json",
+                    thinking_config=types.ThinkingConfig(
+                        thinking_level=types.ThinkingLevel.LOW,
+                    ),
                 ),
             )
             return resp.text
@@ -1578,7 +1582,7 @@ async def run_stage2_gemini(
     )
 
     raw = await _call_gemini(
-        model=os.getenv("GEMINI_MODEL", "gemini-2.5-pro"),
+        model=os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview"),
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         max_tokens=32768,
