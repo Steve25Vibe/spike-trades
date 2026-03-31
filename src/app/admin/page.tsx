@@ -534,9 +534,13 @@ export default function AdminPage() {
               </div>
               <div className="glass-card p-4 text-center">
                 <p className="text-[9px] text-spike-text-muted uppercase tracking-wider mb-1">Python Server</p>
-                <p className={cn('text-xl font-bold mono', council?.councilHealth?.status === 'ok' ? 'text-spike-green' : 'text-spike-red')}>
-                  {council?.councilHealth?.status === 'ok' ? 'Online' : 'Offline'}
-                </p>
+                {(() => {
+                  const status = council?.councilHealth?.status;
+                  const isRunning = council?.runInProgress || council?.councilHealth?.council_running;
+                  if (status === 'ok') return <p className="text-xl font-bold mono text-spike-green">Online</p>;
+                  if (isRunning) return <p className="text-xl font-bold mono text-spike-amber">Busy</p>;
+                  return <p className="text-xl font-bold mono text-spike-red">Offline</p>;
+                })()}
               </div>
             </div>
 
