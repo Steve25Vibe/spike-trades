@@ -15,15 +15,22 @@ export const maxDuration = 3600;
 // GET /api/admin/council — Get council status + recent runs
 export async function GET() {
   try {
-    // Fetch Python council health
+    // Fetch Python council health (with retry — council can be slow under LLM load)
     let councilHealth: Record<string, unknown> = {};
-    try {
-      const healthRes = await fetch(`${COUNCIL_API_URL}/health`, {
-        signal: AbortSignal.timeout(5000),
-      });
-      councilHealth = await healthRes.json();
-    } catch {
-      councilHealth = { status: 'unreachable', council_running: false };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const healthRes = await fetch(`${COUNCIL_API_URL}/health`, {
+          signal: AbortSignal.timeout(15000),
+        });
+        councilHealth = await healthRes.json();
+        break; // Success — stop retrying
+      } catch {
+        if (attempt === 0) {
+          await new Promise(r => setTimeout(r, 2000)); // Wait 2s before retry
+        } else {
+          councilHealth = { status: 'unreachable', council_running: false };
+        }
+      }
     }
 
     // Fetch recent daily reports from Prisma
@@ -49,7 +56,7 @@ export async function GET() {
     let fmpHealth: Record<string, unknown> | null = null;
     try {
       const fmpRes = await fetch(`${COUNCIL_API_URL}/fmp-health`, {
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(10000),
       });
       const fmpJson = await fmpRes.json();
       if (fmpJson.success) fmpHealth = fmpJson;
