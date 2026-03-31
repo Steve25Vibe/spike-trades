@@ -99,6 +99,8 @@ export default function AdminPage() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
+    // Stop council polling when navigating away
+    if (tab !== 'council') stopPolling();
     fetchData();
   }, [tab]);
 
@@ -127,6 +129,7 @@ export default function AdminPage() {
         if (json.success) setActivity(json.data);
       } else if (tab === 'council') {
         await fetchCouncilStatus();
+        startPolling();
       } else if (tab === 'analytics') {
         const res = await fetch('/api/admin/analytics');
         const json = await res.json();
@@ -148,34 +151,45 @@ export default function AdminPage() {
       const json = await res.json();
       if (json.success) {
         setCouncil(json.data);
-        // If running, ensure polling is active
-        if (json.data.runInProgress && !pollRef.current) {
-          startPolling();
+        // Adjust poll speed based on run state
+        const isRunning = json.data.runInProgress;
+        const currentInterval = pollRef.current ? pollIntervalRef.current : 0;
+        const targetInterval = isRunning ? 5000 : 15000;
+        if (currentInterval !== targetInterval && pollRef.current) {
+          // Switch poll speed
+          clearInterval(pollRef.current);
+          pollRef.current = setInterval(() => { fetchCouncilStatusRef.current(); }, targetInterval);
+          pollIntervalRef.current = targetInterval;
         }
-        // If no longer running, stop polling
-        if (!json.data.runInProgress && pollRef.current) {
-          stopPolling();
+        // Start/stop elapsed timer based on run state
+        if (isRunning && !timerRef.current) {
+          const startTime = Date.now() - (json.data.runStatus?.elapsed_s ?? 0) * 1000;
+          timerRef.current = setInterval(() => {
+            setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
+          }, 1000);
+        }
+        if (!isRunning && timerRef.current) {
+          clearInterval(timerRef.current);
+          timerRef.current = null;
         }
       }
-    } catch { /* silent */ }
+    } catch { /* silent — will retry on next poll */ }
   }, []);
+
+  // Stable ref for fetchCouncilStatus so setInterval always calls latest version
+  const fetchCouncilStatusRef = useRef(fetchCouncilStatus);
+  fetchCouncilStatusRef.current = fetchCouncilStatus;
+  const pollIntervalRef = useRef(0);
 
   const startPolling = () => {
     if (pollRef.current) return;
-    const startTime = Date.now();
-    setElapsedTime(0);
-    // Elapsed timer — tick every second
-    timerRef.current = setInterval(() => {
-      setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
-    }, 1000);
-    // Status poll — every 10 seconds
-    pollRef.current = setInterval(() => {
-      fetchCouncilStatus();
-    }, 10000);
+    const interval = 15000; // Start at 15s, switches to 5s if run detected
+    pollRef.current = setInterval(() => { fetchCouncilStatusRef.current(); }, interval);
+    pollIntervalRef.current = interval;
   };
 
   const stopPolling = () => {
-    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; pollIntervalRef.current = 0; }
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
   };
 
