@@ -525,12 +525,17 @@ export default function AdminPage() {
               <div className="glass-card p-4 text-center">
                 <p className="text-[9px] text-spike-text-muted uppercase tracking-wider mb-1">Last Run</p>
                 <p className="text-xl font-bold text-spike-cyan mono">
-                  {council?.latestLog?.processingTimeMs
-                    ? formatDurationMs(council.latestLog.processingTimeMs)
-                    : council?.councilHealth?.last_run_time
-                      ? formatDuration(Math.round(council.councilHealth.last_run_time))
+                  {council?.councilHealth?.last_run_time
+                    ? formatDuration(Math.round(council.councilHealth.last_run_time))
+                    : council?.latestLog?.processingTimeMs
+                      ? formatDurationMs(council.latestLog.processingTimeMs)
                       : '--'}
                 </p>
+                {council?.recentReports?.[0] && (
+                  <p className="text-[8px] text-spike-text-muted mt-1">
+                    {new Date(council.recentReports[0].date).toLocaleDateString('en-CA')} · {council.recentReports[0].spikeCount} spikes
+                  </p>
+                )}
               </div>
               <div className="glass-card p-4 text-center">
                 <p className="text-[9px] text-spike-text-muted uppercase tracking-wider mb-1">Python Server</p>
