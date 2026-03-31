@@ -263,7 +263,7 @@ export interface DividendInfo {
 export async function getDividendInfo(ticker: string): Promise<DividendInfo | null> {
   try {
     const data = await fmpFetch<any[]>(
-      `/stock-dividend-calendar?symbol=${encodeURIComponent(ticker)}`
+      `/dividends?symbol=${encodeURIComponent(ticker)}`
     );
     if (!data || data.length === 0) return null;
     const now = new Date();
