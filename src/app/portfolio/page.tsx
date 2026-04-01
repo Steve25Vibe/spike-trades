@@ -7,6 +7,20 @@ import { cn, formatCurrency, formatPercent } from '@/lib/utils';
 import CsvImportExport from '@/components/portfolio/CsvImportExport';
 import { usePortfolios, setActivePortfolioId } from '@/components/portfolio/usePortfolios';
 import { getLocalConfig } from '@/components/portfolio/PortfolioSettings';
+import SpikeItModal from '@/components/portfolio/SpikeItModal';
+
+function isMarketOpen(): boolean {
+  const now = new Date();
+  // Convert to AST (America/Halifax = UTC-4 standard, UTC-3 daylight)
+  const ast = new Date(now.toLocaleString('en-US', { timeZone: 'America/Halifax' }));
+  const day = ast.getDay(); // 0=Sun, 6=Sat
+  if (day === 0 || day === 6) return false;
+  const hours = ast.getHours();
+  const minutes = ast.getMinutes();
+  const timeInMinutes = hours * 60 + minutes;
+  // 10:30 AM = 630 min, 5:00 PM = 1020 min (AST)
+  return timeInMinutes >= 630 && timeInMinutes <= 1020;
+}
 
 interface Position {
   id: string;
@@ -65,6 +79,7 @@ export default function PortfolioPage() {
   const [closeConfirm, setCloseConfirm] = useState<string | null>(null);
   const [sellModal, setSellModal] = useState<Position | null>(null);
   const [sellShares, setSellShares] = useState<number>(0);
+  const [spikeItTicker, setSpikeItTicker] = useState<{ ticker: string; name: string; entryPrice: number } | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -546,6 +561,15 @@ export default function PortfolioPage() {
                     </div>
 
                     <div className="flex items-center gap-2 flex-shrink-0">
+                      <button
+                        onClick={() => setSpikeItTicker({ ticker: pos.ticker, name: pos.name, entryPrice: pos.entryPrice })}
+                        disabled={!isMarketOpen()}
+                        className="px-3 py-2 rounded-lg text-xs font-medium text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                        style={{ background: isMarketOpen() ? 'linear-gradient(135deg, #ff6b35, #ff8c42)' : '#333' }}
+                        title={isMarketOpen() ? 'Live health check — is this spike still running?' : 'Available during market hours (10:30 AM - 5:00 PM AST)'}
+                      >
+                        ⚡ Spike It
+                      </button>
                       <Link
                         href={`/dashboard/analysis/${pos.spikeId}`}
                         className="px-3 py-2 rounded-lg text-xs font-medium text-spike-cyan bg-spike-cyan/5 border border-spike-cyan/15 hover:bg-spike-cyan/10 transition-all"
@@ -633,6 +657,15 @@ export default function PortfolioPage() {
           <p className="mt-2">&copy; {new Date().getFullYear()} Spike Trades — spiketrades.ca &middot; Ver 3.1</p>
         </div>
         </>
+        )}
+
+        {spikeItTicker && (
+          <SpikeItModal
+            ticker={spikeItTicker.ticker}
+            companyName={spikeItTicker.name}
+            entryPrice={spikeItTicker.entryPrice}
+            onClose={() => setSpikeItTicker(null)}
+          />
         )}
 
         {/* Sell / Close Modal */}
