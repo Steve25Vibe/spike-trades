@@ -2,6 +2,12 @@
 
 ---
 
+## Ver 3.5 — API Cost Tracking + Model Upgrades (2026-04-01)
+- **API Cost Tracking** — Per-stage token usage and cost breakdown on Admin panel. Shows input/output tokens and dollar cost for each LLM stage (Sonnet, Gemini, Opus, Grok).
+- **Model Upgrades** — Sonnet 4 → 4.6 (same cost, better quality), Opus 4 → 4.6 (66% cost reduction: $15/$75 → $5/$25 per MTok).
+
+---
+
 ## Ver 3.2 — Spike It Health Check (2026-04-01)
 - **Spike It** — Live intraday health check button on portfolio tiles, powered by SuperGrok Heavy. Shows continuation probability, expected move, real-time chart, key levels, and risk warnings.
 
