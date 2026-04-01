@@ -31,8 +31,17 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
+import aiohttp
+import ssl
+import certifi
+import re
+import math
 
 load_dotenv(override=True)
+
+# ── FMP config for Spike It ──────────────────────────────────────────
+FMP_BASE = "https://financialmodelingprep.com/stable"
+FMP_API_KEY = os.environ.get("FMP_API_KEY", "")
 
 from canadian_llm_council_brain import CanadianStockCouncilBrain
 from canadian_portfolio_interface import CanadianPortfolioInterface
@@ -356,6 +365,11 @@ class RunCouncilRequest(BaseModel):
     tickers: list[str] | None = None  # Optional custom ticker list
 
 
+class SpikeItRequest(BaseModel):
+    ticker: str
+    entry_price: float
+
+
 @app.get("/health")
 async def health():
     """Health check endpoint."""
@@ -583,6 +597,207 @@ async def render_email_get():
     renderer = CanadianPortfolioInterface()
     html = renderer.render(data, "html")
     return HTMLResponse(content=html)
+
+
+# ── Spike It: Live Health Check ──────────────────────────────────────
+
+_spike_it_cache: dict[str, dict] = {}  # {ticker: {"result": {...}, "timestamp": float}}
+SPIKE_IT_CACHE_TTL = 300  # 5 minutes
+
+_spike_it_session: Optional[aiohttp.ClientSession] = None
+
+
+async def _get_spike_session() -> aiohttp.ClientSession:
+    """Get or create an aiohttp session for FMP calls."""
+    global _spike_it_session
+    if _spike_it_session is None or _spike_it_session.closed:
+        ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+        conn = aiohttp.TCPConnector(ssl=ssl_ctx, limit=10)
+        _spike_it_session = aiohttp.ClientSession(
+            connector=conn,
+            timeout=aiohttp.ClientTimeout(total=15),
+        )
+    return _spike_it_session
+
+
+async def _fmp_get_spike(path: str, params: dict | None = None) -> Any:
+    """Make a GET request to FMP /stable/ API for Spike It."""
+    session = await _get_spike_session()
+    params = params or {}
+    params["apikey"] = FMP_API_KEY
+    url = f"{FMP_BASE}{path}"
+    for attempt in range(3):
+        try:
+            async with session.get(url, params=params) as resp:
+                if resp.status == 429:
+                    wait = 5 * (2 ** attempt)
+                    logger.warning(f"Spike It FMP {path} rate limited, retrying in {wait}s")
+                    await asyncio.sleep(wait)
+                    continue
+                if resp.status != 200:
+                    logger.error(f"Spike It FMP {path} returned {resp.status}")
+                    return None
+                return await resp.json()
+        except Exception as e:
+            logger.error(f"Spike It FMP {path} error: {e}")
+            return None
+    return None
+
+
+def _calculate_vwap(bars: list[dict]) -> list[dict]:
+    """Calculate VWAP from intraday OHLCV bars. Returns [{time, value}, ...]."""
+    cumulative_tpv = 0.0
+    cumulative_vol = 0.0
+    vwap_points = []
+    for bar in bars:
+        typical = (bar["high"] + bar["low"] + bar["close"]) / 3
+        vol = bar.get("volume", 0)
+        if vol <= 0:
+            vwap_points.append({"time": bar["time"], "value": round(vwap_points[-1]["value"], 4) if vwap_points else round(typical, 4)})
+            continue
+        cumulative_tpv += typical * vol
+        cumulative_vol += vol
+        vwap = cumulative_tpv / cumulative_vol
+        vwap_points.append({"time": bar["time"], "value": round(vwap, 4)})
+    return vwap_points
+
+
+def _calculate_rsi(closes: list[float], period: int = 14) -> float | None:
+    """Calculate RSI from a list of closing prices. Returns None if insufficient data."""
+    if len(closes) < period + 1:
+        return None
+    gains = []
+    losses = []
+    for i in range(1, len(closes)):
+        delta = closes[i] - closes[i - 1]
+        gains.append(max(delta, 0))
+        losses.append(max(-delta, 0))
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
+    for i in range(period, len(gains)):
+        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+    if avg_loss == 0:
+        return 100.0
+    rs = avg_gain / avg_loss
+    return round(100 - (100 / (1 + rs)), 1)
+
+
+async def _fetch_spike_it_data(ticker: str) -> dict[str, Any] | None:
+    """Fetch all FMP data needed for Spike It analysis. Returns assembled dict or None on critical failure."""
+    quote_task = _fmp_get_spike("/batch-quote", {"symbols": ticker})
+    bars_task = _fmp_get_spike(f"/historical-chart/5min/{ticker}")
+    hist_task = _fmp_get_spike(f"/historical-price-eod/full/{ticker}", {"from": "", "limit": "10"})
+    news_task = _fmp_get_spike("/news/stock", {"symbols": ticker, "limit": "5"})
+    macro_task = _fmp_get_spike("/batch-quote", {"symbols": "USO,GLD,CADUSD=X,XIU.TO"})
+
+    quote_data, bars_data, hist_data, news_data, macro_data = await asyncio.gather(
+        quote_task, bars_task, hist_task, news_task, macro_task,
+        return_exceptions=True,
+    )
+
+    if isinstance(quote_data, Exception) or not quote_data or len(quote_data) == 0:
+        logger.error(f"Spike It: failed to fetch quote for {ticker}")
+        return None
+    quote = quote_data[0]
+
+    if isinstance(bars_data, Exception) or not bars_data or len(bars_data) < 5:
+        logger.error(f"Spike It: failed to fetch intraday bars for {ticker} (got {len(bars_data) if bars_data else 0})")
+        return None
+
+    today_str = datetime.now(ZoneInfo("America/Halifax")).strftime("%Y-%m-%d")
+    today_bars = []
+    for bar in reversed(bars_data):
+        bar_date = bar.get("date", "")[:10]
+        if bar_date == today_str:
+            try:
+                dt = datetime.fromisoformat(bar["date"])
+                ast_time = dt.astimezone(ZoneInfo("America/Halifax")).strftime("%H:%M")
+            except Exception:
+                ast_time = bar["date"][11:16]
+            today_bars.append({
+                "time": ast_time,
+                "open": bar["open"],
+                "high": bar["high"],
+                "low": bar["low"],
+                "close": bar["close"],
+                "volume": bar.get("volume", 0),
+            })
+
+    if len(today_bars) < 3:
+        logger.error(f"Spike It: insufficient intraday bars for {ticker} today ({len(today_bars)})")
+        return None
+
+    vwap_points = _calculate_vwap(today_bars)
+    current_vwap = vwap_points[-1]["value"] if vwap_points else None
+    closes = [b["close"] for b in today_bars]
+    rsi = _calculate_rsi(closes, 14)
+
+    avg_volume = None
+    if not isinstance(hist_data, Exception) and hist_data and len(hist_data) > 0:
+        volumes = [d.get("volume", 0) for d in hist_data[:10] if d.get("volume", 0) > 0]
+        if volumes:
+            avg_volume = sum(volumes) / len(volumes)
+    today_volume = quote.get("volume", 0)
+    rel_volume = round(today_volume / avg_volume, 2) if avg_volume and avg_volume > 0 else None
+
+    current_price = quote.get("price", closes[-1])
+    vwap_distance = round(current_price - current_vwap, 4) if current_vwap else None
+    above_vwap = vwap_distance > 0 if vwap_distance is not None else None
+
+    data_limitations = []
+    if rsi is None:
+        data_limitations.append("Insufficient bars for 14-period RSI calculation")
+    if rel_volume is None:
+        data_limitations.append("Could not calculate relative volume (missing historical data)")
+    if not isinstance(news_data, Exception) and not news_data:
+        data_limitations.append("News data unavailable")
+    if isinstance(news_data, Exception):
+        news_data = []
+        data_limitations.append("News data unavailable")
+
+    macro = {}
+    if not isinstance(macro_data, Exception) and macro_data:
+        for item in macro_data:
+            sym = item.get("symbol", "")
+            if sym == "USO":
+                macro["oil"] = {"price": item.get("price"), "changePct": item.get("changesPercentage")}
+            elif sym == "GLD":
+                macro["gold"] = {"price": item.get("price"), "changePct": item.get("changesPercentage")}
+            elif "CAD" in sym:
+                macro["cadUsd"] = item.get("price")
+            elif sym == "XIU.TO":
+                macro["tsx"] = {"price": item.get("price"), "changePct": item.get("changesPercentage")}
+    else:
+        data_limitations.append("Macro context unavailable")
+
+    clean_news = []
+    if not isinstance(news_data, Exception) and news_data:
+        for n in news_data[:5]:
+            clean_news.append({
+                "title": n.get("title", ""),
+                "publishedDate": n.get("publishedDate", ""),
+                "sentiment": n.get("sentiment", ""),
+                "text": (n.get("text", "") or "")[:200],
+            })
+
+    return {
+        "ticker": ticker,
+        "quote": quote,
+        "today_bars": today_bars,
+        "vwap_points": vwap_points,
+        "current_vwap": current_vwap,
+        "rsi": rsi,
+        "rel_volume": rel_volume,
+        "today_volume": today_volume,
+        "avg_volume": avg_volume,
+        "current_price": current_price,
+        "vwap_distance": vwap_distance,
+        "above_vwap": above_vwap,
+        "news": clean_news,
+        "macro": macro,
+        "data_limitations": data_limitations,
+    }
 
 
 # ── Main ─────────────────────────────────────────────────────────────────
