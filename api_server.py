@@ -34,8 +34,6 @@ from pydantic import BaseModel
 import aiohttp
 import ssl
 import certifi
-import re
-import math
 
 load_dotenv(override=True)
 
@@ -641,6 +639,7 @@ async def _fmp_get_spike(path: str, params: dict | None = None) -> Any:
         except Exception as e:
             logger.error(f"Spike It FMP {path} error: {e}")
             return None
+    logger.error(f"Spike It FMP {path} exhausted retries after rate limiting")
     return None
 
 
@@ -798,6 +797,13 @@ async def _fetch_spike_it_data(ticker: str) -> dict[str, Any] | None:
         "macro": macro,
         "data_limitations": data_limitations,
     }
+
+
+@app.on_event("shutdown")
+async def _close_spike_session():
+    global _spike_it_session
+    if _spike_it_session and not _spike_it_session.closed:
+        await _spike_it_session.close()
 
 
 # ── Main ─────────────────────────────────────────────────────────────────
