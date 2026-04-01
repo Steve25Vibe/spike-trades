@@ -71,6 +71,20 @@ export async function GET() {
       if (statusRes.ok) runStatus = await statusRes.json();
     } catch {}
 
+    // Fetch stage_metadata (token usage) from latest council output
+    let latestStageMetadata: Record<string, unknown> | null = null;
+    try {
+      const outputRes = await fetch(`${COUNCIL_API_URL}/latest-output`, {
+        signal: AbortSignal.timeout(10000),
+      });
+      if (outputRes.ok) {
+        const outputJson = await outputRes.json();
+        latestStageMetadata = outputJson?.stage_metadata || null;
+      }
+    } catch {
+      // Council unreachable — latestStageMetadata stays null
+    }
+
     return NextResponse.json({
       success: true,
       data: {
@@ -84,6 +98,7 @@ export async function GET() {
         } : null,
         fmpHealth,
         runStatus,
+        latestStageMetadata,
         recentReports: recentReports.map((r) => ({
           id: r.id,
           date: r.date,

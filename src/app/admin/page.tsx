@@ -68,6 +68,15 @@ interface CouncilStatus {
   recentReports: { id: string; date: string; generatedAt: string; regime: string | null; spikeCount: number }[];
   fmpHealth?: { run_date?: string; endpoints?: Record<string, Record<string, number>> } | null;
   runStatus?: RunStatus | null;
+  latestStageMetadata?: {
+    token_usage?: {
+      stage1?: { model: string; input_tokens: number; output_tokens: number };
+      stage2?: { model: string; input_tokens: number; output_tokens: number };
+      stage3?: { model: string; input_tokens: number; output_tokens: number };
+      stage4?: { model: string; input_tokens: number; output_tokens: number };
+    };
+    [key: string]: unknown;
+  } | null;
 }
 
 function formatDuration(seconds: number): string {
@@ -78,6 +87,30 @@ function formatDuration(seconds: number): string {
 
 function formatDurationMs(ms: number): string {
   return formatDuration(Math.round(ms / 1000));
+}
+
+// API pricing per million tokens (USD) — update when provider prices change
+const LLM_PRICING: Record<string, { input: number; output: number; label: string }> = {
+  'claude-sonnet-4-6-20250514': { input: 3.00, output: 15.00, label: 'Sonnet 4.6' },
+  'claude-sonnet-4-20250514': { input: 3.00, output: 15.00, label: 'Sonnet 4' },
+  'claude-opus-4-6-20250514': { input: 5.00, output: 25.00, label: 'Opus 4.6' },
+  'claude-opus-4-20250514': { input: 15.00, output: 75.00, label: 'Opus 4' },
+  'gemini-3.1-pro-preview': { input: 1.25, output: 10.00, label: 'Gemini 3.1 Pro' },
+  'gemini-3.1-pro': { input: 1.25, output: 10.00, label: 'Gemini 3.1 Pro' },
+  'grok-4-0709': { input: 3.00, output: 15.00, label: 'Grok 4' },
+};
+const FALLBACK_PRICING = { input: 15.00, output: 75.00, label: 'Unknown' };
+
+function calculateStageCost(stage: { model: string; input_tokens: number; output_tokens: number }) {
+  const pricing = LLM_PRICING[stage.model] || FALLBACK_PRICING;
+  const cost = (stage.input_tokens / 1_000_000) * pricing.input + (stage.output_tokens / 1_000_000) * pricing.output;
+  return { cost, pricing };
+}
+
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
 }
 
 export default function AdminPage() {
@@ -548,6 +581,52 @@ export default function AdminPage() {
                 })()}
               </div>
             </div>
+
+            {/* Run Cost Breakdown */}
+            {(() => {
+              const tokenUsage = council?.latestStageMetadata?.token_usage;
+              if (!tokenUsage) return (
+                <div className="glass-card p-4">
+                  <p className="text-[9px] text-spike-text-muted uppercase tracking-wider mb-2">Run Cost Breakdown</p>
+                  <p className="text-xs text-spike-text-dim">Token data not available for this run</p>
+                </div>
+              );
+
+              const stages = [
+                { key: 'stage1', label: 'Stage 1', ...(tokenUsage.stage1 || { model: 'skipped', input_tokens: 0, output_tokens: 0 }) },
+                { key: 'stage2', label: 'Stage 2', ...(tokenUsage.stage2 || { model: 'skipped', input_tokens: 0, output_tokens: 0 }) },
+                { key: 'stage3', label: 'Stage 3', ...(tokenUsage.stage3 || { model: 'skipped', input_tokens: 0, output_tokens: 0 }) },
+                { key: 'stage4', label: 'Stage 4', ...(tokenUsage.stage4 || { model: 'skipped', input_tokens: 0, output_tokens: 0 }) },
+              ].filter(s => s.model && s.model !== 'skipped');
+
+              let totalCost = 0;
+              const rows = stages.map(s => {
+                const { cost, pricing } = calculateStageCost(s);
+                totalCost += cost;
+                return { ...s, cost, displayLabel: `${s.label} · ${pricing.label}` };
+              });
+
+              return (
+                <div className="glass-card p-4">
+                  <p className="text-[9px] text-spike-text-muted uppercase tracking-wider mb-3">Run Cost Breakdown</p>
+                  <div className="space-y-2">
+                    {rows.map(r => (
+                      <div key={r.key} className="flex items-center justify-between text-xs">
+                        <div>
+                          <span className="text-spike-text">{r.displayLabel}</span>
+                          <span className="text-spike-text-dim ml-2">{formatTokens(r.input_tokens)} in / {formatTokens(r.output_tokens)} out</span>
+                        </div>
+                        <span className="text-spike-cyan mono font-medium">${r.cost.toFixed(2)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="border-t border-spike-border/30 mt-3 pt-3 flex items-center justify-between">
+                    <span className="text-xs font-bold text-spike-text">Total</span>
+                    <span className="text-lg font-bold text-spike-cyan mono">${totalCost.toFixed(2)}</span>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Stage Pipeline Visualization */}
             {(() => {
