@@ -9,6 +9,7 @@ Endpoints:
   GET  /latest-output-mapped → return last output mapped to Prisma schema
   GET  /health               → status check
   POST /render-email         → render HTML email from latest output
+  POST /spike-it             → live intraday health check (SuperGrok)
 
 Run:
   uvicorn api_server:app --host 0.0.0.0 --port 8100 --reload
@@ -41,7 +42,7 @@ load_dotenv(override=True)
 FMP_BASE = "https://financialmodelingprep.com/stable"
 FMP_API_KEY = os.environ.get("FMP_API_KEY", "")
 
-from canadian_llm_council_brain import CanadianStockCouncilBrain
+from canadian_llm_council_brain import CanadianStockCouncilBrain, _call_grok, _extract_json, _call_anthropic
 from canadian_portfolio_interface import CanadianPortfolioInterface
 
 # ── Logging ──────────────────────────────────────────────────────────────
@@ -797,6 +798,182 @@ async def _fetch_spike_it_data(ticker: str) -> dict[str, Any] | None:
         "macro": macro,
         "data_limitations": data_limitations,
     }
+
+
+SPIKE_IT_SYSTEM_PROMPT = """You are SuperGrok Heavy, elite real-time TSX intraday analyst.
+
+You will receive a JSON payload containing live FMP data for a single TSX stock that the user holds in an active position. Your job is to perform a quick health check: should they hold for more upside today, or has momentum faded?
+
+You MUST respond with valid JSON matching this exact schema — no markdown, no commentary outside the JSON:
+
+{
+  "continuation_probability": <int 0-100>,
+  "light": "<green|yellow|red>",
+  "summary": "<one sentence, max 80 chars>",
+  "expected_move": {
+    "direction": "<up|down|flat>",
+    "dollar_amount": <float>,
+    "target_price": <float>
+  },
+  "support_price": <float>,
+  "support_label": "<string, e.g. 'VWAP' or 'High-volume node'>",
+  "stop_loss_price": <float>,
+  "stop_loss_label": "<string>",
+  "rsi_assessment": "<string, e.g. 'Healthy' or 'Overbought'>",
+  "risk_warning": "<1-2 sentences, main risk for rest of day>",
+  "data_limitations": ["<any honest caveats about data quality>"]
+}
+
+Traffic light rules:
+- GREEN (60-100%): Price above VWAP, RSI < 75, volume confirming, no bearish divergence
+- YELLOW (40-59%): Mixed signals — near VWAP, fading volume, or RSI approaching overbought
+- RED (0-39%): Below VWAP, bearish divergence, volume dying, or adverse catalyst
+
+Ground every number in the FMP data provided. Do not hallucinate price levels or invent catalysts. If data is insufficient for a field, say so in data_limitations."""
+
+
+def _build_spike_it_user_prompt(data: dict, entry_price: float) -> str:
+    """Build the user prompt for Grok from assembled FMP data."""
+    quote = data["quote"]
+    current_price = data["current_price"]
+    change_pct = quote.get("changesPercentage", 0)
+    prev_close = quote.get("previousClose", 0)
+    pnl = current_price - entry_price
+    pnl_pct = (pnl / entry_price * 100) if entry_price > 0 else 0
+
+    compact_bars = json.dumps(
+        [{"t": b["time"], "o": b["open"], "h": b["high"], "l": b["low"], "c": b["close"], "v": b["volume"]}
+         for b in data["today_bars"]],
+        separators=(",", ":"),
+    )
+
+    macro_lines = []
+    macro = data.get("macro", {})
+    if "oil" in macro:
+        macro_lines.append(f"- Oil (USO): ${macro['oil']['price']} ({macro['oil']['changePct']}%)")
+    if "gold" in macro:
+        macro_lines.append(f"- Gold (GLD): ${macro['gold']['price']} ({macro['gold']['changePct']}%)")
+    if "cadUsd" in macro:
+        macro_lines.append(f"- CAD/USD: {macro['cadUsd']}")
+    if "tsx" in macro:
+        macro_lines.append(f"- TSX (XIU.TO): ${macro['tsx']['price']} ({macro['tsx']['changePct']}%)")
+    macro_block = "\n".join(macro_lines) if macro_lines else "Unavailable"
+
+    news_block = json.dumps(data.get("news", []), separators=(",", ":"), default=str)
+
+    return f"""Ticker: {data['ticker']}
+Current Price: ${current_price} ({change_pct:+.2f}% today)
+Previous Close: ${prev_close}
+Today's Volume: {data['today_volume']:,} (Relative: {data['rel_volume']}x 10-day avg)
+
+Intraday 5-min bars (OHLCV): {compact_bars}
+
+Calculated Metrics:
+- VWAP: ${data['current_vwap']}
+- 14-period RSI (5-min): {data['rsi'] if data['rsi'] is not None else 'N/A'}
+- Price vs VWAP: {'above' if data['above_vwap'] else 'below'} by ${abs(data['vwap_distance']) if data['vwap_distance'] else 'N/A'}
+
+Recent News: {news_block}
+
+Macro Context:
+{macro_block}
+
+Position context: User entered at ${entry_price:.2f}, currently {'up' if pnl >= 0 else 'down'} ${abs(pnl):.2f} ({pnl_pct:+.1f}%)."""
+
+
+@app.post("/spike-it")
+async def spike_it(request: SpikeItRequest):
+    """Live intraday health check for a single ticker using SuperGrok."""
+    ticker = request.ticker.upper().strip()
+    entry_price = request.entry_price
+
+    now = time.time()
+    if ticker in _spike_it_cache:
+        cached = _spike_it_cache[ticker]
+        if now - cached["timestamp"] < SPIKE_IT_CACHE_TTL:
+            result = cached["result"].copy()
+            result["cached"] = True
+            result["cache_age_seconds"] = int(now - cached["timestamp"])
+            return JSONResponse(content=result)
+
+    data = await _fetch_spike_it_data(ticker)
+    if data is None:
+        raise HTTPException(502, f"Failed to fetch market data for {ticker}")
+
+    user_prompt = _build_spike_it_user_prompt(data, entry_price)
+    xai_key = os.environ.get("XAI_API_KEY", "")
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
+
+    grok_raw = None
+    used_model = "grok-4-0709"
+
+    if xai_key:
+        try:
+            grok_raw = await _call_grok(
+                api_key=xai_key,
+                model="grok-4-0709",
+                system_prompt=SPIKE_IT_SYSTEM_PROMPT,
+                user_prompt=user_prompt,
+                max_tokens=2048,
+                temperature=0.3,
+            )
+        except Exception as e:
+            logger.warning(f"Spike It: Grok failed for {ticker}, falling back to Opus: {e}")
+
+    if not grok_raw and anthropic_key:
+        try:
+            used_model = "claude-opus-4-6"
+            grok_raw = await _call_anthropic(
+                api_key=anthropic_key,
+                model="claude-opus-4-6",
+                system_prompt=SPIKE_IT_SYSTEM_PROMPT,
+                user_prompt=user_prompt,
+                max_tokens=2048,
+                temperature=0.3,
+            )
+        except Exception as e:
+            logger.error(f"Spike It: Opus fallback also failed for {ticker}: {e}")
+            raise HTTPException(502, f"LLM analysis failed for {ticker}")
+
+    if not grok_raw:
+        raise HTTPException(502, f"No LLM API keys available for Spike It")
+
+    parsed = _extract_json(grok_raw)
+    if parsed is None:
+        logger.error(f"Spike It: failed to parse Grok JSON for {ticker}")
+        raise HTTPException(502, f"Failed to parse analysis for {ticker}")
+
+    ast_now = datetime.now(ZoneInfo("America/Halifax"))
+    chart_bars = [{"time": b["time"], "close": b["close"]} for b in data["today_bars"]]
+
+    result = {
+        "ticker": ticker,
+        "timestamp": ast_now.isoformat(),
+        "cached": False,
+        "model": used_model,
+        "signal": {
+            "continuation_probability": parsed.get("continuation_probability", 50),
+            "light": parsed.get("light", "yellow"),
+            "summary": parsed.get("summary", "Analysis complete"),
+        },
+        "expected_move": parsed.get("expected_move", {"direction": "flat", "dollar_amount": 0, "target_price": data["current_price"]}),
+        "levels": {
+            "support": {"price": parsed.get("support_price", data.get("current_vwap", 0)), "label": parsed.get("support_label", "VWAP")},
+            "stop_loss": {"price": parsed.get("stop_loss_price", 0), "label": parsed.get("stop_loss_label", "")},
+            "rsi": {"value": data.get("rsi", 0), "label": parsed.get("rsi_assessment", "N/A")},
+        },
+        "risk_warning": parsed.get("risk_warning", "No specific risks identified."),
+        "relative_volume": data.get("rel_volume"),
+        "chart": {
+            "bars": chart_bars,
+            "vwap": data.get("vwap_points", []),
+        },
+        "data_limitations": list(set(data.get("data_limitations", []) + parsed.get("data_limitations", []))),
+    }
+
+    _spike_it_cache[ticker] = {"result": result, "timestamp": now}
+
+    return JSONResponse(content=result)
 
 
 @app.on_event("shutdown")
