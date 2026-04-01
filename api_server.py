@@ -774,7 +774,7 @@ async def _fetch_spike_it_data(ticker: str) -> dict[str, Any] | None:
     today_volume = quote.get("volume", 0)
     rel_volume = round(today_volume / avg_volume, 2) if avg_volume and avg_volume > 0 else None
 
-    current_price = quote.get("price", closes[-1])
+    current_price = quote.get("price", today_bars[-1]["close"])
     vwap_distance = round(current_price - current_vwap, 4) if current_vwap else None
     above_vwap = vwap_distance > 0 if vwap_distance is not None else None
 
