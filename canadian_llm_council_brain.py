@@ -1475,6 +1475,7 @@ async def run_stage1_sonnet(
     """Stage 1: Sonnet screens universe to Top 100."""
     logger.info(f"Stage 1 (Sonnet): Processing {len(payloads)} tickers")
     start = time.time()
+    stage_tokens = {"model": "claude-sonnet-4-20250514", "input_tokens": 0, "output_tokens": 0}
 
     # Build user prompt with all ticker payloads (slimmed for token efficiency)
     payload_dicts = []
@@ -1493,18 +1494,20 @@ async def run_stage1_sonnet(
     prompt_context = learning_engine.build_prompt_context(1) if learning_engine else ""
     system_prompt = SONNET_SYSTEM_PROMPT + prompt_context
 
-    raw = await _call_anthropic(
+    raw, _usage = await _call_anthropic(
         api_key=api_key,
         model="claude-sonnet-4-20250514",
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         max_tokens=16384,
     )
+    stage_tokens["input_tokens"] += _usage.get("input_tokens", 0)
+    stage_tokens["output_tokens"] += _usage.get("output_tokens", 0)
 
     parsed = _extract_json(raw)
     if not parsed or "results" not in parsed:
         logger.error("Stage 1 Sonnet: Failed to parse response")
-        return []
+        return [], stage_tokens
 
     results = parsed["results"]
     # Validate scores
@@ -1519,7 +1522,7 @@ async def run_stage1_sonnet(
 
     elapsed = time.time() - start
     logger.info(f"Stage 1 (Sonnet): {len(validated)} tickers passed in {elapsed:.1f}s")
-    return sorted(validated, key=lambda x: x["score"]["total"], reverse=True)
+    return sorted(validated, key=lambda x: x["score"]["total"], reverse=True), stage_tokens
 
 
 # ── Stage 2: Gemini Re-scorer ────────────────────────────────────────
@@ -1575,6 +1578,7 @@ async def run_stage2_gemini(
     """Stage 2: Gemini independently re-scores, narrows to Top 80."""
     logger.info(f"Stage 2 (Gemini): Processing {len(stage1_results)} tickers from Stage 1")
     start = time.time()
+    stage_tokens = {"model": os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview"), "input_tokens": 0, "output_tokens": 0}
 
     # Build payload subset — only tickers that passed Stage 1 (slimmed)
     passed_tickers = {r["ticker"] for r in stage1_results}
@@ -1596,17 +1600,19 @@ async def run_stage2_gemini(
         f"{json.dumps(payload_dicts, **_COMPACT)}"
     )
 
-    raw = await _call_gemini(
+    raw, _usage = await _call_gemini(
         model=os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview"),
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         max_tokens=32768,
     )
+    stage_tokens["input_tokens"] += _usage.get("input_tokens", 0)
+    stage_tokens["output_tokens"] += _usage.get("output_tokens", 0)
 
     parsed = _extract_json(raw)
     if not parsed or "results" not in parsed:
         logger.error("Stage 2 Gemini: Failed to parse response")
-        return []
+        return [], stage_tokens
 
     results = parsed["results"]
     validated = []
@@ -1620,7 +1626,7 @@ async def run_stage2_gemini(
 
     elapsed = time.time() - start
     logger.info(f"Stage 2 (Gemini): {len(validated)} tickers passed in {elapsed:.1f}s")
-    return sorted(validated, key=lambda x: x["score"]["total"], reverse=True)
+    return sorted(validated, key=lambda x: x["score"]["total"], reverse=True), stage_tokens
 
 
 # ── Stage 3: Opus Challenger ─────────────────────────────────────────
@@ -1681,6 +1687,7 @@ async def run_stage3_opus(
     """Stage 3: Opus challenges picks, narrows to Top 40."""
     logger.info(f"Stage 3 (Opus): Processing {len(stage2_results)} tickers from Stage 2")
     start = time.time()
+    stage_tokens = {"model": "claude-opus-4-20250514", "input_tokens": 0, "output_tokens": 0}
 
     passed_tickers = {r["ticker"] for r in stage2_results}
     payload_dicts = []
@@ -1702,18 +1709,20 @@ async def run_stage3_opus(
         f"{json.dumps(payload_dicts, **_COMPACT)}"
     )
 
-    raw = await _call_anthropic(
+    raw, _usage = await _call_anthropic(
         api_key=api_key,
         model="claude-opus-4-20250514",
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         max_tokens=16384,
     )
+    stage_tokens["input_tokens"] += _usage.get("input_tokens", 0)
+    stage_tokens["output_tokens"] += _usage.get("output_tokens", 0)
 
     parsed = _extract_json(raw)
     if not parsed or "results" not in parsed:
         logger.error("Stage 3 Opus: Failed to parse response")
-        return []
+        return [], stage_tokens
 
     results = parsed["results"]
     validated = []
@@ -1732,7 +1741,7 @@ async def run_stage3_opus(
 
     elapsed = time.time() - start
     logger.info(f"Stage 3 (Opus): {len(validated)} tickers passed in {elapsed:.1f}s")
-    return sorted(validated, key=lambda x: x["score"]["total"], reverse=True)
+    return sorted(validated, key=lambda x: x["score"]["total"], reverse=True), stage_tokens
 
 
 # ── Stage 4: Grok Final Authority ────────────────────────────────────
@@ -1833,6 +1842,7 @@ async def run_stage4_grok(
     """Stage 4: Grok (or Opus fallback) produces final Top 10 with probabilistic forecasts."""
     logger.info(f"Stage 4 (Grok): Processing {len(stage3_results)} tickers from Stage 3")
     start = time.time()
+    stage_tokens = {"model": "grok-4-0709", "input_tokens": 0, "output_tokens": 0}
 
     passed_tickers = {r["ticker"] for r in stage3_results}
     payload_dicts = []
@@ -1859,31 +1869,36 @@ async def run_stage4_grok(
     use_grok = bool(xai_api_key)
     if use_grok:
         try:
-            raw = await _call_grok(
+            raw, _usage = await _call_grok(
                 api_key=xai_api_key,
                 model="grok-4-0709",
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 max_tokens=16384,
             )
+            stage_tokens["input_tokens"] += _usage.get("input_tokens", 0)
+            stage_tokens["output_tokens"] += _usage.get("output_tokens", 0)
         except Exception as e:
             logger.warning(f"Grok failed, falling back to Opus for Stage 4: {e}")
             use_grok = False
 
     if not use_grok:
         logger.info("Stage 4: Using Opus as fallback for Grok")
-        raw = await _call_anthropic(
+        raw, _usage = await _call_anthropic(
             api_key=anthropic_api_key,
             model="claude-opus-4-20250514",
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             max_tokens=16384,
         )
+        stage_tokens["model"] = "claude-opus-4-20250514"
+        stage_tokens["input_tokens"] += _usage.get("input_tokens", 0)
+        stage_tokens["output_tokens"] += _usage.get("output_tokens", 0)
 
     parsed = _extract_json(raw)
     if not parsed or "results" not in parsed:
         logger.error("Stage 4: Failed to parse response")
-        return []
+        return [], stage_tokens
 
     results = parsed["results"]
     validated = []
@@ -1907,7 +1922,7 @@ async def run_stage4_grok(
     elapsed = time.time() - start
     model_used = "grok-3" if use_grok else "claude-opus-4.6 (fallback)"
     logger.info(f"Stage 4 ({model_used}): {len(validated)} tickers passed in {elapsed:.1f}s")
-    return sorted(validated, key=lambda x: x["score"]["total"], reverse=True)
+    return sorted(validated, key=lambda x: x["score"]["total"], reverse=True), stage_tokens
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -4416,6 +4431,10 @@ class CanadianStockCouncilBrain:
             payloads_map = {p.ticker: p for p in payloads_list}
 
             # ── Step 5: Stage 1 — Sonnet ──
+            stage1_tokens = {"model": "skipped", "input_tokens": 0, "output_tokens": 0}
+            stage2_tokens = {"model": "skipped", "input_tokens": 0, "output_tokens": 0}
+            stage3_tokens = {"model": "skipped", "input_tokens": 0, "output_tokens": 0}
+            stage4_tokens = {"model": "skipped", "input_tokens": 0, "output_tokens": 0}
             STAGE_WALL_CLOCK_TIMEOUT = 420  # 7 minutes max per stage
             logger.info(f"Step 5: Stage 1 (Sonnet) — {len(payloads_list)} tickers")
             # Batch size 15 to stay under Anthropic rate limits (~30K tokens/min)
@@ -4440,10 +4459,13 @@ class CanadianStockCouncilBrain:
                         f"tickers {i+1}-{min(i+BATCH_SIZE, len(payloads_list))}"
                     )
                     try:
-                        batch_results = await run_stage1_sonnet(
+                        batch_results, batch_tokens = await run_stage1_sonnet(
                             self.anthropic_key, batch, macro,
                             learning_engine=self.learning_engine,
                         )
+                        stage1_tokens["model"] = batch_tokens["model"]
+                        stage1_tokens["input_tokens"] += batch_tokens["input_tokens"]
+                        stage1_tokens["output_tokens"] += batch_tokens["output_tokens"]
                         stage1_all.extend(batch_results)
                         if tracker:
                             tracker.update_batch("stage1_sonnet", batch_num)
@@ -4456,7 +4478,7 @@ class CanadianStockCouncilBrain:
                     stage1_all, key=lambda x: x["score"]["total"], reverse=True
                 )[:100]
             else:
-                stage1_results = await run_stage1_sonnet(
+                stage1_results, stage1_tokens = await run_stage1_sonnet(
                     self.anthropic_key, payloads_list, macro,
                     learning_engine=self.learning_engine,
                 )
@@ -4482,6 +4504,7 @@ class CanadianStockCouncilBrain:
             try:
                 async def _run_stage2_all() -> list[dict]:
                     """Run all Stage 2 batches, wrapped by wall-clock timeout."""
+                    nonlocal stage2_tokens
                     if len(stage1_results) > GEMINI_BATCH_SIZE:
                         s1_tickers_batched = [
                             stage1_results[i:i + GEMINI_BATCH_SIZE]
@@ -4490,18 +4513,18 @@ class CanadianStockCouncilBrain:
                         GEMINI_CONCURRENCY = 2
                         gemini_sem = asyncio.Semaphore(GEMINI_CONCURRENCY)
 
-                        async def _run_gemini_batch(batch_idx: int, s1_batch: list[dict]) -> list[dict]:
+                        async def _run_gemini_batch(batch_idx: int, s1_batch: list[dict]) -> tuple[list[dict], dict]:
                             async with gemini_sem:
                                 batch_tickers = {r["ticker"] for r in s1_batch}
                                 batch_payloads = [p for p in payloads_list if p.ticker in batch_tickers]
                                 logger.info(f"Stage 2 batch {batch_idx + 1}/{len(s1_tickers_batched)}: {len(s1_batch)} tickers")
-                                result = await run_stage2_gemini(
+                                result, batch_tokens = await run_stage2_gemini(
                                     batch_payloads, macro, s1_batch,
                                     learning_engine=self.learning_engine,
                                 )
                                 if tracker:
                                     tracker.update_batch("stage2_gemini", batch_idx + 1)
-                                return result
+                                return result, batch_tokens
 
                         batch_tasks = [
                             _run_gemini_batch(idx, batch)
@@ -4514,10 +4537,14 @@ class CanadianStockCouncilBrain:
                             if isinstance(br, Exception):
                                 logger.warning(f"Stage 2 batch {idx + 1} failed: {br}")
                             else:
-                                all_results.extend(br)
+                                results, batch_tok = br
+                                all_results.extend(results)
+                                stage2_tokens["model"] = batch_tok["model"]
+                                stage2_tokens["input_tokens"] += batch_tok["input_tokens"]
+                                stage2_tokens["output_tokens"] += batch_tok["output_tokens"]
                         return sorted(all_results, key=lambda x: x["score"]["total"], reverse=True)[:80]
                     else:
-                        r = await run_stage2_gemini(payloads_list, macro, stage1_results,
+                        r, stage2_tokens = await run_stage2_gemini(payloads_list, macro, stage1_results,
                                                      learning_engine=self.learning_engine)
                         return r[:80]
 
@@ -4577,11 +4604,14 @@ class CanadianStockCouncilBrain:
                         s1_for_batch = [r for r in stage1_results if r["ticker"] in batch_tickers]
                         logger.info(f"Stage 3 batch {batch_idx + 1}/{len(s2_tickers_batched)}: {len(s2_batch)} tickers")
                         try:
-                            batch_results = await run_stage3_opus(
+                            batch_results, batch_tokens = await run_stage3_opus(
                                 self.anthropic_key, batch_payloads, macro,
                                 s1_for_batch, s2_batch,
                                 learning_engine=self.learning_engine,
                             )
+                            stage3_tokens["model"] = batch_tokens["model"]
+                            stage3_tokens["input_tokens"] += batch_tokens["input_tokens"]
+                            stage3_tokens["output_tokens"] += batch_tokens["output_tokens"]
                             stage3_all.extend(batch_results)
                             if tracker:
                                 tracker.update_batch("stage3_opus", batch_idx + 1)
@@ -4593,7 +4623,7 @@ class CanadianStockCouncilBrain:
                         stage3_all, key=lambda x: x["score"]["total"], reverse=True
                     )[:40]
                 else:
-                    stage3_results = await run_stage3_opus(
+                    stage3_results, stage3_tokens = await run_stage3_opus(
                         self.anthropic_key, payloads_list, macro,
                         stage1_results, stage2_results,
                         learning_engine=self.learning_engine,
@@ -4626,7 +4656,7 @@ class CanadianStockCouncilBrain:
             stage4_results = []
             stage4_skipped = False
             try:
-                stage4_raw = await asyncio.wait_for(
+                stage4_raw, stage4_tokens = await asyncio.wait_for(
                     run_stage4_grok(
                         self.xai_key, self.anthropic_key,
                         payloads_list, macro,
@@ -4741,6 +4771,12 @@ class CanadianStockCouncilBrain:
                     "batching_used": len(payloads_list) > 50,
                     "total_runtime_seconds": round(total_runtime, 1),
                     "skipped_stages": skipped_stages,
+                    "token_usage": {
+                        "stage1": stage1_tokens,
+                        "stage2": stage2_tokens,
+                        "stage3": stage3_tokens,
+                        "stage4": stage4_tokens,
+                    },
                 },
                 fact_check_flags=fact_flags,
                 total_runtime_seconds=round(total_runtime, 1),
