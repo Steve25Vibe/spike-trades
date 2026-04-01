@@ -957,10 +957,10 @@ async def spike_it(request: SpikeItRequest):
 
     if not grok_raw and anthropic_key:
         try:
-            used_model = "claude-opus-4-6"
+            used_model = "claude-opus-4-6-20250514"
             grok_raw, _ = await _call_anthropic(
                 api_key=anthropic_key,
-                model="claude-opus-4-6",
+                model="claude-opus-4-6-20250514",
                 system_prompt=SPIKE_IT_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
                 max_tokens=2048,
