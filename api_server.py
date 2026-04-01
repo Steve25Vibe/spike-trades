@@ -944,7 +944,7 @@ async def spike_it(request: SpikeItRequest):
 
     if xai_key:
         try:
-            grok_raw = await _call_grok(
+            grok_raw, _ = await _call_grok(
                 api_key=xai_key,
                 model="grok-4-0709",
                 system_prompt=SPIKE_IT_SYSTEM_PROMPT,
@@ -958,7 +958,7 @@ async def spike_it(request: SpikeItRequest):
     if not grok_raw and anthropic_key:
         try:
             used_model = "claude-opus-4-6"
-            grok_raw = await _call_anthropic(
+            grok_raw, _ = await _call_anthropic(
                 api_key=anthropic_key,
                 model="claude-opus-4-6",
                 system_prompt=SPIKE_IT_SYSTEM_PROMPT,
