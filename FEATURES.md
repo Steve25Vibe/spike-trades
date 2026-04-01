@@ -2,6 +2,11 @@
 
 ---
 
+## Ver 3.2 — Spike It Health Check (2026-04-01)
+- **Spike It** — Live intraday health check button on portfolio tiles, powered by SuperGrok Heavy. Shows continuation probability, expected move, real-time chart, key levels, and risk warnings.
+
+---
+
 ## Ver 3.1 — Reliability & Admin Intelligence (March 30, 2026)
 
 ### Vertex AI Migration
