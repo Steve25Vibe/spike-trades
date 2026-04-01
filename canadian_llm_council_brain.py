@@ -1252,8 +1252,9 @@ async def _call_anthropic(
     user_prompt: str,
     max_tokens: int = 8192,
     temperature: float = 0.3,
-) -> str:
-    """Call Anthropic Claude API using streaming with retry on rate limits."""
+) -> tuple[str, dict]:
+    """Call Anthropic Claude API using streaming with retry on rate limits.
+    Returns (text, {"input_tokens": N, "output_tokens": N})."""
     import anthropic
     client = anthropic.Anthropic(api_key=api_key)
     for attempt in range(4):
@@ -1268,9 +1269,15 @@ async def _call_anthropic(
             ) as stream:
                 for text in stream.text_stream:
                     chunks.append(text)
-            return "".join(chunks)
+                # Capture usage from the final message before stream context exits
+                final_message = stream.get_final_message()
+                usage = {
+                    "input_tokens": getattr(final_message.usage, "input_tokens", 0),
+                    "output_tokens": getattr(final_message.usage, "output_tokens", 0),
+                }
+            return "".join(chunks), usage
         except anthropic.RateLimitError as e:
-            wait = 60 * (attempt + 1)  # 60s, 120s, 180s, 240s
+            wait = 60 * (attempt + 1)
             logger.warning(f"Anthropic {model} rate limited, waiting {wait}s (attempt {attempt + 1}/4)")
             await asyncio.sleep(wait)
         except Exception as e:
@@ -1299,10 +1306,9 @@ async def _call_gemini(
     user_prompt: str,
     max_tokens: int = 8192,
     temperature: float = 0.3,
-) -> str:
+) -> tuple[str, dict]:
     """Call Google Gemini via Vertex AI with retry on transient failures.
-    Uses google-genai SDK in Vertex AI mode (vertexai=True) for reliable
-    infrastructure with SLAs. Auth via GOOGLE_APPLICATION_CREDENTIALS."""
+    Returns (text, {"input_tokens": N, "output_tokens": N})."""
     from google import genai
     from google.genai import types
 
@@ -1326,7 +1332,11 @@ async def _call_gemini(
                     ),
                 ),
             )
-            return resp.text
+            usage = {"input_tokens": 0, "output_tokens": 0}
+            if hasattr(resp, "usage_metadata") and resp.usage_metadata:
+                usage["input_tokens"] = getattr(resp.usage_metadata, "prompt_token_count", 0) or 0
+                usage["output_tokens"] = getattr(resp.usage_metadata, "candidates_token_count", 0) or 0
+            return resp.text, usage
         except Exception as e:
             if _is_transient(e) and attempt < max_retries - 1:
                 wait = min(30 * (2 ** attempt), 300)
@@ -1344,8 +1354,9 @@ async def _call_grok(
     user_prompt: str,
     max_tokens: int = 8192,
     temperature: float = 0.3,
-) -> str:
-    """Call xAI Grok API (OpenAI-compatible) with retry on transient failures."""
+) -> tuple[str, dict]:
+    """Call xAI Grok API (OpenAI-compatible) with retry on transient failures.
+    Returns (text, {"input_tokens": N, "output_tokens": N})."""
     from openai import OpenAI
     client = OpenAI(api_key=api_key, base_url="https://api.x.ai/v1")
     max_retries = 4
@@ -1360,7 +1371,11 @@ async def _call_grok(
                     {"role": "user", "content": user_prompt},
                 ],
             )
-            return resp.choices[0].message.content
+            usage = {"input_tokens": 0, "output_tokens": 0}
+            if resp.usage:
+                usage["input_tokens"] = getattr(resp.usage, "prompt_tokens", 0) or 0
+                usage["output_tokens"] = getattr(resp.usage, "completion_tokens", 0) or 0
+            return resp.choices[0].message.content, usage
         except Exception as e:
             if _is_transient(e) and attempt < max_retries - 1:
                 wait = min(30 * (2 ** attempt), 300)
