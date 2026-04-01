@@ -687,7 +687,7 @@ async def _fetch_spike_it_data(ticker: str) -> dict[str, Any] | None:
     """Fetch all FMP data needed for Spike It analysis. Returns assembled dict or None on critical failure."""
     quote_task = _fmp_get_spike("/batch-quote", {"symbols": ticker})
     bars_task = _fmp_get_spike(f"/historical-chart/5min/{ticker}")
-    hist_task = _fmp_get_spike(f"/historical-price-eod/full/{ticker}", {"from": "", "limit": "10"})
+    hist_task = _fmp_get_spike("/historical-price-eod/full", {"symbol": ticker, "limit": "15"})
     news_task = _fmp_get_spike("/news/stock", {"symbols": ticker, "limit": "5"})
     macro_task = _fmp_get_spike("/batch-quote", {"symbols": "USO,GLD,CADUSD=X,XIU.TO"})
 
@@ -701,37 +701,70 @@ async def _fetch_spike_it_data(ticker: str) -> dict[str, Any] | None:
         return None
     quote = quote_data[0]
 
-    if isinstance(bars_data, Exception) or not bars_data or len(bars_data) < 5:
-        logger.error(f"Spike It: failed to fetch intraday bars for {ticker} (got {len(bars_data) if bars_data else 0})")
-        return None
-
-    today_str = datetime.now(ZoneInfo("America/Halifax")).strftime("%Y-%m-%d")
+    # ── Process intraday bars (with daily fallback) ──
     today_bars = []
-    for bar in reversed(bars_data):
-        bar_date = bar.get("date", "")[:10]
-        if bar_date == today_str:
-            try:
-                dt = datetime.fromisoformat(bar["date"])
-                ast_time = dt.astimezone(ZoneInfo("America/Halifax")).strftime("%H:%M")
-            except Exception:
-                ast_time = bar["date"][11:16]
-            today_bars.append({
-                "time": ast_time,
-                "open": bar["open"],
-                "high": bar["high"],
-                "low": bar["low"],
-                "close": bar["close"],
-                "volume": bar.get("volume", 0),
-            })
+    intraday_available = False
+    if not isinstance(bars_data, Exception) and bars_data and len(bars_data) >= 5:
+        today_str = datetime.now(ZoneInfo("America/Halifax")).strftime("%Y-%m-%d")
+        for bar in reversed(bars_data):
+            bar_date = bar.get("date", "")[:10]
+            if bar_date == today_str:
+                try:
+                    dt = datetime.fromisoformat(bar["date"])
+                    ast_time = dt.astimezone(ZoneInfo("America/Halifax")).strftime("%H:%M")
+                except Exception:
+                    ast_time = bar["date"][11:16]
+                today_bars.append({
+                    "time": ast_time,
+                    "open": bar["open"],
+                    "high": bar["high"],
+                    "low": bar["low"],
+                    "close": bar["close"],
+                    "volume": bar.get("volume", 0),
+                })
+        if len(today_bars) >= 3:
+            intraday_available = True
 
-    if len(today_bars) < 3:
-        logger.error(f"Spike It: insufficient intraday bars for {ticker} today ({len(today_bars)})")
-        return None
+    # Fallback: build synthetic bars from daily quote data
+    if not intraday_available:
+        logger.info(f"Spike It: no intraday bars for {ticker}, using daily quote fallback")
+        o = quote.get("open", quote.get("price", 0))
+        h = quote.get("dayHigh", quote.get("price", 0))
+        l = quote.get("dayLow", quote.get("price", 0))
+        c = quote.get("price", 0)
+        v = quote.get("volume", 0)
+        if not c:
+            logger.error(f"Spike It: no price data available for {ticker}")
+            return None
+        # Simulate 3 bars: open, midday estimate, current
+        mid_price = (o + c) / 2
+        today_bars = [
+            {"time": "10:30", "open": o, "high": max(o, mid_price), "low": min(o, mid_price), "close": mid_price, "volume": int(v * 0.4)},
+            {"time": "13:00", "open": mid_price, "high": max(mid_price, h), "low": min(mid_price, l), "close": (mid_price + c) / 2, "volume": int(v * 0.3)},
+            {"time": "now", "open": (mid_price + c) / 2, "high": h, "low": l, "close": c, "volume": int(v * 0.3)},
+        ]
 
     vwap_points = _calculate_vwap(today_bars)
     current_vwap = vwap_points[-1]["value"] if vwap_points else None
-    closes = [b["close"] for b in today_bars]
-    rsi = _calculate_rsi(closes, 14)
+
+    # Use FMP's daily VWAP if available and we're in fallback mode
+    if not intraday_available and not isinstance(hist_data, Exception) and hist_data:
+        fmp_vwap = hist_data[0].get("vwap")
+        if fmp_vwap:
+            current_vwap = fmp_vwap
+            vwap_points = [{"time": b["time"], "value": fmp_vwap} for b in today_bars]
+
+    # RSI: use historical daily closes if intraday unavailable
+    if intraday_available:
+        closes = [b["close"] for b in today_bars]
+        rsi = _calculate_rsi(closes, 14)
+    else:
+        # Build closes from historical daily data for RSI
+        daily_closes = []
+        if not isinstance(hist_data, Exception) and hist_data:
+            daily_closes = [d.get("close", 0) for d in reversed(hist_data) if d.get("close")]
+        daily_closes.append(quote.get("price", 0))  # Add today
+        rsi = _calculate_rsi(daily_closes, 14) if len(daily_closes) >= 15 else None
 
     avg_volume = None
     if not isinstance(hist_data, Exception) and hist_data and len(hist_data) > 0:
@@ -746,8 +779,10 @@ async def _fetch_spike_it_data(ticker: str) -> dict[str, Any] | None:
     above_vwap = vwap_distance > 0 if vwap_distance is not None else None
 
     data_limitations = []
+    if not intraday_available:
+        data_limitations.append("Intraday bars unavailable — using daily quote data (VWAP is approximate)")
     if rsi is None:
-        data_limitations.append("Insufficient bars for 14-period RSI calculation")
+        data_limitations.append("Insufficient data for 14-period RSI calculation")
     if rel_volume is None:
         data_limitations.append("Could not calculate relative volume (missing historical data)")
     if not isinstance(news_data, Exception) and not news_data:
