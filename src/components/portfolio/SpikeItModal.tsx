@@ -241,7 +241,7 @@ export default function SpikeItModal({ ticker, companyName, entryPrice, onClose 
           <div className="text-center py-8">
             <div className="text-spike-red text-sm mb-3">{error}</div>
             <button
-              onClick={fetchAnalysis}
+              onClick={() => fetchAnalysis()}
               className="px-4 py-2 rounded-lg text-xs font-medium text-spike-cyan bg-spike-cyan/5 border border-spike-cyan/15 hover:bg-spike-cyan/10 transition-all"
             >
               Retry
