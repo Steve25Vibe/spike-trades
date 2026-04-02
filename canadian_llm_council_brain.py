@@ -4438,7 +4438,7 @@ class CanadianStockCouncilBrain:
             logger.info(f"Step 5: Stage 1 (Sonnet) — {len(payloads_list)} tickers")
             # Batch size 15 to stay under Anthropic rate limits (~30K tokens/min)
             BATCH_SIZE = 15
-            INTER_BATCH_DELAY = 15  # seconds between batches to avoid 429s
+            INTER_BATCH_DELAY = 8  # seconds between batches (reduced from 15s; retry logic handles any 429s)
             stage1_start = asyncio.get_event_loop().time()
             _stage1_batch_count = (len(payloads_list) + BATCH_SIZE - 1) // BATCH_SIZE
             if tracker:
