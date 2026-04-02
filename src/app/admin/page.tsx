@@ -91,9 +91,9 @@ function formatDurationMs(ms: number): string {
 
 // API pricing per million tokens (USD) — update when provider prices change
 const LLM_PRICING: Record<string, { input: number; output: number; label: string }> = {
-  'claude-4-sonnet-20250514': { input: 3.00, output: 15.00, label: 'Sonnet 4.6' },
+  'claude-sonnet-4-6': { input: 3.00, output: 15.00, label: 'Sonnet 4.6' },
   'claude-sonnet-4-20250514': { input: 3.00, output: 15.00, label: 'Sonnet 4' },
-  'claude-4-opus-20250514': { input: 5.00, output: 25.00, label: 'Opus 4.6' },
+  'claude-opus-4-6': { input: 5.00, output: 25.00, label: 'Opus 4.6' },
   'claude-opus-4-20250514': { input: 15.00, output: 75.00, label: 'Opus 4' },
   'gemini-3.1-pro-preview': { input: 1.25, output: 10.00, label: 'Gemini 3.1 Pro' },
   'gemini-3.1-pro': { input: 1.25, output: 10.00, label: 'Gemini 3.1 Pro' },
@@ -556,7 +556,7 @@ export default function AdminPage() {
             {/* Status Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="glass-card p-4 text-center">
-                <p className="text-[9px] text-spike-text-muted uppercase tracking-wider mb-1">Last Run</p>
+                <p className="text-xs text-spike-text-muted uppercase tracking-wider mb-1">Last Run</p>
                 <p className="text-xl font-bold text-spike-cyan mono">
                   {council?.councilHealth?.last_run_time
                     ? formatDuration(Math.round(council.councilHealth.last_run_time))
@@ -565,13 +565,13 @@ export default function AdminPage() {
                       : '--'}
                 </p>
                 {council?.recentReports?.[0] && (
-                  <p className="text-[8px] text-spike-text-muted mt-1">
-                    {new Date(council.recentReports[0].date).toLocaleDateString('en-CA')} · {council.recentReports[0].spikeCount} spikes
+                  <p className="text-[11px] text-spike-text-muted mt-1">
+                    {String(council.recentReports[0].date).slice(0, 10)} · {council.recentReports[0].spikeCount} spikes
                   </p>
                 )}
               </div>
               <div className="glass-card p-4 text-center">
-                <p className="text-[9px] text-spike-text-muted uppercase tracking-wider mb-1">Python Server</p>
+                <p className="text-xs text-spike-text-muted uppercase tracking-wider mb-1">Python Server</p>
                 {(() => {
                   const status = council?.councilHealth?.status;
                   const isRunning = council?.runInProgress || council?.councilHealth?.council_running;
@@ -587,7 +587,7 @@ export default function AdminPage() {
               const tokenUsage = council?.latestStageMetadata?.token_usage;
               if (!tokenUsage) return (
                 <div className="glass-card p-4">
-                  <p className="text-[9px] text-spike-text-muted uppercase tracking-wider mb-2">Run Cost Breakdown</p>
+                  <p className="text-xs text-spike-text-muted uppercase tracking-wider mb-2">Run Cost Breakdown</p>
                   <p className="text-xs text-spike-text-dim">Token data not available for this run</p>
                 </div>
               );
@@ -608,7 +608,7 @@ export default function AdminPage() {
 
               return (
                 <div className="glass-card p-4">
-                  <p className="text-[9px] text-spike-text-muted uppercase tracking-wider mb-3">Run Cost Breakdown</p>
+                  <p className="text-xs text-spike-text-muted uppercase tracking-wider mb-3">Run Cost Breakdown</p>
                   <div className="space-y-2">
                     {rows.map(r => (
                       <div key={r.key} className="flex items-center justify-between text-xs">
@@ -762,7 +762,7 @@ export default function AdminPage() {
               <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-4">Manual Scan</h3>
               <p className="text-spike-text-dim text-sm mb-4">
                 Trigger a full 4-stage LLM council scan. This will screen the entire TSX universe and produce today&apos;s Top 10 spikes.
-                Typical runtime is 30-40 minutes.
+                Typical runtime is 15-20 minutes.
               </p>
               <button
                 onClick={() => setShowConfirm(true)}

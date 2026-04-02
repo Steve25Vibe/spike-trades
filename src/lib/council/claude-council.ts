@@ -144,7 +144,7 @@ Screen every candidate. Be ruthless — flag anything suspicious.`;
 
   try {
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 8192,
       system: SONNET_SYSTEM,
       messages: [{ role: 'user', content: userMessage }],
@@ -243,7 +243,7 @@ Review the screening. Challenge it. Produce your own Top 20.`;
 
   try {
     const response = await anthropic.messages.create({
-      model: 'claude-opus-4-20250514',
+      model: 'claude-opus-4-6',
       max_tokens: 8192,
       system: OPUS_SYSTEM,
       messages: [{ role: 'user', content: userMessage }],
@@ -392,7 +392,7 @@ You are the final authority. Produce the definitive Top 20. Your verdict is law.
   console.log('[Council] Grok unavailable — Opus acting as final authority');
   try {
     const response = await anthropic.messages.create({
-      model: 'claude-opus-4-20250514',
+      model: 'claude-opus-4-6',
       max_tokens: 8192,
       system: GROK_SYSTEM.replace('SuperGrok Heavy', 'Senior Council Authority'),
       messages: [{ role: 'user', content: userMessage }],

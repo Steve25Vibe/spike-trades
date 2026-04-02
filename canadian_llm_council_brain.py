@@ -1475,7 +1475,7 @@ async def run_stage1_sonnet(
     """Stage 1: Sonnet screens universe to Top 100."""
     logger.info(f"Stage 1 (Sonnet): Processing {len(payloads)} tickers")
     start = time.time()
-    stage_tokens = {"model": "claude-4-sonnet-20250514", "input_tokens": 0, "output_tokens": 0}
+    stage_tokens = {"model": "claude-sonnet-4-6", "input_tokens": 0, "output_tokens": 0}
 
     # Build user prompt with all ticker payloads (slimmed for token efficiency)
     payload_dicts = []
@@ -1496,7 +1496,7 @@ async def run_stage1_sonnet(
 
     raw, _usage = await _call_anthropic(
         api_key=api_key,
-        model="claude-4-sonnet-20250514",
+        model="claude-sonnet-4-6",
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         max_tokens=16384,
@@ -1687,7 +1687,7 @@ async def run_stage3_opus(
     """Stage 3: Opus challenges picks, narrows to Top 40."""
     logger.info(f"Stage 3 (Opus): Processing {len(stage2_results)} tickers from Stage 2")
     start = time.time()
-    stage_tokens = {"model": "claude-4-opus-20250514", "input_tokens": 0, "output_tokens": 0}
+    stage_tokens = {"model": "claude-opus-4-6", "input_tokens": 0, "output_tokens": 0}
 
     passed_tickers = {r["ticker"] for r in stage2_results}
     payload_dicts = []
@@ -1711,7 +1711,7 @@ async def run_stage3_opus(
 
     raw, _usage = await _call_anthropic(
         api_key=api_key,
-        model="claude-4-opus-20250514",
+        model="claude-opus-4-6",
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         max_tokens=16384,
@@ -1886,12 +1886,12 @@ async def run_stage4_grok(
         logger.info("Stage 4: Using Opus as fallback for Grok")
         raw, _usage = await _call_anthropic(
             api_key=anthropic_api_key,
-            model="claude-4-opus-20250514",
+            model="claude-opus-4-6",
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             max_tokens=16384,
         )
-        stage_tokens["model"] = "claude-4-opus-20250514"
+        stage_tokens["model"] = "claude-opus-4-6"
         stage_tokens["input_tokens"] += _usage.get("input_tokens", 0)
         stage_tokens["output_tokens"] += _usage.get("output_tokens", 0)
 
