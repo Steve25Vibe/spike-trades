@@ -4392,23 +4392,28 @@ class CanadianStockCouncilBrain:
             if tracker:
                 tracker.complete_stage("pre_filter", tickers_out=len(payloads_list))
 
-            # ── Step 4d: Fetch earnings calendar (1 API call) ──
-            logger.info("Step 4d: Fetching earnings calendar")
-            try:
-                earnings_map = await fetch_earnings_calendar(self.fetcher, days_ahead=10)
-            except Exception as e:
-                logger.warning(f"Earnings calendar fetch failed (non-fatal): {e}")
-                earnings_map = {}
+            # ── Steps 4d + 4e: Fetch earnings + enhanced signals in parallel ──
+            logger.info(f"Steps 4d+4e: Fetching earnings calendar + analyst data for {len(payloads_list)} tickers (parallel)")
 
-            # ── Step 4e: Fetch enhanced signals (insider + analyst) ──
-            logger.info(f"Step 4e: Fetching insider + analyst data for {len(payloads_list)} tickers")
-            try:
-                insider_map, analyst_map = await fetch_enhanced_signals_batch(
-                    self.fetcher, [p.ticker for p in payloads_list], quotes
-                )
-            except Exception as e:
-                logger.warning(f"Enhanced signals fetch failed (non-fatal): {e}")
-                insider_map, analyst_map = {}, {}
+            async def _fetch_earnings():
+                try:
+                    return await fetch_earnings_calendar(self.fetcher, days_ahead=10)
+                except Exception as e:
+                    logger.warning(f"Earnings calendar fetch failed (non-fatal): {e}")
+                    return {}
+
+            async def _fetch_enhanced():
+                try:
+                    return await fetch_enhanced_signals_batch(
+                        self.fetcher, [p.ticker for p in payloads_list], quotes
+                    )
+                except Exception as e:
+                    logger.warning(f"Enhanced signals fetch failed (non-fatal): {e}")
+                    return {}, {}
+
+            earnings_map, (insider_map, analyst_map) = await asyncio.gather(
+                _fetch_earnings(), _fetch_enhanced()
+            )
 
             # ── Step 4f: Compute sector-relative strength + attach all signals ──
             rel_strength_map = compute_sector_relative_strength(payloads_list)
