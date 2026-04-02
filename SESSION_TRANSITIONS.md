@@ -1741,3 +1741,102 @@ spike-trades-certbot   Up
 ### Context window status:
 - Estimated usage: heavy (systematic debugging of 3 issues, admin panel reliability implementation + deploy, dividend fix + deploy, Vertex AI run monitoring)
 - Reason for stopping: all fixes deployed and verified, user requested new session for feature brainstorming
+
+---
+
+## Session 19 Checkpoint — 2026-04-01
+
+### What was built:
+
+**Spike It (Ver 3.2) — built and deployed in earlier part of session (before this continuation):**
+- Live intraday health check button on portfolio tiles, powered by SuperGrok Heavy
+- Fixed intraday data fallback to daily quotes (FMP intraday endpoint not available on current plan)
+- Two hotfixes deployed
+
+**API Cost Tracking + Model Upgrades (Ver 3.5) — 8 tasks, all completed:**
+
+1. `1342358` — `_call_anthropic`, `_call_gemini`, `_call_grok` return `(text, usage)` tuples with token counts
+2. `0430a4d` — Stage functions (`run_stage1_sonnet` through `run_stage4_grok`) accumulate tokens across batches; `run_council()` writes `token_usage` into `stage_metadata`
+3. `d0458f0` — Spike It call sites in `api_server.py` updated for tuple returns
+4. `27bf2b4` — Model strings upgraded: Sonnet 4 → 4.6, Opus 4 → 4.6 (66% cost reduction on Stage 3)
+5. Deployed council container, verified healthy
+6. `c25e26b` — "Run Cost Breakdown" glass-card on Admin Council tab showing per-stage token counts and dollar costs
+7. `a1e20d9` — Version bump to Ver 3.5 across all 8 page footers + FEATURES.md changelog
+8. Full deploy of both council + app containers, verified Ver 3.5 on login page
+
+### What was tested:
+- Syntax verification (ast.parse) on both `canadian_llm_council_brain.py` and `api_server.py` → PASS
+- Spec compliance review (automated) of Tasks 1-4 → all ✅
+- Council container health check after deploy → `"status": "ok"`
+- Login page version string → `Ver 3.5`
+- Token usage in latest output → `{}` (expected — no new council run since deploy)
+
+### Key decisions made:
+- **Token accumulation in batched paths**: Stage 2 uses `nonlocal stage2_tokens` inside async closure for `asyncio.gather` batches; Stages 1 and 3 accumulate sequentially
+- **Skipped stage defaults**: `{"model": "skipped", "input_tokens": 0, "output_tokens": 0}` initialized for all 4 stages before pipeline runs
+- **Pricing in frontend**: Client-side cost calculation using `LLM_PRICING` constant map, with `$15/$75 per MTok` fallback for unknown models
+- **Admin API route**: Added `/latest-output` fetch to pass `stage_metadata` to frontend as `latestStageMetadata`
+
+### Files modified:
+- `canadian_llm_council_brain.py` — callers return tuples, stages accumulate tokens, model upgrades
+- `api_server.py` — Spike It call sites, Opus model string
+- `src/app/admin/page.tsx` — cost card + pricing constant
+- `src/app/api/admin/council/route.ts` — fetch stage_metadata from latest output
+- `src/app/login/page.tsx` + 7 other page files — version bump
+- `FEATURES.md` — Ver 3.5 changelog
+- `docs/superpowers/specs/2026-04-01-api-cost-tracking-design.md` — spec (from earlier in session)
+- `docs/superpowers/plans/2026-04-01-api-cost-tracking.md` — implementation plan (from earlier in session)
+
+### Production state:
+- **Version**: Ver 3.5 live at spiketrades.ca
+- **Containers**: council + app both rebuilt and running
+- **Backup**: Server backup at `/opt/backups/spike-trades-v3.2-20260401-104220.tar.gz` (pre-3.5)
+- **Cost card**: Will show data after next council run (tomorrow 10:45 AM AST)
+- **Models**: Sonnet 4.6 + Opus 4.6 active (will be used in next council run)
+
+### What the next session should do:
+1. Create a backup of Ver 3.5
+2. Discuss DigitalOcean upgrade possibilities
+
+### Context window status:
+- Estimated usage: moderate
+- Reason for stopping: all 8 tasks completed and deployed, user requested clean session transition
+
+---
+
+## Session 20 Checkpoint — 2026-04-01
+
+### What was done:
+
+1. **Ver 3.5 server backup created**: `/opt/backups/spike-trades-v3.5-20260401-202945.tar.gz` (228 MB) — full server state including data, node_modules, Docker artifacts
+2. **Ver 3.5 GitHub tag created**: `v3.5` tag pushed to `Steve25Vibe/spike-trades` at commit `a1e20d9` — restorable via `git checkout v3.5`
+3. **DigitalOcean upgrade discussion**: Current droplet is 2 vCPU / 4 GB RAM / 120 GB SSD (~$28/mo). RAM upgrade to 8 GB would NOT reduce council run times (bottleneck is network-bound LLM API calls, not memory). Upgrade recommended only when adding containers, user traffic, or OOM errors appear.
+4. **Full production health check** (systematic debugging approach):
+   - All 8 Docker containers running, 0 restarts, healthy
+   - Council API healthy on port 8100, latest output from Apr 1 (10 picks, RISK_OFF regime, 23.6 min runtime)
+   - Cron firing correctly: Apr 1 analysis (10 spikes), accuracy check (40 filled), backfill (success)
+   - PostgreSQL: 10 reports, 140 spikes, 14 accuracy records, 110/90/40 filled for 3D/5D/8D
+   - SQLite: 178 picks, 138 forecasts each for 3D/5D/8D
+   - SSL cert valid through Jun 16, 2026 (75 days remaining)
+   - Site accessible, Ver 3.5 confirmed on login page
+   - Token usage tracking: `{}` expected — first tracked run will be tomorrow's 10:45 AM
+
+### Server commit note:
+- Server has one extra uncommitted-then-committed change (`76b44d8`) not on GitHub: nginx oracle.spiketrades.ca config + package.json updates. These are captured in the tar.gz backup but not in the GitHub tag.
+
+### Files modified:
+- `SESSION_TRANSITIONS.md` — this checkpoint
+
+### Production state:
+- **Version**: Ver 3.5 live at spiketrades.ca
+- **Backups**: Server tar.gz + GitHub v3.5 tag
+- **All systems**: operational, no issues
+
+### What the next session should do:
+1. **Verify tomorrow's council run** (Apr 2, 10:45 AM AST) — first run with token usage tracking populated
+2. **Check cost card** on admin panel — should show per-stage token counts and dollar costs
+3. **Any new feature work** as directed
+
+### Context window status:
+- Estimated usage: light
+- Reason for stopping: both tasks complete, user signing off for the night
