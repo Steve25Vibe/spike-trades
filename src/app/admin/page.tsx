@@ -91,9 +91,9 @@ function formatDurationMs(ms: number): string {
 
 // API pricing per million tokens (USD) — update when provider prices change
 const LLM_PRICING: Record<string, { input: number; output: number; label: string }> = {
-  'claude-sonnet-4-6-20250514': { input: 3.00, output: 15.00, label: 'Sonnet 4.6' },
+  'claude-4-sonnet-20250514': { input: 3.00, output: 15.00, label: 'Sonnet 4.6' },
   'claude-sonnet-4-20250514': { input: 3.00, output: 15.00, label: 'Sonnet 4' },
-  'claude-opus-4-6-20250514': { input: 5.00, output: 25.00, label: 'Opus 4.6' },
+  'claude-4-opus-20250514': { input: 5.00, output: 25.00, label: 'Opus 4.6' },
   'claude-opus-4-20250514': { input: 15.00, output: 75.00, label: 'Opus 4' },
   'gemini-3.1-pro-preview': { input: 1.25, output: 10.00, label: 'Gemini 3.1 Pro' },
   'gemini-3.1-pro': { input: 1.25, output: 10.00, label: 'Gemini 3.1 Pro' },
