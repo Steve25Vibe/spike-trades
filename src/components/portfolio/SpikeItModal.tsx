@@ -160,7 +160,7 @@ export default function SpikeItModal({ ticker, companyName, entryPrice, onClose 
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center" onClick={onClose}>
       <div className="glass-card p-6 w-full max-w-[480px] mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-3">
           <div>
             <div className="text-[10px] uppercase tracking-widest text-spike-text-dim">Live Health Check</div>
             <div className="text-xl font-bold text-spike-cyan">
@@ -168,6 +168,72 @@ export default function SpikeItModal({ ticker, companyName, entryPrice, onClose 
             </div>
           </div>
           <button onClick={onClose} className="text-spike-text-dim hover:text-spike-text text-xl leading-none">&times;</button>
+        </div>
+
+        {/* Editable Entry Price */}
+        <div className="flex items-center gap-2 mb-4 text-sm">
+          <span className="text-spike-text-dim">Entry:</span>
+          {isEditingPrice ? (
+            <form
+              className="flex items-center gap-1"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const parsed = parseFloat(editInput);
+                if (!isNaN(parsed) && parsed > 0) {
+                  setActiveEntryPrice(parsed);
+                  setIsEditingPrice(false);
+                  fetchAnalysis(parsed);
+                }
+              }}
+            >
+              <span className="text-spike-text-dim">$</span>
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                value={editInput}
+                onChange={(e) => setEditInput(e.target.value)}
+                autoFocus
+                className="w-24 px-2 py-0.5 rounded bg-spike-bg border border-spike-cyan/30 text-spike-cyan font-mono text-sm focus:outline-none focus:border-spike-cyan"
+              />
+              <button
+                type="submit"
+                className="text-spike-green hover:text-spike-green/80 text-sm"
+                title="Confirm"
+              >
+                &#10003;
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsEditingPrice(false);
+                  setEditInput(activeEntryPrice.toFixed(2));
+                }}
+                className="text-spike-text-dim hover:text-spike-red text-sm"
+                title="Cancel"
+              >
+                &#10005;
+              </button>
+            </form>
+          ) : (
+            <>
+              <span className="text-spike-cyan font-mono font-semibold">${activeEntryPrice.toFixed(2)}</span>
+              {activeEntryPrice !== entryPrice && (
+                <span className="text-[9px] text-spike-text-dim">(edited)</span>
+              )}
+              <button
+                onClick={() => {
+                  setEditInput(activeEntryPrice.toFixed(2));
+                  setIsEditingPrice(true);
+                }}
+                className="text-spike-text-dim hover:text-spike-cyan text-xs transition-colors"
+                title="Edit entry price for this analysis"
+                disabled={loading}
+              >
+                &#9998;
+              </button>
+            </>
+          )}
         </div>
 
         {/* Error state */}
