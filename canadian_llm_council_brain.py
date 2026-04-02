@@ -996,7 +996,7 @@ async def fetch_enhanced_signals_batch(
     """Fetch insider + analyst data for tickers, rate-limited."""
     insider_map: dict[str, InsiderActivity] = {}
     analyst_map: dict[str, AnalystConsensus] = {}
-    sem = asyncio.Semaphore(3)
+    sem = asyncio.Semaphore(2)  # 2 concurrent to avoid FMP 429s on /grades + /price-target-consensus
 
     async def _fetch_one(ticker: str):
         async with sem:
