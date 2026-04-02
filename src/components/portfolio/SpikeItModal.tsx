@@ -121,8 +121,12 @@ export default function SpikeItModal({ ticker, companyName, entryPrice, onClose 
   const [result, setResult] = useState<SpikeItResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [activeEntryPrice, setActiveEntryPrice] = useState(entryPrice);
+  const [isEditingPrice, setIsEditingPrice] = useState(false);
+  const [editInput, setEditInput] = useState(entryPrice.toFixed(2));
 
-  const fetchAnalysis = useCallback(async () => {
+  const fetchAnalysis = useCallback(async (priceOverride?: number) => {
+    const price = priceOverride ?? activeEntryPrice;
     setLoading(true);
     setError(null);
     setResult(null);
@@ -130,7 +134,7 @@ export default function SpikeItModal({ ticker, companyName, entryPrice, onClose 
       const res = await fetch('/api/portfolio/spike-it', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticker, entryPrice }),
+        body: JSON.stringify({ ticker, entryPrice: price }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
@@ -143,11 +147,12 @@ export default function SpikeItModal({ ticker, companyName, entryPrice, onClose 
     } finally {
       setLoading(false);
     }
-  }, [ticker, entryPrice]);
+  }, [ticker, activeEntryPrice]);
 
   useEffect(() => {
-    fetchAnalysis();
-  }, [fetchAnalysis]);
+    fetchAnalysis(entryPrice);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const colors = result ? SIGNAL_COLORS[result.signal.light] : SIGNAL_COLORS.yellow;
 
