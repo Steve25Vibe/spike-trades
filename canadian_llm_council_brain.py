@@ -944,10 +944,9 @@ async def fetch_analyst_consensus(
     Uses /grades (raw actions) since /grades-summary was removed from FMP stable API.
     Computes buy/hold/sell summary from the most recent grade per analyst firm (last 12 months).
     """
-    grades_data, target_data = await asyncio.gather(
-        fetcher._fmp_get("/grades", params={"symbol": ticker}),
-        fetcher._fmp_get("/price-target-consensus", params={"symbol": ticker}),
-    )
+    grades_data = await fetcher._fmp_get("/grades", params={"symbol": ticker})
+    await asyncio.sleep(0.15)
+    target_data = await fetcher._fmp_get("/price-target-consensus", params={"symbol": ticker})
     # Compute grades summary from raw /grades data
     sb, b, h, s, ss = 0, 0, 0, 0, 0
     if grades_data and isinstance(grades_data, list):
