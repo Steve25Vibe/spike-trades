@@ -367,6 +367,8 @@ class RunCouncilRequest(BaseModel):
 class SpikeItRequest(BaseModel):
     ticker: str
     entry_price: float
+    user_id: str = ""       # empty = legacy/unauthenticated
+    is_admin: bool = False
 
 
 @app.get("/health")
@@ -600,7 +602,8 @@ async def render_email_get():
 
 # ── Spike It: Live Health Check ──────────────────────────────────────
 
-_spike_it_cache: dict[str, dict] = {}  # {ticker: {"result": {...}, "timestamp": float}}
+_spike_it_data_cache: dict[str, dict] = {}      # {ticker: {"data": {...}, "timestamp": float}}
+_spike_it_analysis_cache: dict[str, dict] = {}  # {"userId:ticker": {"result": {...}, "timestamp": float}}
 SPIKE_IT_CACHE_TTL = 300  # 5 minutes
 
 _spike_it_session: Optional[aiohttp.ClientSession] = None
@@ -918,23 +921,42 @@ Position context: User entered at ${entry_price:.2f}, currently {'up' if pnl >= 
 
 @app.post("/spike-it")
 async def spike_it(request: SpikeItRequest):
-    """Live intraday health check for a single ticker using SuperGrok."""
+    """Live intraday health check for a single ticker — per-user isolated."""
     ticker = request.ticker.upper().strip()
     entry_price = request.entry_price
+    user_id = request.user_id or "anon"
+    is_admin = request.is_admin
 
     now = time.time()
-    if ticker in _spike_it_cache:
-        cached = _spike_it_cache[ticker]
+
+    # ── Analysis cache (per-user) — admin always gets fresh ──
+    analysis_key = f"{user_id}:{ticker}"
+    if not is_admin and analysis_key in _spike_it_analysis_cache:
+        cached = _spike_it_analysis_cache[analysis_key]
         if now - cached["timestamp"] < SPIKE_IT_CACHE_TTL:
             result = cached["result"].copy()
             result["cached"] = True
             result["cache_age_seconds"] = int(now - cached["timestamp"])
             return JSONResponse(content=result)
 
-    data = await _fetch_spike_it_data(ticker)
+    # ── Data cache (global per-ticker) — FMP market data ──
+    if ticker in _spike_it_data_cache:
+        data_cached = _spike_it_data_cache[ticker]
+        if now - data_cached["timestamp"] < SPIKE_IT_CACHE_TTL:
+            data = data_cached["data"]
+        else:
+            data = await _fetch_spike_it_data(ticker)
+            if data is not None:
+                _spike_it_data_cache[ticker] = {"data": data, "timestamp": now}
+    else:
+        data = await _fetch_spike_it_data(ticker)
+        if data is not None:
+            _spike_it_data_cache[ticker] = {"data": data, "timestamp": now}
+
     if data is None:
         raise HTTPException(502, f"Failed to fetch market data for {ticker}")
 
+    # ── LLM analysis (per-user entry price) ──
     user_prompt = _build_spike_it_user_prompt(data, entry_price)
     xai_key = os.environ.get("XAI_API_KEY", "")
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
@@ -1006,7 +1028,8 @@ async def spike_it(request: SpikeItRequest):
         "data_limitations": list(set(data.get("data_limitations", []) + parsed.get("data_limitations", []))),
     }
 
-    _spike_it_cache[ticker] = {"result": result, "timestamp": now}
+    # Always write to analysis cache (even admin — prevents rapid double-click)
+    _spike_it_analysis_cache[analysis_key] = {"result": result, "timestamp": now}
 
     return JSONResponse(content=result)
 

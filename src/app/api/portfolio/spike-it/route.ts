@@ -1,9 +1,19 @@
 import { NextResponse } from 'next/server';
+import { getSession } from '@/lib/auth';
 
 const COUNCIL_API_URL = process.env.COUNCIL_API_URL || 'http://localhost:8100';
 
 export async function POST(request: Request) {
   try {
+    // Authenticate — Spike It requires a logged-in user
+    const session = await getSession();
+    if (!session.isAuthenticated || !session.userId) {
+      return NextResponse.json(
+        { error: 'Authentication required' },
+        { status: 401 }
+      );
+    }
+
     const body = await request.json();
     const { ticker, entryPrice } = body;
 
@@ -17,7 +27,12 @@ export async function POST(request: Request) {
     const res = await fetch(`${COUNCIL_API_URL}/spike-it`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ticker, entry_price: entryPrice }),
+      body: JSON.stringify({
+        ticker,
+        entry_price: entryPrice,
+        user_id: session.userId,
+        is_admin: session.role === 'admin',
+      }),
       signal: AbortSignal.timeout(30000),
     });
 
