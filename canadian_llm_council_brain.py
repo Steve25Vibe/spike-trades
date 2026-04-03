@@ -4296,6 +4296,20 @@ class CanadianStockCouncilBrain:
                 logger.info(f"Step 4b: {len(payloads_list)} tickers after noise filter")
 
             # ── Step 4c: Technical pre-filter (reduce universe before LLM stages) ──
+            # Load Opening Bell overrides (if available)
+            opening_bell_overrides: set[str] = set()
+            try:
+                with open("opening_bell_council_overrides.json", "r") as f:
+                    ob_data = json.load(f)
+                    today_str_ob = datetime.now(ZoneInfo("America/Halifax")).strftime("%Y-%m-%d")
+                    if ob_data.get("date") == today_str_ob:
+                        opening_bell_overrides = set(ob_data.get("tickers", []))
+                        logger.info(f"Council pre-filter: {len(opening_bell_overrides)} Opening Bell overrides loaded")
+            except FileNotFoundError:
+                pass
+            except Exception as e:
+                logger.warning(f"Council pre-filter: failed to load Opening Bell overrides: {e}")
+
             if tracker:
                 tracker.start_stage("pre_filter", tickers_in=len(payloads_list))
             MAX_STAGE1_TICKERS = 150
@@ -4313,6 +4327,12 @@ class CanadianStockCouncilBrain:
 
                     # Catalyst override: >5 news articles bypass the filter
                     if len(p.news) > 5:
+                        catalyst_overrides.append(p)
+                        continue
+
+                    # Opening Bell override: top 10 morning picks get guaranteed Stage 1
+                    if p.ticker in opening_bell_overrides:
+                        logger.info(f"Pre-filter: {p.ticker} bypasses filter (Opening Bell override)")
                         catalyst_overrides.append(p)
                         continue
 
