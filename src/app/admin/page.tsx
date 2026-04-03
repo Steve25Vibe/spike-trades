@@ -60,6 +60,19 @@ interface RunStatus {
   } | null;
 }
 
+interface OpeningBellStatus {
+  status?: 'running' | 'complete' | 'failed' | 'pending';
+  picks?: number;
+  duration_s?: number;
+  last_result_summary?: {
+    success?: boolean;
+    error?: string;
+    picks?: number;
+    duration_s?: number;
+  } | null;
+  [key: string]: unknown;
+}
+
 interface CouncilStatus {
   councilHealth: { status?: string; council_running?: boolean; last_run_time?: number; last_run_error?: string };
   runInProgress: boolean;
@@ -77,6 +90,8 @@ interface CouncilStatus {
     };
     [key: string]: unknown;
   } | null;
+  openingBellStatus?: OpeningBellStatus | null;
+  openingBellHealth?: { endpoints?: Record<string, Record<string, number>> } | null;
 }
 
 function formatDuration(seconds: number): string {
@@ -243,6 +258,16 @@ export default function AdminPage() {
     } finally {
       setActionLoading(null);
     }
+  };
+
+  const triggerOpeningBell = async () => {
+    try {
+      await fetch('/api/admin/council', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'opening-bell' }),
+      });
+    } catch { /* polling will pick up status */ }
   };
 
   const resetPassword = async (userId: string) => {
@@ -582,6 +607,54 @@ export default function AdminPage() {
               </div>
             </div>
 
+            {/* Opening Bell Status Card */}
+            {(() => {
+              const ob = council?.openingBellStatus;
+              const status = ob?.status ?? 'pending';
+              const statusColorMap: Record<string, string> = {
+                running: 'text-spike-amber',
+                complete: 'text-spike-green',
+                failed: 'text-spike-red',
+                pending: 'text-spike-text-dim',
+              };
+              const statusText = status.charAt(0).toUpperCase() + status.slice(1);
+              const picks = ob?.picks ?? ob?.last_result_summary?.picks ?? null;
+              const duration = ob?.duration_s ?? ob?.last_result_summary?.duration_s ?? null;
+              const error = ob?.last_result_summary?.success === false ? ob?.last_result_summary?.error : null;
+              return (
+                <div className="glass-card p-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-bold text-spike-amber uppercase tracking-wider">Opening Bell</span>
+                    <button
+                      onClick={triggerOpeningBell}
+                      className="px-3 py-1.5 rounded-lg bg-spike-amber/10 text-spike-amber text-xs font-bold hover:bg-spike-amber/20 transition-all border border-spike-amber/30"
+                    >
+                      Run Opening Bell
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3 text-center">
+                    <div>
+                      <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">Status</p>
+                      <p className={cn('text-sm font-bold mono', statusColorMap[status] ?? 'text-spike-text-dim')}>{statusText}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">Picks</p>
+                      <p className="text-sm font-bold mono text-spike-cyan">{picks ?? '--'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">Duration</p>
+                      <p className="text-sm font-bold mono text-spike-text">{duration != null ? formatDuration(Math.round(duration)) : '--'}</p>
+                    </div>
+                  </div>
+                  {error && (
+                    <div className="mt-3 p-2 rounded bg-spike-red/10 border border-spike-red/20">
+                      <p className="text-xs text-spike-red mono break-all">{error}</p>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* Run Cost Breakdown */}
             {(() => {
               const tokenUsage = council?.latestStageMetadata?.token_usage;
@@ -619,6 +692,12 @@ export default function AdminPage() {
                         <span className="text-spike-cyan mono font-medium">${r.cost.toFixed(2)}</span>
                       </div>
                     ))}
+                    {council?.openingBellStatus?.last_result_summary?.success && (
+                      <div className="flex justify-between items-center py-1 text-xs">
+                        <span className="text-spike-text-dim">Opening Bell · Sonnet 4.6</span>
+                        <span className="text-spike-cyan font-mono">~$0.50-1.00</span>
+                      </div>
+                    )}
                   </div>
                   <div className="border-t border-spike-border/30 mt-3 pt-3 flex items-center justify-between">
                     <span className="text-xs font-bold text-spike-text">Total</span>
@@ -851,14 +930,20 @@ export default function AdminPage() {
             </div>
 
             {/* Data Source Health */}
-            {council?.fmpHealth?.endpoints && (
+            {(council?.fmpHealth?.endpoints || council?.openingBellHealth?.endpoints) && (
               <div className="glass-card p-6">
                 <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-2">
                   Data Source Health
                 </h3>
                 <p className="text-spike-text-dim text-xs mb-4">
-                  FMP API endpoint status from the most recent council run ({council.fmpHealth.run_date || 'unknown'}).
+                  FMP API endpoint status from the most recent council run ({council?.fmpHealth?.run_date || 'unknown'}).
                 </p>
+                {(() => {
+                  const allEndpoints = {
+                    ...(council?.fmpHealth?.endpoints || {}),
+                    ...(council?.openingBellHealth?.endpoints || {}),
+                  };
+                  return (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
@@ -872,7 +957,7 @@ export default function AdminPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {Object.entries(council.fmpHealth.endpoints as Record<string, Record<string, number>>).map(([endpoint, counts]) => {
+                      {Object.entries(allEndpoints as Record<string, Record<string, number>>).map(([endpoint, counts]) => {
                         const ok = counts.ok || 0;
                         const not_found = counts['404'] || 0;
                         const rate_limited = counts['429'] || 0;
@@ -911,6 +996,8 @@ export default function AdminPage() {
                     </tbody>
                   </table>
                 </div>
+                  );
+                })()}
               </div>
             )}
           </div>

@@ -35,6 +35,8 @@ export async function GET() {
       fmpHealthResult,
       runStatusResult,
       latestOutputResult,
+      openingBellStatusResult,
+      openingBellHealthResult,
       recentReports,
       latestLog,
     ] = await Promise.all([
@@ -49,6 +51,10 @@ export async function GET() {
       safeFetch<Record<string, unknown>>(`${COUNCIL_API_URL}/run-status`, 5000),
       // Latest output — non-critical, short timeout
       safeFetch<Record<string, unknown>>(`${COUNCIL_API_URL}/latest-output`, 5000),
+      // Opening Bell run status — non-critical, short timeout
+      safeFetch<Record<string, unknown>>(`${COUNCIL_API_URL}/run-opening-bell-status`, 5000),
+      // Opening Bell FMP health — non-critical, short timeout
+      safeFetch<Record<string, unknown>>(`${COUNCIL_API_URL}/opening-bell-health`, 5000),
       // Prisma: recent reports
       prisma.dailyReport.findMany({
         take: 5,
@@ -71,6 +77,8 @@ export async function GET() {
     const councilHealth = councilHealthResult ?? { status: 'unreachable', council_running: false };
     const fmpHealth = fmpHealthResult?.success ? fmpHealthResult : null;
     const latestStageMetadata = latestOutputResult?.stage_metadata ?? null;
+    const openingBellStatus = openingBellStatusResult ?? null;
+    const openingBellHealth = openingBellHealthResult ?? null;
 
     return NextResponse.json({
       success: true,
@@ -86,6 +94,8 @@ export async function GET() {
         fmpHealth,
         runStatus: runStatusResult,
         latestStageMetadata,
+        openingBellStatus,
+        openingBellHealth,
         recentReports: recentReports.map((r) => ({
           id: r.id,
           date: r.date,
@@ -103,8 +113,37 @@ export async function GET() {
   }
 }
 
-// POST /api/admin/council — Trigger a council run (background)
-export async function POST() {
+// POST /api/admin/council — Trigger a council or opening-bell run (background)
+export async function POST(request: Request) {
+  const body = await request.json().catch(() => ({}));
+
+  // Route to Opening Bell trigger
+  if (body.type === 'opening-bell') {
+    try {
+      const res = await fetch(`${COUNCIL_API_URL}/run-opening-bell`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => 'unknown error');
+        return NextResponse.json(
+          { success: false, error: `Opening Bell trigger failed: ${errText}` },
+          { status: res.status }
+        );
+      }
+      return NextResponse.json({
+        success: true,
+        message: 'Opening Bell run started. Poll GET /api/admin/council for status.',
+      });
+    } catch (error) {
+      return NextResponse.json(
+        { success: false, error: `Failed to reach Python server: ${String(error)}` },
+        { status: 503 }
+      );
+    }
+  }
+
+  // Default: Council run
   if (_runInProgress) {
     return NextResponse.json(
       { success: false, error: 'A council run is already in progress' },
