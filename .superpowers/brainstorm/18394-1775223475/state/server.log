@@ -1,0 +1,5 @@
+{"type":"server-started","port":49364,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:49364","screen_dir":"/Users/coeus/spiketrades.ca/claude-code/.superpowers/brainstorm/18394-1775223475/content","state_dir":"/Users/coeus/spiketrades.ca/claude-code/.superpowers/brainstorm/18394-1775223475/state"}
+{"type":"screen-added","file":"/Users/coeus/spiketrades.ca/claude-code/.superpowers/brainstorm/18394-1775223475/content/opening-bell-page.html"}
+{"type":"screen-added","file":"/Users/coeus/spiketrades.ca/claude-code/.superpowers/brainstorm/18394-1775223475/content/opening-bell-page-v2.html"}
+{"type":"screen-added","file":"/Users/coeus/spiketrades.ca/claude-code/.superpowers/brainstorm/18394-1775223475/content/opening-bell-page-v3.html"}
+{"type":"server-stopped","reason":"owner process exited"}

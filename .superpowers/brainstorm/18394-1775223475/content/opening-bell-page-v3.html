@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Opening Bell — v3 (Matches Today's Spikes)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0A1428; color: #E2E8F0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 24px; }
+
+  .change-note { background: rgba(255,184,0,0.08); border: 1px solid rgba(255,184,0,0.2); border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; }
+  .change-note-title { color: #FFB800; font-size: 13px; font-weight: 700; margin-bottom: 4px; }
+  .change-note-text { color: #94A3B8; font-size: 12px; line-height: 1.5; }
+
+  /* === MARKET HEADER (same as Today's Spikes) === */
+  .market-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; flex-wrap: wrap; gap: 12px; }
+  .header-left { }
+  .page-title { font-size: 24px; font-weight: 800; color: #FFB800; display: flex; align-items: center; gap: 10px; text-transform: uppercase; letter-spacing: 1px; }
+  .bell-icon { font-size: 26px; animation: ring 1.5s ease-in-out infinite; display: inline-block; }
+  @keyframes ring {
+    0% { transform: rotate(0); } 10% { transform: rotate(14deg); } 20% { transform: rotate(-14deg); }
+    30% { transform: rotate(10deg); } 40% { transform: rotate(-8deg); } 50% { transform: rotate(4deg); }
+    60% { transform: rotate(0); } 100% { transform: rotate(0); }
+  }
+  .page-date { font-size: 13px; color: #94A3B8; margin-top: 2px; }
+  .header-right { display: flex; gap: 20px; align-items: center; font-family: monospace; font-size: 13px; }
+  .macro-item { text-align: right; }
+  .macro-label { font-size: 10px; color: #64748B; text-transform: uppercase; }
+  .macro-value { color: #E2E8F0; font-weight: 600; }
+  .macro-value .up { color: #00FF88; }
+  .macro-value .down { color: #FF3366; }
+
+  /* === SUMMARY STATS BAR (same layout as Today's Spikes) === */
+  .summary-bar { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 20px; }
+  .summary-card { background: #111E33; border: 1px solid #1E3A5F; border-radius: 10px; padding: 14px 16px; text-align: center; }
+  .summary-label { font-size: 10px; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px; }
+  .summary-value { font-size: 24px; font-weight: 700; font-family: monospace; margin-top: 4px; }
+  .summary-value.cyan { color: #00F0FF; }
+  .summary-value.green { color: #00FF88; }
+  .summary-value.amber { color: #FFB800; }
+  .summary-value.violet { color: #A855F7; }
+
+  /* === SECTOR HEAT STRIP (Opening Bell unique) === */
+  .sector-strip { background: #111E33; border: 1px solid #1E3A5F; border-radius: 10px; padding: 14px 16px; margin-bottom: 20px; }
+  .sector-strip-title { font-size: 10px; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+  .sector-pills { display: flex; gap: 8px; flex-wrap: wrap; }
+  .sector-pill { padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; font-family: monospace; }
+  .sector-pill.hot { background: rgba(0,255,136,0.12); color: #00FF88; border: 1px solid rgba(0,255,136,0.25); }
+  .sector-pill.warm { background: rgba(255,184,0,0.08); color: #FFB800; border: 1px solid rgba(255,184,0,0.15); }
+  .sector-pill.cold { background: rgba(255,51,102,0.08); color: #FF3366; border: 1px solid rgba(255,51,102,0.15); }
+  .sector-pill.neutral { background: rgba(148,163,184,0.08); color: #94A3B8; border: 1px solid rgba(148,163,184,0.15); }
+
+  /* === SELECT BAR (same as Today's Spikes) === */
+  .select-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .select-btn { background: #111E33; border: 1px solid #1E3A5F; color: #94A3B8; padding: 8px 14px; border-radius: 8px; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+
+  /* === CARD GRID (same as Today's Spikes) === */
+  .card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+  /* === SPIKE CARD (closely matching Today's Spikes) === */
+  .spike-card { background: #111E33; border: 1px solid #1E3A5F; border-radius: 12px; padding: 20px; position: relative; transition: all 0.2s; }
+  .spike-card:hover { border-color: #2A4A6F; }
+  .spike-card.rank-1 { border-color: rgba(255,215,0,0.3); }
+  .spike-card.rank-2 { border-color: rgba(192,192,192,0.25); }
+  .spike-card.rank-3 { border-color: rgba(205,127,50,0.25); }
+
+  /* Card header row — rank, ticker, badges, price, score */
+  .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px; }
+  .card-header-left { display: flex; gap: 10px; align-items: flex-start; }
+  .rank-badge { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 800; margin-top: 2px; }
+  .rank-1 .rank-badge { background: linear-gradient(135deg, #FFD700, #FFB800); color: #0A1428; box-shadow: 0 0 10px rgba(255,215,0,0.3); }
+  .rank-2 .rank-badge { background: linear-gradient(135deg, #C0C0C0, #94A3B8); color: #0A1428; }
+  .rank-3 .rank-badge { background: linear-gradient(135deg, #CD7F32, #B8860B); color: #0A1428; }
+  .rank-default .rank-badge { background: #1E3A5F; color: #94A3B8; }
+
+  .ticker-block { }
+  .ticker-row { display: flex; align-items: center; gap: 8px; }
+  .ticker { font-size: 18px; font-weight: 800; color: #E2E8F0; text-decoration: none; }
+  .badge { font-size: 10px; padding: 2px 7px; border-radius: 4px; font-weight: 600; }
+  .badge-exchange { background: rgba(0,240,255,0.1); color: #00F0FF; }
+  .badge-sector { background: rgba(168,85,247,0.1); color: #A855F7; }
+  .company-name { font-size: 12px; color: #64748B; margin-top: 1px; }
+
+  /* Score circle — SAME position & style as Today's Spikes */
+  .score-circle {
+    width: 64px; height: 64px; border-radius: 50%;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-size: 26px; font-weight: 800; font-family: monospace;
+  }
+  .score-circle .score-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.7; margin-top: -2px; }
+  .score-circle.green { background: rgba(0,255,136,0.1); border: 2px solid rgba(0,255,136,0.4); color: #00FF88; }
+  .score-circle.amber { background: rgba(255,184,0,0.1); border: 2px solid rgba(255,184,0,0.4); color: #FFB800; }
+  .score-circle.red { background: rgba(255,51,102,0.1); border: 2px solid rgba(255,51,102,0.4); color: #FF3366; }
+
+  /* Price row */
+  .price-row { display: flex; align-items: baseline; gap: 10px; margin: 8px 0 14px 42px; }
+  .price { font-size: 22px; font-weight: 700; font-family: monospace; color: #00F0FF; }
+  .price-change { font-size: 15px; font-weight: 700; font-family: monospace; }
+  .price-change.up { color: #00FF88; }
+
+  /* === OPENING SURGE ROW (replaces 3/5/8 day predictions) === */
+  .surge-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1px; background: #1E3A5F; border-radius: 8px; overflow: hidden; margin-bottom: 14px; }
+  .surge-cell { background: #0A1428; padding: 10px 8px; text-align: center; }
+  .surge-cell-label { font-size: 10px; color: #64748B; text-transform: uppercase; letter-spacing: 0.3px; }
+  .surge-cell-value { font-size: 18px; font-weight: 700; font-family: monospace; margin-top: 3px; }
+  .surge-cell-value.green { color: #00FF88; }
+  .surge-cell-value.amber { color: #FFB800; }
+
+  /* === TARGET ROW (replaces confidence bars) === */
+  .target-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1px; background: #1E3A5F; border-radius: 8px; overflow: hidden; margin-bottom: 14px; }
+  .target-cell { background: #0A1428; padding: 10px 8px; text-align: center; }
+  .target-cell-label { font-size: 10px; color: #64748B; text-transform: uppercase; letter-spacing: 0.3px; }
+  .target-cell-value { font-size: 18px; font-weight: 700; font-family: monospace; margin-top: 3px; }
+  .target-cell-value.green { color: #00FF88; }
+  .target-cell-value.red { color: #FF3366; }
+  .conviction-high { color: #00FF88; }
+  .conviction-medium { color: #FFB800; }
+
+  /* === NARRATIVE (same as Today's Spikes "Why This Stock?") === */
+  .narrative-section { margin-bottom: 12px; }
+  .narrative-header { font-size: 11px; color: #FFB800; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; margin-bottom: 6px; display: flex; align-items: center; gap: 5px; }
+  .narrative-text { font-size: 13px; color: #94A3B8; line-height: 1.6; }
+
+  /* === FOOTER (same as Today's Spikes) === */
+  .card-footer { display: flex; justify-content: space-between; align-items: center; padding-top: 12px; border-top: 1px solid #1E3A5F; }
+  .tech-indicators { display: flex; gap: 12px; font-size: 12px; color: #64748B; font-family: monospace; }
+  .footer-actions { display: flex; gap: 8px; align-items: center; }
+  .view-link { font-size: 12px; color: #94A3B8; text-decoration: none; display: flex; align-items: center; gap: 4px; padding: 6px 10px; border: 1px solid #1E3A5F; border-radius: 6px; }
+  .lock-in-btn { background: linear-gradient(135deg, #FFB800, #FF8C00); color: #0A1428; border: none; padding: 7px 16px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 4px; }
+
+  .note { text-align: center; color: #64748B; font-size: 13px; margin-top: 24px; padding: 16px; border: 1px dashed #1E3A5F; border-radius: 8px; }
+
+  /* Comparison label */
+  .vs-label { display: inline-block; background: rgba(0,240,255,0.08); border: 1px solid rgba(0,240,255,0.2); color: #00F0FF; font-size: 10px; padding: 2px 8px; border-radius: 4px; margin-left: 6px; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<!-- Design note -->
+<div class="change-note">
+  <div class="change-note-title">✏️ v3 — Closely mirrors Today's Spikes layout</div>
+  <div class="change-note-text">
+    Same card structure, score circle position, narrative section, and footer as Today's Spikes.<br>
+    Only 3 things change: (1) 3/5/8 day row → Opening Surge metrics, (2) Confidence bars → Intraday Target / Key Level / Conviction, (3) Sector heat strip at top.
+  </div>
+</div>
+
+<!-- === MARKET HEADER (mirrors Today's Spikes) === -->
+<div class="market-header">
+  <div class="header-left">
+    <div class="page-title">
+      <span class="bell-icon">🔔</span> Opening Bell
+    </div>
+    <div class="page-date">Thursday, April 3, 2026</div>
+  </div>
+  <div class="header-right">
+    <div class="macro-item">
+      <div class="macro-label">TSX (XIU)</div>
+      <div class="macro-value">$48.21 <span class="down">-0.35%</span></div>
+    </div>
+    <div class="macro-item">
+      <div class="macro-label">USO Oil</div>
+      <div class="macro-value">$137.59 <span class="up">▲</span></div>
+    </div>
+    <div class="macro-item">
+      <div class="macro-label">Gold</div>
+      <div class="macro-value">$6500 <span class="down">▼</span></div>
+    </div>
+    <div class="macro-item">
+      <div class="macro-label">Scanned at</div>
+      <div class="macro-value" style="color: #FFB800;">9:35 AM EST</div>
+    </div>
+  </div>
+</div>
+
+<!-- === SUMMARY STATS BAR (same layout as Today's Spikes) === -->
+<div class="summary-bar">
+  <div class="summary-card">
+    <div class="summary-label">Tickers Scanned</div>
+    <div class="summary-value cyan">287</div>
+  </div>
+  <div class="summary-card">
+    <div class="summary-label">Total Picks</div>
+    <div class="summary-value amber">10</div>
+  </div>
+  <div class="summary-card">
+    <div class="summary-label">Avg Score</div>
+    <div class="summary-value green">82</div>
+  </div>
+  <div class="summary-card">
+    <div class="summary-label">Top Score</div>
+    <div class="summary-value green">94</div>
+  </div>
+  <div class="summary-card">
+    <div class="summary-label">Avg Rel. Volume</div>
+    <div class="summary-value violet">4.1x</div>
+  </div>
+</div>
+
+<!-- === SECTOR HEAT STRIP (Opening Bell unique addition) === -->
+<div class="sector-strip">
+  <div class="sector-strip-title">TSX Sector Momentum</div>
+  <div class="sector-pills">
+    <span class="sector-pill hot">Energy +2.8%</span>
+    <span class="sector-pill hot">Basic Materials +2.1%</span>
+    <span class="sector-pill warm">Technology +1.4%</span>
+    <span class="sector-pill warm">Industrials +0.9%</span>
+    <span class="sector-pill neutral">Financials +0.3%</span>
+    <span class="sector-pill neutral">Healthcare +0.1%</span>
+    <span class="sector-pill cold">Comm Services -1.2%</span>
+  </div>
+</div>
+
+<!-- === SELECT BAR (same as Today's Spikes) === -->
+<div class="select-bar">
+  <button class="select-btn">☐ Select Picks for Portfolio</button>
+</div>
+
+<!-- === CARD GRID === -->
+<div class="card-grid">
+
+  <!-- ==================== CARD 1 ==================== -->
+  <div class="spike-card rank-1">
+    <div class="card-header">
+      <div class="card-header-left">
+        <div class="rank-badge">1</div>
+        <div class="ticker-block">
+          <div class="ticker-row">
+            <a class="ticker" href="#">CNQ.TO</a>
+            <span class="badge badge-exchange">TSX</span>
+            <span class="badge badge-sector">Energy</span>
+          </div>
+          <div class="company-name">Canadian Natural Resources</div>
+        </div>
+      </div>
+      <div class="score-circle green">
+        94
+        <div class="score-label">Score</div>
+      </div>
+    </div>
+
+    <div class="price-row">
+      <span class="price">$48.72</span>
+      <span class="price-change up">+5.3%</span>
+    </div>
+
+    <!-- Opening Surge row (replaces 3-DAY / 5-DAY / 8-DAY) -->
+    <div class="surge-row">
+      <div class="surge-cell">
+        <div class="surge-cell-label">Rel. Volume</div>
+        <div class="surge-cell-value green">6.2x</div>
+      </div>
+      <div class="surge-cell">
+        <div class="surge-cell-label">Sector</div>
+        <div class="surge-cell-value amber">+2.8%</div>
+      </div>
+      <div class="surge-cell">
+        <div class="surge-cell-label">Price Move</div>
+        <div class="surge-cell-value green">+5.3%</div>
+      </div>
+    </div>
+
+    <!-- Target row (replaces Confidence bars) -->
+    <div class="target-row">
+      <div class="target-cell">
+        <div class="target-cell-label">Intraday Target</div>
+        <div class="target-cell-value green">$50.40</div>
+      </div>
+      <div class="target-cell">
+        <div class="target-cell-label">Key Level</div>
+        <div class="target-cell-value red">$47.15</div>
+      </div>
+      <div class="target-cell">
+        <div class="target-cell-label">Conviction</div>
+        <div class="target-cell-value conviction-high">HIGH</div>
+      </div>
+    </div>
+
+    <!-- Narrative (same as Today's Spikes "Why This Stock?") -->
+    <div class="narrative-section">
+      <div class="narrative-header">⚡ Why This Stock?</div>
+      <div class="narrative-text">Massive volume surge coinciding with sector-wide energy rotation. Oil up 3.1% overnight, CNQ leading TSX energy names with 6.2x relative volume. BMO upgraded to Outperform this morning.</div>
+    </div>
+
+    <!-- Footer (same as Today's Spikes) -->
+    <div class="card-footer">
+      <div class="tech-indicators">
+        <span>Vol: 1.2M</span>
+        <span>VWAP: $48.35</span>
+        <span>ADX: 34</span>
+      </div>
+      <div class="footer-actions">
+        <button class="lock-in-btn">⚡ Lock In</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== CARD 2 ==================== -->
+  <div class="spike-card rank-2">
+    <div class="card-header">
+      <div class="card-header-left">
+        <div class="rank-badge">2</div>
+        <div class="ticker-block">
+          <div class="ticker-row">
+            <a class="ticker" href="#">SU.TO</a>
+            <span class="badge badge-exchange">TSX</span>
+            <span class="badge badge-sector">Energy</span>
+          </div>
+          <div class="company-name">Suncor Energy</div>
+        </div>
+      </div>
+      <div class="score-circle green">
+        89
+        <div class="score-label">Score</div>
+      </div>
+    </div>
+
+    <div class="price-row">
+      <span class="price">$62.18</span>
+      <span class="price-change up">+4.1%</span>
+    </div>
+
+    <div class="surge-row">
+      <div class="surge-cell">
+        <div class="surge-cell-label">Rel. Volume</div>
+        <div class="surge-cell-value green">4.8x</div>
+      </div>
+      <div class="surge-cell">
+        <div class="surge-cell-label">Sector</div>
+        <div class="surge-cell-value amber">+2.8%</div>
+      </div>
+      <div class="surge-cell">
+        <div class="surge-cell-label">Price Move</div>
+        <div class="surge-cell-value green">+4.1%</div>
+      </div>
+    </div>
+
+    <div class="target-row">
+      <div class="target-cell">
+        <div class="target-cell-label">Intraday Target</div>
+        <div class="target-cell-value green">$64.50</div>
+      </div>
+      <div class="target-cell">
+        <div class="target-cell-label">Key Level</div>
+        <div class="target-cell-value red">$60.80</div>
+      </div>
+      <div class="target-cell">
+        <div class="target-cell-label">Conviction</div>
+        <div class="target-cell-value conviction-high">HIGH</div>
+      </div>
+    </div>
+
+    <div class="narrative-section">
+      <div class="narrative-header">⚡ Why This Stock?</div>
+      <div class="narrative-text">Riding energy sector wave with strong institutional volume. Clean breakout above previous resistance at $61.50 with sustained buying. RBC recently upgraded to Buy.</div>
+    </div>
+
+    <div class="card-footer">
+      <div class="tech-indicators">
+        <span>Vol: 890K</span>
+        <span>VWAP: $61.85</span>
+        <span>ADX: 41</span>
+      </div>
+      <div class="footer-actions">
+        <button class="lock-in-btn">⚡ Lock In</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== CARD 3 ==================== -->
+  <div class="spike-card rank-3">
+    <div class="card-header">
+      <div class="card-header-left">
+        <div class="rank-badge">3</div>
+        <div class="ticker-block">
+          <div class="ticker-row">
+            <a class="ticker" href="#">SHOP.TO</a>
+            <span class="badge badge-exchange">TSX</span>
+            <span class="badge badge-sector">Technology</span>
+          </div>
+          <div class="company-name">Shopify Inc.</div>
+        </div>
+      </div>
+      <div class="score-circle amber">
+        72
+        <div class="score-label">Score</div>
+      </div>
+    </div>
+
+    <div class="price-row">
+      <span class="price">$134.20</span>
+      <span class="price-change up">+3.7%</span>
+    </div>
+
+    <div class="surge-row">
+      <div class="surge-cell">
+        <div class="surge-cell-label">Rel. Volume</div>
+        <div class="surge-cell-value green">3.9x</div>
+      </div>
+      <div class="surge-cell">
+        <div class="surge-cell-label">Sector</div>
+        <div class="surge-cell-value amber">+1.4%</div>
+      </div>
+      <div class="surge-cell">
+        <div class="surge-cell-label">Price Move</div>
+        <div class="surge-cell-value green">+3.7%</div>
+      </div>
+    </div>
+
+    <div class="target-row">
+      <div class="target-cell">
+        <div class="target-cell-label">Intraday Target</div>
+        <div class="target-cell-value green">$138.90</div>
+      </div>
+      <div class="target-cell">
+        <div class="target-cell-label">Key Level</div>
+        <div class="target-cell-value red">$131.50</div>
+      </div>
+      <div class="target-cell">
+        <div class="target-cell-label">Conviction</div>
+        <div class="target-cell-value conviction-medium">MED</div>
+      </div>
+    </div>
+
+    <div class="narrative-section">
+      <div class="narrative-header">⚡ Why This Stock?</div>
+      <div class="narrative-text">Tech sector rotation with SHOP outpacing peers. 3.9x relative volume suggests institutional interest. Medium conviction — no specific catalyst identified, sector-driven move.</div>
+    </div>
+
+    <div class="card-footer">
+      <div class="tech-indicators">
+        <span>Vol: 650K</span>
+        <span>VWAP: $133.40</span>
+        <span>ADX: 27</span>
+      </div>
+      <div class="footer-actions">
+        <button class="lock-in-btn">⚡ Lock In</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== CARD 4 ==================== -->
+  <div class="spike-card rank-default">
+    <div class="card-header">
+      <div class="card-header-left">
+        <div class="rank-badge">4</div>
+        <div class="ticker-block">
+          <div class="ticker-row">
+            <a class="ticker" href="#">TKO.V</a>
+            <span class="badge badge-exchange">TSXV</span>
+            <span class="badge badge-sector">Basic Materials</span>
+          </div>
+          <div class="company-name">Taseko Mines</div>
+        </div>
+      </div>
+      <div class="score-circle green">
+        91
+        <div class="score-label">Score</div>
+      </div>
+    </div>
+
+    <div class="price-row">
+      <span class="price">$3.42</span>
+      <span class="price-change up">+8.1%</span>
+    </div>
+
+    <div class="surge-row">
+      <div class="surge-cell">
+        <div class="surge-cell-label">Rel. Volume</div>
+        <div class="surge-cell-value green">8.4x</div>
+      </div>
+      <div class="surge-cell">
+        <div class="surge-cell-label">Sector</div>
+        <div class="surge-cell-value amber">+2.1%</div>
+      </div>
+      <div class="surge-cell">
+        <div class="surge-cell-label">Price Move</div>
+        <div class="surge-cell-value green">+8.1%</div>
+      </div>
+    </div>
+
+    <div class="target-row">
+      <div class="target-cell">
+        <div class="target-cell-label">Intraday Target</div>
+        <div class="target-cell-value green">$3.75</div>
+      </div>
+      <div class="target-cell">
+        <div class="target-cell-label">Key Level</div>
+        <div class="target-cell-value red">$3.20</div>
+      </div>
+      <div class="target-cell">
+        <div class="target-cell-label">Conviction</div>
+        <div class="target-cell-value conviction-high">HIGH</div>
+      </div>
+    </div>
+
+    <div class="narrative-section">
+      <div class="narrative-header">⚡ Why This Stock?</div>
+      <div class="narrative-text">TSXV miner surging on copper rally. 8.4x relative volume with sustained buying through first 5 minutes. Canaccord upgraded to Buy this morning — strong catalyst.</div>
+    </div>
+
+    <div class="card-footer">
+      <div class="tech-indicators">
+        <span>Vol: 420K</span>
+        <span>VWAP: $3.35</span>
+        <span>ADX: 38</span>
+      </div>
+      <div class="footer-actions">
+        <button class="lock-in-btn">⚡ Lock In</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="note">
+  Showing 4 of 10 cards · Same layout as Today's Spikes with only the necessary changes<br>
+  <span style="color: #FFB800;">v3: Mirrors Today's Spikes structure — score circle, narrative, footer all in familiar positions</span>
+</div>
+
+</body>
+</html>

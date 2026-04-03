@@ -381,7 +381,7 @@ function OpeningBellContent() {
               Trading stocks involves risk. You may lose your entire investment.
             </p>
             <p className="mt-2">
-              &copy; {new Date().getFullYear()} Spike Trades &mdash; spiketrades.ca. All rights reserved. &middot; Ver 3.5
+              &copy; {new Date().getFullYear()} Spike Trades &mdash; spiketrades.ca. All rights reserved. &middot; Ver 4.0
             </p>
           </div>
         </>

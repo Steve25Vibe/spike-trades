@@ -1350,7 +1350,7 @@ export default function AdminPage() {
         )}
 
         <div className="legal-footer">
-          <p className="mt-2">&copy; {new Date().getFullYear()} Spike Trades — spiketrades.ca &middot; Ver 3.5</p>
+          <p className="mt-2">&copy; {new Date().getFullYear()} Spike Trades — spiketrades.ca &middot; Ver 4.0</p>
         </div>
     </ResponsiveLayout>
   );

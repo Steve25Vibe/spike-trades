@@ -1,0 +1,86 @@
+<h2>Where should the "Spike It" button go on the portfolio tile?</h2>
+<p class="subtitle">Click the layout that feels right. The button appears just before "View Analysis" as you described.</p>
+
+<div class="cards">
+  <!-- Option A: Inline with existing buttons -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 20px; background: #0a0e17;">
+      <!-- Mini portfolio tile mockup -->
+      <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 16px; font-family: system-ui, sans-serif;">
+        <!-- Header row -->
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
+          <div>
+            <span style="color: #00e5ff; font-weight: 700; font-size: 15px;">VET.TO</span>
+            <span style="color: #4caf50; font-size: 11px; margin-left: 8px; background: rgba(76,175,80,0.15); padding: 2px 8px; border-radius: 4px;">Target Hit!</span>
+            <div style="color: rgba(255,255,255,0.4); font-size: 11px; margin-top: 2px;">Vermilion Energy Inc.</div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="color: #4caf50; font-size: 18px; font-weight: 700;">+$7.40</span>
+            <!-- Buttons row -->
+            <div style="display: flex; gap: 6px;">
+              <button style="background: linear-gradient(135deg, #ff6b35, #ff8c42); color: white; border: none; padding: 6px 14px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap;">⚡ Spike It</button>
+              <button style="background: transparent; border: 1px solid #00e5ff; color: #00e5ff; padding: 6px 14px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap;">View Analysis</button>
+              <button style="background: transparent; border: 1px solid rgba(255,255,255,0.2); color: rgba(255,255,255,0.6); padding: 6px 14px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap;">Sell / Close</button>
+            </div>
+          </div>
+        </div>
+        <!-- Price grid -->
+        <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; text-align: center;">
+          <div><div style="color: rgba(255,255,255,0.35); font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px;">Entry</div><div style="color: white; font-size: 13px; font-weight: 600;">$18.43</div></div>
+          <div><div style="color: rgba(255,255,255,0.35); font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px;">Current</div><div style="color: white; font-size: 13px; font-weight: 600;">$19.17</div></div>
+          <div><div style="color: rgba(255,255,255,0.35); font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px;">Shares</div><div style="color: white; font-size: 13px; font-weight: 600;">10</div></div>
+          <div><div style="color: rgba(255,255,255,0.35); font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px;">Target 3D</div><div style="color: #4caf50; font-size: 13px; font-weight: 600;">$18.98</div></div>
+          <div><div style="color: rgba(255,255,255,0.35); font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px;">Target 5D</div><div style="color: white; font-size: 13px; font-weight: 600;">$19.26</div></div>
+          <div><div style="color: rgba(255,255,255,0.35); font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px;">Target 8D</div><div style="color: white; font-size: 13px; font-weight: 600;">$19.57</div></div>
+          <div><div style="color: rgba(255,255,255,0.35); font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px;">Stop Loss</div><div style="color: #ff5252; font-size: 13px; font-weight: 600;">$16.63</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A: Inline with action buttons</h3>
+      <p>Orange gradient "⚡ Spike It" button sits left of "View Analysis". Visually distinct color separates it from the blue/grey existing buttons. Clean, no extra rows.</p>
+    </div>
+  </div>
+
+  <!-- Option B: Separate row below P&L -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 20px; background: #0a0e17;">
+      <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 16px; font-family: system-ui, sans-serif;">
+        <!-- Header row -->
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+          <div>
+            <span style="color: #00e5ff; font-weight: 700; font-size: 15px;">VET.TO</span>
+            <span style="color: #4caf50; font-size: 11px; margin-left: 8px; background: rgba(76,175,80,0.15); padding: 2px 8px; border-radius: 4px;">Target Hit!</span>
+            <div style="color: rgba(255,255,255,0.4); font-size: 11px; margin-top: 2px;">Vermilion Energy Inc.</div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="color: #4caf50; font-size: 18px; font-weight: 700;">+$7.40</span>
+            <div style="display: flex; gap: 6px;">
+              <button style="background: transparent; border: 1px solid #00e5ff; color: #00e5ff; padding: 6px 14px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap;">View Analysis</button>
+              <button style="background: transparent; border: 1px solid rgba(255,255,255,0.2); color: rgba(255,255,255,0.6); padding: 6px 14px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap;">Sell / Close</button>
+            </div>
+          </div>
+        </div>
+        <!-- Spike It as a full-width bar -->
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px; padding: 8px 12px; background: rgba(255,107,53,0.08); border: 1px solid rgba(255,107,53,0.2); border-radius: 8px;">
+          <button style="background: linear-gradient(135deg, #ff6b35, #ff8c42); color: white; border: none; padding: 6px 16px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap;">⚡ Spike It</button>
+          <span style="color: rgba(255,255,255,0.4); font-size: 10px;">Live health check — is this spike still running hot?</span>
+        </div>
+        <!-- Price grid -->
+        <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; text-align: center;">
+          <div><div style="color: rgba(255,255,255,0.35); font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px;">Entry</div><div style="color: white; font-size: 13px; font-weight: 600;">$18.43</div></div>
+          <div><div style="color: rgba(255,255,255,0.35); font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px;">Current</div><div style="color: white; font-size: 13px; font-weight: 600;">$19.17</div></div>
+          <div><div style="color: rgba(255,255,255,0.35); font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px;">Shares</div><div style="color: white; font-size: 13px; font-weight: 600;">10</div></div>
+          <div><div style="color: rgba(255,255,255,0.35); font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px;">Target 3D</div><div style="color: #4caf50; font-size: 13px; font-weight: 600;">$18.98</div></div>
+          <div><div style="color: rgba(255,255,255,0.35); font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px;">Target 5D</div><div style="color: white; font-size: 13px; font-weight: 600;">$19.26</div></div>
+          <div><div style="color: rgba(255,255,255,0.35); font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px;">Target 8D</div><div style="color: white; font-size: 13px; font-weight: 600;">$19.57</div></div>
+          <div><div style="color: rgba(255,255,255,0.35); font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px;">Stop Loss</div><div style="color: #ff5252; font-size: 13px; font-weight: 600;">$16.63</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B: Dedicated row with context text</h3>
+      <p>Button gets its own subtle orange-tinted bar between the header and price grid. Includes helper text "Live health check — is this spike still running hot?" More prominent, draws attention.</p>
+    </div>
+  </div>
+</div>

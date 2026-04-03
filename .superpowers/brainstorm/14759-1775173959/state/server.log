@@ -1,0 +1,2 @@
+{"type":"server-started","port":60335,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:60335","screen_dir":"/Users/coeus/spiketrades.ca/claude-code/.superpowers/brainstorm/14759-1775173959/content","state_dir":"/Users/coeus/spiketrades.ca/claude-code/.superpowers/brainstorm/14759-1775173959/state"}
+{"type":"server-stopped","reason":"owner process exited"}
