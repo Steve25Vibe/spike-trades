@@ -95,7 +95,7 @@ export function chunk<T>(arr: T[], size: number): T[][] {
   );
 }
 
-// TSX holiday computation — covers all 9 statutory TSX closures
+// TSX holiday computation — covers all 10 statutory TSX closures
 function computeEaster(year: number): Date {
   // Anonymous Gregorian algorithm
   const a = year % 19;
@@ -141,10 +141,10 @@ function getTsxHolidays(year: number): Set<string> {
   goodFriday.setDate(easter.getDate() - 2);
   holidays.add(formatMMDD(goodFriday));
 
-  // Victoria Day — Monday before May 25
-  const may25 = new Date(year, 4, 25);
-  const dayOfWeek = may25.getDay();
-  const victoriaDay = new Date(year, 4, 25 - ((dayOfWeek + 6) % 7));
+  // Victoria Day — last Monday on or before May 24
+  const may24 = new Date(year, 4, 24);
+  const vicDow = may24.getDay();
+  const victoriaDay = new Date(year, 4, 24 - ((vicDow + 6) % 7));
   holidays.add(formatMMDD(victoriaDay));
 
   // Canada Day — Jul 1 (observed Monday if falls on Sunday)
@@ -155,8 +155,8 @@ function getTsxHolidays(year: number): Set<string> {
     holidays.add('07-01');
   }
 
-  // Civic Holiday — 1st Monday in August (TSX is open, but some provinces observe)
-  // TSX does NOT close for Civic Holiday — intentionally omitted
+  // Civic Holiday — 1st Monday in August (TSX closes)
+  holidays.add(formatMMDD(nthWeekday(year, 7, 1, 1)));
 
   // Labour Day — 1st Monday in September
   holidays.add(formatMMDD(nthWeekday(year, 8, 1, 1)));
@@ -164,11 +164,27 @@ function getTsxHolidays(year: number): Set<string> {
   // Thanksgiving — 2nd Monday in October
   holidays.add(formatMMDD(nthWeekday(year, 9, 1, 2)));
 
-  // Christmas Day — Dec 25
-  holidays.add('12-25');
-
-  // Boxing Day — Dec 26
-  holidays.add('12-26');
+  // Christmas Day & Boxing Day — with weekend observation
+  const dec25 = new Date(year, 11, 25);
+  const dec25dow = dec25.getDay();
+  if (dec25dow === 0) {
+    // Christmas Sunday → observed Mon Dec 26, Boxing → Tue Dec 27
+    holidays.add('12-26');
+    holidays.add('12-27');
+  } else if (dec25dow === 6) {
+    // Christmas Saturday → observed Mon Dec 27, Boxing → Tue Dec 28
+    holidays.add('12-27');
+    holidays.add('12-28');
+  } else {
+    holidays.add('12-25');
+    const dec26dow = (dec25dow + 1) % 7;
+    if (dec26dow === 6) {
+      // Boxing Day Saturday → observed Mon Dec 28
+      holidays.add('12-28');
+    } else {
+      holidays.add('12-26');
+    }
+  }
 
   return holidays;
 }
