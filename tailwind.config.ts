@@ -54,6 +54,7 @@ const config: Config = {
         'slide-up': 'slideUp 0.5s ease-out',
         'fade-in': 'fadeIn 0.3s ease-out',
         'score-fill': 'scoreFill 1.5s ease-out forwards',
+        'ring': 'ring 1.5s ease-in-out infinite',
       },
       keyframes: {
         pulseCyan: {
@@ -75,6 +76,14 @@ const config: Config = {
         scoreFill: {
           '0%': { width: '0%' },
           '100%': { width: 'var(--score-width)' },
+        },
+        ring: {
+          '0%, 60%, 100%': { transform: 'rotate(0)' },
+          '10%': { transform: 'rotate(14deg)' },
+          '20%': { transform: 'rotate(-14deg)' },
+          '30%': { transform: 'rotate(10deg)' },
+          '40%': { transform: 'rotate(-8deg)' },
+          '50%': { transform: 'rotate(4deg)' },
         },
       },
     },

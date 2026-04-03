@@ -97,6 +97,7 @@ export interface SpikeCard {
   historicalConfidence?: number;   // 0-100, from calibration engine
   calibrationSamples?: number;     // sample count
   overconfidenceFlag?: boolean;    // council >> history
+  isOpeningBellPick?: boolean;     // also detected by Opening Bell scanner
 }
 
 export interface MarketRegime {

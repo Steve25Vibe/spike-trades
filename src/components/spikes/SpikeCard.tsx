@@ -74,6 +74,14 @@ export default function SpikeCard({ spike, selected, onSelect, onLockIn, selecti
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
             <a href={`https://finance.yahoo.com/quote/${spike.ticker}`} target="_blank" rel="noopener noreferrer" title={`View ${spike.ticker} on Yahoo Finance`} className="text-lg font-bold text-spike-text hover:text-spike-cyan transition-colors">{spike.ticker}</a>
+            {spike.isOpeningBellPick && (
+              <span
+                className="inline-block text-base animate-ring"
+                title="Also an Opening Bell pick"
+              >
+                🔔
+              </span>
+            )}
             <span className="text-xs px-2 py-0.5 rounded-full bg-spike-border/50 text-spike-text-dim flex-shrink-0">
               {spike.exchange}
             </span>

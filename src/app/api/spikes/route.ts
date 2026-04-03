@@ -47,6 +47,18 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // Fetch Opening Bell picks for this date to cross-reference
+    let openingBellTickers: Set<string> = new Set();
+    try {
+      const obReport = await prisma.openingBellReport.findUnique({
+        where: { date: report.date },
+        include: { picks: { select: { ticker: true } } },
+      });
+      if (obReport) {
+        openingBellTickers = new Set(obReport.picks.map((p) => p.ticker));
+      }
+    } catch { /* non-fatal */ }
+
     // Fetch previous day's report for comparison arrows
     // Use report.date (not targetDate) so weekend/fallback views compare correctly
     const prevReport = await prisma.dailyReport.findFirst({
@@ -109,6 +121,8 @@ export async function GET(request: NextRequest) {
           historicalConfidence: s.historicalConfidence,
           calibrationSamples: s.calibrationSamples,
           overconfidenceFlag: s.overconfidenceFlag,
+          // Opening Bell cross-reference
+          isOpeningBellPick: openingBellTickers.has(s.ticker),
         })),
       },
       timestamp: Date.now(),
