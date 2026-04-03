@@ -78,11 +78,11 @@ export function getReturnColor(value: number): string {
 
 export function isMarketOpen(): boolean {
   const now = new Date();
+  if (!isTradingDay(now)) return false;
   const estHour = new Date(
     now.toLocaleString('en-US', { timeZone: 'America/New_York' })
   ).getHours();
-  const day = now.getDay();
-  return day >= 1 && day <= 5 && estHour >= 9 && estHour < 16;
+  return estHour >= 9 && estHour < 16;
 }
 
 export function sleep(ms: number): Promise<void> {
