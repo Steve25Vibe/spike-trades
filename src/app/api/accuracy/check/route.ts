@@ -176,8 +176,52 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log(`[Accuracy] Back-filled ${filled} actual returns`);
-    return NextResponse.json({ success: true, filled });
+    // ── Opening Bell Accuracy Backfill ──
+    let obFilled = 0;
+    try {
+      // Find Opening Bell picks with missing actuals
+      const obPicks = await prisma.openingBellPick.findMany({
+        where: {
+          report: { date: { lte: new Date(todayStr + 'T23:59:59') } },
+          actualHigh: null,
+        },
+        select: {
+          id: true,
+          ticker: true,
+          priceAtScan: true,
+          intradayTarget: true,
+          keyLevel: true,
+          report: { select: { date: true } },
+        },
+      });
+
+      if (obPicks.length > 0) {
+        const obTickers = Array.from(new Set(obPicks.map((p) => p.ticker)));
+        const quotes = await getBatchQuotes(obTickers);
+        const quoteMap = new Map(quotes.map((q) => [q.ticker, q]));
+
+        for (const pick of obPicks) {
+          const q = quoteMap.get(pick.ticker);
+          if (!q) continue;
+
+          const actualHigh = q.high || q.price;
+          const actualClose = q.price;
+          const targetHit = actualHigh >= pick.intradayTarget;
+          const keyLevelBroken = q.low != null ? q.low <= pick.keyLevel : false;
+
+          await prisma.openingBellPick.update({
+            where: { id: pick.id },
+            data: { actualHigh, actualClose, targetHit, keyLevelBroken },
+          });
+          obFilled++;
+        }
+      }
+    } catch (obErr) {
+      console.error('[Accuracy] Opening Bell backfill error (non-fatal):', obErr);
+    }
+
+    console.log(`[Accuracy] Back-filled ${filled} actual returns, ${obFilled} Opening Bell picks`);
+    return NextResponse.json({ success: true, filled, openingBellFilled: obFilled });
   } catch (error) {
     console.error('[Accuracy] Check error:', error);
     return NextResponse.json(
