@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runDailyAnalysis } from '@/lib/scheduling/analyzer';
+import { isTradingDay } from '@/lib/utils';
 
 // Allow up to 1 hour for the council pipeline
 export const maxDuration = 3600;
@@ -17,7 +18,13 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    // Skip on TSX holidays (cron runs weekdays but doesn't know about holidays)
     const useCached = request.nextUrl.searchParams.get('cached') === 'true';
+    if (!useCached && !isTradingDay(new Date())) {
+      console.log('[Cron] Skipping daily analysis — TSX closed (holiday)');
+      return NextResponse.json({ success: true, skipped: true, reason: 'TSX closed (holiday)' });
+    }
+
     const result = await runDailyAnalysis(useCached);
     return NextResponse.json(result);
   } catch (error) {

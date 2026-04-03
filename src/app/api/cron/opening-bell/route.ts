@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runOpeningBellAnalysis } from '@/lib/opening-bell-analyzer';
+import { isTradingDay } from '@/lib/utils';
 
 // Allow up to 10 minutes for the Opening Bell pipeline
 export const maxDuration = 600;
@@ -11,6 +12,11 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    if (!isTradingDay(new Date())) {
+      console.log('[Cron] Skipping Opening Bell — TSX closed (holiday)');
+      return NextResponse.json({ success: true, skipped: true, reason: 'TSX closed (holiday)' });
+    }
+
     const result = await runOpeningBellAnalysis();
     return NextResponse.json(result);
   } catch (error) {
