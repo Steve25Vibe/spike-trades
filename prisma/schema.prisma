@@ -25,6 +25,7 @@ model User {
   emailDailySpikes    Boolean @default(true)
   emailSellReminders  Boolean @default(true)
   emailDeviationAlerts Boolean @default(true)
+  emailOpeningBell     Boolean  @default(true)
 
   lastLoginAt       DateTime?
   createdAt         DateTime  @default(now())
@@ -85,6 +86,58 @@ model DailyReport {
 
   @@unique([date])
   @@index([date])
+}
+
+model OpeningBellReport {
+  id             String   @id @default(cuid())
+  date           DateTime @db.Date
+  generatedAt    DateTime @default(now())
+  sectorSnapshot Json?
+  tickersScanned Int
+  scanDurationMs Int
+  picks          OpeningBellPick[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([date])
+  @@index([date])
+}
+
+model OpeningBellPick {
+  id               String   @id @default(cuid())
+  reportId         String
+  report           OpeningBellReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  rank             Int
+  ticker           String
+  name             String
+  sector           String?
+  exchange         String
+  priceAtScan      Float
+  previousClose    Float
+  changePercent    Float
+  relativeVolume   Float
+  sectorMomentum   Float?
+  momentumScore    Float
+  intradayTarget   Float
+  keyLevel         Float
+  conviction       String
+  rationale        String?  @db.Text
+
+  // Accuracy fields — filled after market close
+  actualHigh       Float?
+  actualClose      Float?
+  targetHit        Boolean?
+  keyLevelBroken   Boolean?
+
+  // Token usage for cost tracking
+  tokenUsage       Json?
+
+  portfolioEntries PortfolioEntry[]
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([reportId])
+  @@index([ticker, createdAt])
 }
 
 model Spike {
@@ -188,8 +241,10 @@ model PortfolioEntry {
   id              String   @id @default(cuid())
   portfolioId     String?
   portfolio       Portfolio? @relation(fields: [portfolioId], references: [id])
-  spikeId         String
-  spike           Spike    @relation(fields: [spikeId], references: [id])
+  spikeId            String?
+  spike              Spike? @relation(fields: [spikeId], references: [id])
+  openingBellPickId  String?
+  openingBellPick    OpeningBellPick? @relation(fields: [openingBellPickId], references: [id])
   ticker          String
   name            String
 
@@ -227,6 +282,7 @@ model PortfolioEntry {
   updatedAt       DateTime @updatedAt
 
   @@index([portfolioId])
+  @@index([openingBellPickId])
   @@index([status])
   @@index([ticker])
   @@index([entryDate])
