@@ -20,7 +20,7 @@ export interface Pick {
   changePercent: number;
   relativeVolume: number;
   intradayTarget: number;
-  conviction: number;
+  conviction: string;
 }
 
 /** Send Opening Bell email to all opted-in users */
@@ -48,7 +48,7 @@ export async function sendOpeningBellEmail(picks: Pick[], sectorSnapshot?: unkno
 
   const pickRows = picks.slice(0, 10).map((p) => {
     const changeColor = p.changePercent >= 0 ? '#00FF88' : '#FF3366';
-    const convColor = p.conviction >= 80 ? '#00FF88' : p.conviction >= 60 ? '#FFB800' : '#94A3B8';
+    const convColor = p.conviction === 'high' ? '#00FF88' : p.conviction === 'medium' ? '#FFB800' : '#94A3B8';
     return `<tr style="border-bottom:1px solid #1E3A5F">
       <td style="padding:10px 12px;color:#FFB800;font-weight:bold">#${p.rank}</td>
       <td style="padding:10px 12px">
@@ -60,7 +60,7 @@ export async function sendOpeningBellEmail(picks: Pick[], sectorSnapshot?: unkno
       <td style="padding:10px 12px;color:#94A3B8;text-align:right">${p.relativeVolume.toFixed(1)}x</td>
       <td style="padding:10px 12px;color:#00F0FF;text-align:right">$${p.intradayTarget.toFixed(2)}</td>
       <td style="padding:10px 12px;text-align:center">
-        <span style="background:${convColor}22;color:${convColor};padding:3px 10px;border-radius:10px;font-size:12px;font-weight:bold">${p.conviction}%</span>
+        <span style="background:${convColor}22;color:${convColor};padding:3px 10px;border-radius:10px;font-size:12px;font-weight:bold;text-transform:uppercase">${p.conviction}</span>
       </td>
     </tr>`;
   }).join('');
