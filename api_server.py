@@ -44,6 +44,7 @@ FMP_API_KEY = os.environ.get("FMP_API_KEY", "")
 
 from canadian_llm_council_brain import CanadianStockCouncilBrain, _call_grok, _extract_json, _call_anthropic
 from canadian_portfolio_interface import CanadianPortfolioInterface
+from opening_bell_scanner import OpeningBellScanner
 
 # ── Logging ──────────────────────────────────────────────────────────────
 
@@ -1039,6 +1040,118 @@ async def _close_spike_session():
     global _spike_it_session
     if _spike_it_session and not _spike_it_session.closed:
         await _spike_it_session.close()
+
+
+# ── Opening Bell State ────────────────────────────────────────────
+_opening_bell_running = False
+_opening_bell_last_result: dict | None = None
+_opening_bell_last_run_time: float | None = None
+_opening_bell_last_error: str | None = None
+
+OPENING_BELL_TIMEOUT = 300  # 5-minute hard timeout
+
+
+@app.post("/run-opening-bell")
+async def run_opening_bell(background_tasks: BackgroundTasks):
+    """Trigger Opening Bell scan. Returns immediately, runs in background."""
+    global _opening_bell_running
+    if _opening_bell_running:
+        raise HTTPException(409, "Opening Bell already running")
+    if _council_running:
+        raise HTTPException(409, "Council is running — wait for completion")
+
+    _opening_bell_running = True
+    background_tasks.add_task(_execute_opening_bell)
+    return {"success": True, "message": "Opening Bell started"}
+
+
+async def _execute_opening_bell():
+    """Background task for Opening Bell execution with hard timeout."""
+    global _opening_bell_running, _opening_bell_last_result, _opening_bell_last_run_time, _opening_bell_last_error
+    start = time.time()
+    try:
+        scanner = OpeningBellScanner(
+            fmp_key=os.environ.get("FMP_API_KEY", ""),
+            anthropic_key=os.environ.get("ANTHROPIC_API_KEY", ""),
+        )
+        result = await asyncio.wait_for(scanner.run(), timeout=OPENING_BELL_TIMEOUT)
+        _opening_bell_last_result = result
+        _opening_bell_last_run_time = time.time() - start
+        if not result.get("success"):
+            _opening_bell_last_error = result.get("error", "Unknown error")
+        else:
+            _opening_bell_last_error = None
+
+        # Save to disk for Next.js analyzer to pick up
+        ob_output_path = OUTPUT_DIR / "latest_opening_bell_output.json"
+        ob_output_path.write_text(json.dumps(result, default=str))
+
+        logger.info(f"Opening Bell completed in {_opening_bell_last_run_time:.1f}s: {len(result.get('picks', []))} picks")
+
+    except asyncio.TimeoutError:
+        _opening_bell_last_error = f"Hard timeout after {OPENING_BELL_TIMEOUT}s"
+        _opening_bell_last_result = {"success": False, "error": _opening_bell_last_error}
+        logger.error(_opening_bell_last_error)
+    except Exception as e:
+        _opening_bell_last_error = str(e)
+        _opening_bell_last_result = {"success": False, "error": str(e)}
+        logger.error(f"Opening Bell failed: {e}")
+    finally:
+        _opening_bell_running = False
+
+
+@app.get("/run-opening-bell-status")
+async def opening_bell_status():
+    """Get Opening Bell run status."""
+    return {
+        "running": _opening_bell_running,
+        "last_run_time": _opening_bell_last_run_time,
+        "last_error": _opening_bell_last_error,
+        "last_result_summary": {
+            "success": _opening_bell_last_result.get("success") if _opening_bell_last_result else None,
+            "picks_count": len(_opening_bell_last_result.get("picks", [])) if _opening_bell_last_result else 0,
+            "tickers_scanned": _opening_bell_last_result.get("tickers_scanned") if _opening_bell_last_result else 0,
+            "duration_ms": _opening_bell_last_result.get("duration_ms") if _opening_bell_last_result else None,
+        } if _opening_bell_last_result else None,
+    }
+
+
+@app.get("/opening-bell-health")
+async def opening_bell_health():
+    """Get Opening Bell FMP endpoint health from last run."""
+    if _opening_bell_last_result and "endpoint_health" in _opening_bell_last_result:
+        return {"success": True, "endpoints": _opening_bell_last_result["endpoint_health"]}
+    return {"success": False, "message": "No Opening Bell run data available"}
+
+
+@app.get("/latest-opening-bell")
+async def latest_opening_bell():
+    """Return latest Opening Bell results."""
+    ob_output_path = OUTPUT_DIR / "latest_opening_bell_output.json"
+    if not ob_output_path.exists():
+        raise HTTPException(404, "No Opening Bell output found")
+    return json.loads(ob_output_path.read_text())
+
+
+@app.get("/latest-opening-bell-mapped")
+async def latest_opening_bell_mapped():
+    """Return latest Opening Bell results mapped for Prisma insertion."""
+    ob_output_path = OUTPUT_DIR / "latest_opening_bell_output.json"
+    if not ob_output_path.exists():
+        raise HTTPException(404, "No Opening Bell output found")
+    data = json.loads(ob_output_path.read_text())
+    if not data.get("success"):
+        raise HTTPException(500, data.get("error", "Last run failed"))
+    return {
+        "success": True,
+        "report": {
+            "sectorSnapshot": data.get("sector_snapshot", []),
+            "tickersScanned": data.get("tickers_scanned", 0),
+            "scanDurationMs": data.get("duration_ms", 0),
+        },
+        "picks": data.get("picks", []),
+        "tokenUsage": data.get("token_usage", {}),
+    }
 
 
 # ── Main ─────────────────────────────────────────────────────────────────
