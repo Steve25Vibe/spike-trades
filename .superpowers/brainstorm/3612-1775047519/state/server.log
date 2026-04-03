@@ -1,5 +1,0 @@
-{"type":"server-started","port":55557,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:55557","screen_dir":"/Users/coeus/spiketrades.ca/claude-code/.superpowers/brainstorm/3612-1775047519/content","state_dir":"/Users/coeus/spiketrades.ca/claude-code/.superpowers/brainstorm/3612-1775047519/state"}
-{"type":"screen-added","file":"/Users/coeus/spiketrades.ca/claude-code/.superpowers/brainstorm/3612-1775047519/content/button-placement.html"}
-{"type":"screen-added","file":"/Users/coeus/spiketrades.ca/claude-code/.superpowers/brainstorm/3612-1775047519/content/results-modal.html"}
-{"type":"screen-added","file":"/Users/coeus/spiketrades.ca/claude-code/.superpowers/brainstorm/3612-1775047519/content/waiting.html"}
-{"type":"server-stopped","reason":"idle timeout"}

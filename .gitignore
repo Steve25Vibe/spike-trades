@@ -53,3 +53,5 @@ session5_report.html
 spike_trades_council.db
 spiketrades-sa.json
 .worktrees/
+.superpowers/
+.claude/launch.json
