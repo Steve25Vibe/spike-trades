@@ -3,6 +3,7 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import ResponsiveLayout from '@/components/layout/ResponsiveLayout';
+import MarketHeader from '@/components/layout/MarketHeader';
 import OpeningBellCard, { type OpeningBellPickData } from '@/components/opening-bell/OpeningBellCard';
 import LockInModal from '@/components/portfolio/LockInModal';
 import BulkLockInModal from '@/components/portfolio/BulkLockInModal';
@@ -41,6 +42,7 @@ function OpeningBellContent() {
   const searchParams = useSearchParams();
   const dateParam = searchParams.get('date');
   const [data, setData] = useState<ReportData | null>(null);
+  const [marketData, setMarketData] = useState<{ marketRegime: string; tsxLevel: number; tsxChange: number; oilPrice: number; goldPrice: number; btcPrice: number; cadUsd: number; prevOilPrice: number | null; prevGoldPrice: number | null; prevBtcPrice: number | null; prevCadUsd: number | null } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -70,6 +72,28 @@ function OpeningBellContent() {
       const json = await res.json();
       if (json.success && json.data) {
         setData(json.data);
+        // Fetch market indicators from the daily report for the same date
+        try {
+          const spikesUrl = dateParam ? `/api/spikes?date=${dateParam}` : '/api/spikes';
+          const spikesRes = await fetch(spikesUrl);
+          const spikesJson = await spikesRes.json();
+          if (spikesJson.success && spikesJson.data?.report) {
+            const r = spikesJson.data.report;
+            setMarketData({
+              marketRegime: r.marketRegime || 'neutral',
+              tsxLevel: r.tsxLevel || 0,
+              tsxChange: r.tsxChange || 0,
+              oilPrice: r.oilPrice || 0,
+              goldPrice: r.goldPrice || 0,
+              btcPrice: r.btcPrice || 0,
+              cadUsd: r.cadUsd || 0,
+              prevOilPrice: r.prevOilPrice,
+              prevGoldPrice: r.prevGoldPrice,
+              prevBtcPrice: r.prevBtcPrice,
+              prevCadUsd: r.prevCadUsd,
+            });
+          }
+        } catch { /* market data is non-essential */ }
       } else {
         setError(json.message || 'No data available');
       }
@@ -204,22 +228,24 @@ function OpeningBellContent() {
         </div>
       ) : data ? (
         <>
-          {/* Market header */}
-          <div className="mb-6">
-            <div className="flex items-center gap-3 mb-1">
-              <h2 className="text-2xl font-display font-bold tracking-widest" style={{ color: '#FFB800' }}>
-                OPENING BELL
-              </h2>
-              <span className="text-xs px-2 py-0.5 rounded bg-spike-amber/10 text-spike-amber border border-spike-amber/20 font-semibold uppercase tracking-wider">
-                Early Momentum
-              </span>
-            </div>
-            <p className="text-sm text-spike-text-dim">
-              {new Date(data.report.date + 'T12:00:00').toLocaleDateString('en-CA', {
-                weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-              })}
-            </p>
-          </div>
+          <MarketHeader
+            title="OPENING BELL"
+            titleColor="text-spike-amber"
+            date={new Date(new Date(data.report.date).toISOString().split('T')[0] + 'T12:00:00').toLocaleDateString('en-CA', {
+              weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+            })}
+            regime={marketData?.marketRegime || 'neutral'}
+            tsxLevel={marketData?.tsxLevel || 0}
+            tsxChange={marketData?.tsxChange || 0}
+            oilPrice={marketData?.oilPrice || 0}
+            goldPrice={marketData?.goldPrice || 0}
+            btcPrice={marketData?.btcPrice || 0}
+            cadUsd={marketData?.cadUsd || 0}
+            prevOilPrice={marketData?.prevOilPrice}
+            prevGoldPrice={marketData?.prevGoldPrice}
+            prevBtcPrice={marketData?.prevBtcPrice}
+            prevCadUsd={marketData?.prevCadUsd}
+          />
 
           {/* Summary stats */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 lg:gap-4 mb-6">

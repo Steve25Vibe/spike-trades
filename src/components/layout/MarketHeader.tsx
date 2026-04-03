@@ -15,6 +15,8 @@ interface Props {
   prevGoldPrice?: number | null;
   prevBtcPrice?: number | null;
   prevCadUsd?: number | null;
+  title?: string;
+  titleColor?: string;
 }
 
 function PulseArrow({ current, previous }: { current: number; previous?: number | null }) {
@@ -32,7 +34,7 @@ function PulseArrow({ current, previous }: { current: number; previous?: number 
   );
 }
 
-export default function MarketHeader({ date, regime, tsxLevel, tsxChange, oilPrice, goldPrice, btcPrice, cadUsd, prevOilPrice, prevGoldPrice, prevBtcPrice, prevCadUsd }: Props) {
+export default function MarketHeader({ date, regime, tsxLevel, tsxChange, oilPrice, goldPrice, btcPrice, cadUsd, prevOilPrice, prevGoldPrice, prevBtcPrice, prevCadUsd, title, titleColor }: Props) {
   const regimeColors: Record<string, string> = {
     bull: 'text-spike-green bg-spike-green/10 border-spike-green/30 regime-glow-bull',
     bear: 'text-spike-red bg-spike-red/10 border-spike-red/30 regime-glow-bear',
@@ -46,8 +48,8 @@ export default function MarketHeader({ date, regime, tsxLevel, tsxChange, oilPri
         {/* Date & Regime */}
         <div className="flex items-center gap-4">
           <div>
-            <h2 className="text-xl font-display font-bold text-spike-cyan tracking-wide">
-              TODAY&apos;S SPIKES
+            <h2 className={cn('text-xl font-display font-bold tracking-wide', titleColor || 'text-spike-cyan')}>
+              {title || 'TODAY\u2019S SPIKES'}
             </h2>
             <p className="text-sm text-spike-text-dim">{date}</p>
           </div>
