@@ -306,6 +306,49 @@ All verified working on FMP Premium plan ($69/mo, 750 req/min):
 
 FMP rate limit comment in codebase (`src/lib/api/fmp.ts` line 124) should be corrected from `~300 req/min` to `750 req/min`.
 
+## Admin Panel Updates
+
+The admin panel's Council tab needs to be extended to show Opening Bell status alongside the existing Council monitoring.
+
+### Council Tab Changes
+
+**Opening Bell Status Card (new):**
+- Shows alongside existing "Last Run" and "Python Server" cards
+- Displays: last Opening Bell run time, duration, pick count, status (Success/Failed/Pending)
+- Status indicator: green = ran today, amber = running now, gray = not yet run today
+
+**Opening Bell Stage Indicator (new):**
+- Single stage card (vs Council's 6-stage pipeline) labeled "Opening Bell — Sonnet 4.6"
+- Shows: status (pending/running/complete), duration, picks generated
+- Appears above the Council pipeline stages to reflect execution order
+
+**Manual Trigger Button (new):**
+- "Run Opening Bell" button alongside existing "Run Council" button
+- Same fire-and-forget pattern, returns immediately
+- Disabled while Opening Bell or Council is running
+
+### FMP Health Table Changes
+
+**New endpoints tracked:**
+- `/stable/sector-performance-snapshot` — OK/404/429/error counts
+- `/stable/historical-chart/5min/{ticker}` — already tracked by Spike It, but Opening Bell usage adds volume
+
+The existing FMP health table (`/fmp-health` endpoint) will automatically pick up Opening Bell's FMP calls if the Python server tracks them with the same `_endpoint_health` dict used by the Council.
+
+### Cost Card Changes
+
+**New cost row for Opening Bell:**
+- Add `claude-sonnet-4-6` pricing entry for Opening Bell's single Sonnet call
+- Display as separate "Opening Bell" section in cost breakdown
+- Token usage tracked in Opening Bell's result metadata (same `input_tokens` / `output_tokens` pattern)
+
+### Opening Bell Accuracy on Analytics Tab
+
+**New section or separate sub-tab:**
+- Target hit rate, key level hold rate, conviction accuracy
+- Separate from Council accuracy (different metrics — intraday vs 3/5/8 day)
+- Uses same color coding: green ≥60%, amber 50-59%, red <50%
+
 ## What Does NOT Change
 
 - Council 4-stage pipeline, LLM models, prompts, scoring — untouched
