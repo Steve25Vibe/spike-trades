@@ -121,7 +121,7 @@ export async function getBatchQuotes(symbols: string[]): Promise<StockQuote[]> {
       console.error(`FMP batch quote error for ${symbolStr}:`, err);
     }
 
-    // Rate limiting: FMP Professional allows ~300 req/min
+    // Rate limiting: FMP Premium allows ~750 req/min
     if (i + batchSize < symbols.length) {
       await sleep(250);
     }
