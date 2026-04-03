@@ -67,6 +67,29 @@ cron.schedule(
   { timezone: TIMEZONE }
 );
 
+// ── Opening Bell — 10:35 AM AST weekdays ──
+cron.schedule(
+  '35 10 * * 1-5',
+  async () => {
+    console.log(`[Cron] ${new Date().toISOString()} — Triggering Opening Bell scan`);
+    try {
+      const result = await httpRequest(`${APP_URL}/api/cron/opening-bell`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${CRON_SECRET}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 360_000,  // 6 minutes (5 min pipeline + 1 min buffer)
+      });
+      console.log(`[Cron] Opening Bell result (status ${result.status}):`, result.body);
+    } catch (error) {
+      console.error(`[Cron] Opening Bell trigger failed:`, error);
+    }
+  },
+  { timezone: TIMEZONE }
+);
+console.log(`[Cron] Opening Bell scheduled: 10:35 AM ${TIMEZONE} (weekdays)`);
+
 // Accuracy check — weekdays at 4:30pm AST (after market close)
 cron.schedule(
   '30 16 * * 1-5',
