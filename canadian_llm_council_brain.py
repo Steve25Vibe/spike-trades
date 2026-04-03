@@ -3298,7 +3298,7 @@ class LearningEngine:
     GATE_CONVICTION_THRESHOLDS = 50  # total resolved picks
     GATE_DISAGREEMENT = 20           # disagreements with >15pt gap
     GATE_FACTOR_FEEDBACK = 100       # total resolved picks
-    GATE_PREFILTER = 300             # total resolved picks across all horizons
+    GATE_PREFILTER = 660             # total resolved picks across all horizons
     GATE_IV_EXPECTED_MOVE = 0        # always active when IV data available
 
     STAGE_WEIGHT_WINDOW_DAYS = 20    # rolling window for stage weights
