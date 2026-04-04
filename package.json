@@ -1,6 +1,6 @@
 {
   "name": "spike-trades",
-  "version": "1.0.0",
+  "version": "5.0.0",
   "description": "Spike Trades — The world's most accurate short-term AI stock analyst for Canadian markets (TSX/TSXV)",
   "private": true,
   "scripts": {

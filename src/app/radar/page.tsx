@@ -3,7 +3,7 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import RadarCard from '@/components/radar/RadarCard';
-import MarketHeader from '@/components/layout/MarketHeader';
+import RadarIcon from '@/components/radar/RadarIcon';
 
 function RadarContent() {
   const searchParams = useSearchParams();
@@ -43,7 +43,16 @@ function RadarContent() {
 
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto">
-      <MarketHeader />
+      {/* Radar header */}
+      <div className="flex items-center gap-3 mb-6">
+        <RadarIcon size={28} />
+        <div>
+          <h2 className="text-2xl font-display font-bold text-radar-green tracking-wide">SMART MONEY RADAR</h2>
+          <p className="text-xs text-gray-500">
+            Pre-Market Signals &mdash; {report.date ? new Date(report.date).toLocaleDateString('en-CA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : 'Today'}
+          </p>
+        </div>
+      </div>
 
       {/* Stats grid */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
