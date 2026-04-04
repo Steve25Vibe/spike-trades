@@ -32,6 +32,15 @@ interface OpeningBellReport {
   topPicks: OpeningBellPick[];
 }
 
+interface RadarReport {
+  id: string;
+  date: string;
+  tickersScanned: number;
+  tickersFlagged: number;
+  scanDurationMs: number;
+  picks: { ticker: string; smartMoneyScore: number }[];
+}
+
 export default function ReportsPage() {
   return (
     <Suspense fallback={null}>
@@ -43,10 +52,11 @@ export default function ReportsPage() {
 function ReportsContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const activeTab = (searchParams.get('tab') || 'spikes') as 'spikes' | 'opening-bell';
+  const activeTab = (searchParams.get('tab') || 'spikes') as 'spikes' | 'opening-bell' | 'radar';
 
   const [spikeReports, setSpikeReports] = useState<SpikeReport[]>([]);
   const [openingBellReports, setOpeningBellReports] = useState<OpeningBellReport[]>([]);
+  const [radarReports, setRadarReports] = useState<RadarReport[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -63,14 +73,21 @@ function ReportsContent() {
     setLoading(true);
     try {
       const endpoint =
-        activeTab === 'opening-bell'
-          ? `/api/reports/opening-bell?page=${page}&pageSize=20`
-          : `/api/reports?page=${page}&pageSize=20`;
+        activeTab === 'radar'
+          ? `/api/reports/radar?page=${page}&pageSize=20`
+          : activeTab === 'opening-bell'
+            ? `/api/reports/opening-bell?page=${page}&pageSize=20`
+            : `/api/reports?page=${page}&pageSize=20`;
 
       const res = await fetch(endpoint);
       if (res.status === 401) { window.location.href = '/login'; return; }
       const json = await res.json();
-      if (json.success) {
+      if (activeTab === 'radar') {
+        if (json.reports) {
+          setRadarReports(json.reports);
+          setTotal(json.total);
+        }
+      } else if (json.success) {
         if (activeTab === 'opening-bell') {
           setOpeningBellReports(json.data);
         } else {
@@ -85,7 +102,7 @@ function ReportsContent() {
     }
   };
 
-  const setTab = (tab: 'spikes' | 'opening-bell') => {
+  const setTab = (tab: 'spikes' | 'opening-bell' | 'radar') => {
     router.push(`/reports?tab=${tab}`);
   };
 
@@ -125,6 +142,17 @@ function ReportsContent() {
           )}
         >
           Opening Bell
+        </button>
+        <button
+          onClick={() => setTab('radar')}
+          className={cn(
+            'px-5 py-2 rounded-lg text-sm font-bold uppercase tracking-wide border transition-colors',
+            activeTab === 'radar'
+              ? 'text-green-400 border-green-400 bg-green-400/10'
+              : 'text-spike-text-dim border-spike-text-dim/20 hover:text-spike-text hover:border-spike-text-dim/40'
+          )}
+        >
+          Radar
         </button>
       </div>
 
@@ -255,6 +283,56 @@ function ReportsContent() {
           {openingBellReports.length === 0 && !loading && (
             <div className="glass-card p-12 text-center text-spike-text-dim">
               No Opening Bell reports yet. The scan runs at 9:45 AM ET on market days.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Radar tab */}
+      {activeTab === 'radar' && (
+        <div className="space-y-3">
+          {radarReports.map((report) => (
+            <div
+              key={report.id}
+              className="glass-card p-4 flex items-center justify-between gap-4 hover:border-green-400/30"
+            >
+              <div>
+                <p className="font-bold text-spike-text">
+                  {new Date(new Date(report.date).toISOString().split('T')[0] + 'T12:00:00').toLocaleDateString('en-CA', {
+                    weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
+                  })}
+                </p>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-xs text-green-400">{report.tickersFlagged} flagged</span>
+                  <span className="text-xs text-spike-text-dim">·</span>
+                  <span className="text-xs text-spike-text-dim mono">
+                    {report.tickersScanned} scanned · {(report.scanDurationMs / 1000).toFixed(1)}s
+                  </span>
+                </div>
+                {report.picks?.length > 0 && (
+                  <div className="flex gap-2 mt-1.5 flex-wrap">
+                    {report.picks.map((p) => (
+                      <span key={p.ticker} className="text-[10px] mono text-green-400/70">
+                        {p.ticker} <span className="text-spike-text-dim">{p.smartMoneyScore}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <Link
+                href={`/radar?date=${new Date(report.date).toISOString().split('T')[0]}`}
+                className="px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide text-green-400 border border-green-400/30 hover:bg-green-400/10 transition-colors"
+                title="Open this Radar report"
+              >
+                View
+              </Link>
+            </div>
+          ))}
+
+          {radarReports.length === 0 && !loading && (
+            <div className="glass-card p-12 text-center text-spike-text-dim">
+              No Radar reports yet. The pre-market scan runs at 8:15 AM AST on trading days.
             </div>
           )}
         </div>
