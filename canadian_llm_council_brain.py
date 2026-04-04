@@ -5112,23 +5112,11 @@ class CanadianStockCouncilBrain:
                     logger.warning(f"Enhanced signals fetch failed (non-fatal): {e}")
                     return {}, {}
 
-            async def _fetch_earnings_surprises_batch():
-                """Fetch earnings surprises for all tickers in parallel."""
-                surprises = {}
-                sem = asyncio.Semaphore(8)
-                async def _fetch_one(t):
-                    async with sem:
-                        data = await self.fetcher.fetch_earnings_surprises(t)
-                        if data:
-                            surprises[t] = data
-                try:
-                    await asyncio.gather(*[_fetch_one(p.ticker) for p in payloads_list])
-                except Exception as e:
-                    logger.warning(f"Earnings surprises batch fetch failed (non-fatal): {e}")
-                return surprises
+            # Note: /earnings-surprises/{ticker} returns 404 for all .TO tickers.
+            # Bulk /earnings-calendar (via _fetch_earnings) is the working replacement.
 
-            earnings_map, (insider_map, analyst_map), surprises_map = await asyncio.gather(
-                _fetch_earnings(), _fetch_enhanced(), _fetch_earnings_surprises_batch()
+            earnings_map, (insider_map, analyst_map) = await asyncio.gather(
+                _fetch_earnings(), _fetch_enhanced()
             )
 
             # ── Step 4f: Compute sector-relative strength + attach all signals ──
@@ -5141,13 +5129,10 @@ class CanadianStockCouncilBrain:
                 if p.ticker in analyst_map:
                     p.analyst_consensus = analyst_map[p.ticker]
                 p.sector_relative_strength = rel_strength_map.get(p.ticker)
-                if p.ticker in surprises_map:
-                    p.earnings_surprise_history = surprises_map[p.ticker]
             logger.info(
                 f"Step 4f: Signals attached — "
                 f"{len(earnings_map)} earnings, {len(insider_map)} insider, "
-                f"{len(analyst_map)} analyst, {len(rel_strength_map)} sector-rel, "
-                f"{len(surprises_map)} earnings-surprises"
+                f"{len(analyst_map)} analyst, {len(rel_strength_map)} sector-rel"
             )
 
             # Index payloads by ticker for later lookup

@@ -591,33 +591,16 @@ export default function AdminPage() {
         {/* Council Tab */}
         {tab === 'council' && (
           <div className="space-y-6">
-            {/* 1. Server Status + Last Run */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="glass-card p-4 text-center">
-                <p className="text-xs text-spike-text-muted uppercase tracking-wider mb-1">Last Run</p>
-                <p className="text-xl font-bold text-spike-cyan mono">
-                  {council?.councilHealth?.last_run_time
-                    ? formatDuration(Math.round(council.councilHealth.last_run_time))
-                    : council?.latestLog?.processingTimeMs
-                      ? formatDurationMs(council.latestLog.processingTimeMs)
-                      : '--'}
-                </p>
-                {council?.recentReports?.[0] && (
-                  <p className="text-[11px] text-spike-text-muted mt-1">
-                    {String(council.recentReports[0].date).slice(0, 10)} · {council.recentReports[0].spikeCount} spikes
-                  </p>
-                )}
-              </div>
-              <div className="glass-card p-4 text-center">
-                <p className="text-xs text-spike-text-muted uppercase tracking-wider mb-1">Python Server</p>
-                {(() => {
-                  const status = council?.councilHealth?.status;
-                  const isRunning = council?.runInProgress || council?.councilHealth?.council_running;
-                  if (status === 'ok') return <p className="text-xl font-bold mono text-spike-green">Online</p>;
-                  if (isRunning) return <p className="text-xl font-bold mono text-spike-amber">Busy</p>;
-                  return <p className="text-xl font-bold mono text-spike-red">Offline</p>;
-                })()}
-              </div>
+            {/* 1. Python Server Status */}
+            <div className="glass-card p-4 flex items-center justify-center gap-3">
+              <p className="text-xs text-spike-text-muted uppercase tracking-wider">Python Server</p>
+              {(() => {
+                const status = council?.councilHealth?.status;
+                const isRunning = council?.runInProgress || council?.councilHealth?.council_running;
+                if (status === 'ok') return <span className="text-lg font-bold mono text-spike-green">Online</span>;
+                if (isRunning) return <span className="text-lg font-bold mono text-spike-amber">Busy</span>;
+                return <span className="text-lg font-bold mono text-spike-red">Offline</span>;
+              })()}
             </div>
 
             {/* 2. Radar Scanner (first in pipeline sequence) */}
@@ -645,7 +628,7 @@ export default function AdminPage() {
                       Run Radar
                     </button>
                   </div>
-                  <div className="grid grid-cols-3 gap-3 text-center">
+                  <div className="grid grid-cols-4 gap-3 text-center">
                     <div>
                       <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">Status</p>
                       <p className={cn('text-sm font-bold mono', radar?.running ? 'text-spike-amber' : statusColorMap[status] ?? 'text-spike-text-dim')}>{statusText}</p>
@@ -657,6 +640,10 @@ export default function AdminPage() {
                     <div>
                       <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">Duration</p>
                       <p className="text-sm font-bold mono text-spike-text">{duration != null ? formatDuration(Math.round(duration)) : '--'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">Last Run</p>
+                      <p className="text-sm font-bold mono text-spike-text-dim">{duration != null ? new Date().toLocaleDateString('en-CA') : '--'}</p>
                     </div>
                   </div>
                   {error && (
@@ -693,7 +680,7 @@ export default function AdminPage() {
                       Run Opening Bell
                     </button>
                   </div>
-                  <div className="grid grid-cols-3 gap-3 text-center">
+                  <div className="grid grid-cols-4 gap-3 text-center">
                     <div>
                       <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">Status</p>
                       <p className={cn('text-sm font-bold mono', statusColorMap[status] ?? 'text-spike-text-dim')}>{statusText}</p>
@@ -705,6 +692,10 @@ export default function AdminPage() {
                     <div>
                       <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">Duration</p>
                       <p className="text-sm font-bold mono text-spike-text">{duration != null ? formatDuration(Math.round(duration)) : '--'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">Last Run</p>
+                      <p className="text-sm font-bold mono text-spike-text-dim">{duration != null ? new Date().toLocaleDateString('en-CA') : '--'}</p>
                     </div>
                   </div>
                   {error && (
@@ -759,11 +750,13 @@ export default function AdminPage() {
                       <span className="text-xs font-bold text-spike-cyan uppercase tracking-wider">
                         {isLive ? 'Today\'s Spikes — Running' : 'Today\'s Spikes'}
                       </span>
-                      {triggerLabel && (
-                        <span className="text-xs text-spike-text-muted">— {triggerLabel}</span>
+                      {!isLive && council?.recentReports?.[0] && (
+                        <span className="text-xs text-spike-text-muted">
+                          — {String(council.recentReports[0].date).slice(0, 10)} · {council.recentReports[0].spikeCount} spikes · {headerDuration ?? ''}
+                        </span>
                       )}
-                      {headerDuration && (
-                        <span className="text-xs mono text-spike-text-dim ml-2">{isLive ? `${headerDuration}` : headerDuration}</span>
+                      {isLive && headerDuration && (
+                        <span className="text-xs mono text-spike-text-dim ml-2">{headerDuration}</span>
                       )}
                     </div>
                     <button
