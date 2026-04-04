@@ -26,6 +26,7 @@ model User {
   emailSellReminders  Boolean @default(true)
   emailDeviationAlerts Boolean @default(true)
   emailOpeningBell     Boolean  @default(true)
+  emailRadar           Boolean  @default(false)
 
   lastLoginAt       DateTime?
   createdAt         DateTime  @default(now())
@@ -350,4 +351,44 @@ model CouncilLog {
   createdAt       DateTime @default(now())
 
   @@unique([date])
+}
+
+// ---- Radar (Pre-Market Smart Money Flow) ----
+
+model RadarReport {
+  id             String      @id @default(cuid())
+  date           DateTime    @unique
+  generatedAt    DateTime    @default(now())
+  tickersScanned Int
+  tickersFlagged Int
+  scanDurationMs Int
+  tokenUsage     Json?
+  picks          RadarPick[]
+
+  @@index([date])
+}
+
+model RadarPick {
+  id                String      @id @default(cuid())
+  reportId          String
+  report            RadarReport @relation(fields: [reportId], references: [id])
+  rank              Int
+  ticker            String
+  name              String      @default("")
+  sector            String?
+  exchange          String
+  priceAtScan       Float
+  smartMoneyScore   Int
+  catalystStrength  Int
+  newsSentiment     Int
+  technicalSetup    Int
+  volumeSignals     Int
+  sectorAlignment   Int
+  rationale         String?     @db.Text
+  topCatalyst       String?
+  passedOpeningBell Boolean     @default(false)
+  passedSpikes      Boolean     @default(false)
+
+  @@index([reportId])
+  @@index([ticker])
 }
