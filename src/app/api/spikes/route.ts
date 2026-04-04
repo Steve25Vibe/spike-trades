@@ -59,6 +59,16 @@ export async function GET(request: NextRequest) {
       }
     } catch { /* non-fatal */ }
 
+    // Cross-reference: which spikes were also Radar picks?
+    let radarTickerMap: Map<string, number> = new Map();
+    try {
+      const radarPicks = await prisma.radarPick.findMany({
+        where: { report: { date: report.date } },
+        select: { ticker: true, smartMoneyScore: true },
+      });
+      radarTickerMap = new Map(radarPicks.map(rp => [rp.ticker, rp.smartMoneyScore]));
+    } catch { /* non-fatal */ }
+
     // Fetch previous day's report for comparison arrows
     // Use report.date (not targetDate) so weekend/fallback views compare correctly
     const prevReport = await prisma.dailyReport.findFirst({
@@ -123,6 +133,9 @@ export async function GET(request: NextRequest) {
           overconfidenceFlag: s.overconfidenceFlag,
           // Opening Bell cross-reference
           isOpeningBellPick: openingBellTickers.has(s.ticker),
+          // Radar cross-reference
+          isRadarPick: radarTickerMap.has(s.ticker),
+          radarScore: radarTickerMap.get(s.ticker) ?? null,
         })),
       },
       timestamp: Date.now(),

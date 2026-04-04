@@ -54,6 +54,16 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // Cross-reference: which OB picks were also Radar picks?
+    let radarTickerMap: Map<string, number> = new Map();
+    try {
+      const radarPicks = await prisma.radarPick.findMany({
+        where: { report: { date: report.date } },
+        select: { ticker: true, smartMoneyScore: true },
+      });
+      radarTickerMap = new Map(radarPicks.map(rp => [rp.ticker, rp.smartMoneyScore]));
+    } catch { /* non-fatal */ }
+
     return NextResponse.json({
       success: true,
       data: {
@@ -87,6 +97,8 @@ export async function GET(request: NextRequest) {
           targetHit: p.targetHit,
           keyLevelBroken: p.keyLevelBroken,
           tokenUsage: p.tokenUsage,
+          isRadarPick: radarTickerMap.has(p.ticker),
+          radarScore: radarTickerMap.get(p.ticker) ?? null,
         })),
       },
       timestamp: Date.now(),
