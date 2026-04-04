@@ -8,6 +8,22 @@ import { useAuth } from '@/components/providers/AuthProvider';
 
 const navItems = [
   {
+    href: '/radar',
+    label: 'Radar',
+    tooltip: 'Pre-market institutional flow signals',
+    activeColor: 'text-radar-green',
+    activeBg: 'bg-radar-green/10',
+    activeBorder: 'border-radar-green/20',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <circle cx="12" cy="12" r="10" opacity="0.4" />
+        <circle cx="12" cy="12" r="6" opacity="0.6" />
+        <circle cx="12" cy="12" r="2" fill="currentColor" stroke="none" />
+        <line x1="12" y1="12" x2="12" y2="2" strokeWidth="2" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
     href: '/dashboard',
     label: 'Today\'s Spikes',
     tooltip: 'View today\'s AI-selected stock picks',
@@ -118,6 +134,9 @@ export default function Sidebar({ open = true, onClose }: SidebarProps) {
       <nav className="flex-1 p-4 space-y-1">
         {navItems.map((item) => {
           const isActive = pathname === item.href;
+          const activeColor = (item as any).activeColor || 'text-spike-cyan';
+          const activeBg = (item as any).activeBg || 'bg-spike-cyan/10';
+          const activeBorder = (item as any).activeBorder || 'border-spike-cyan/20';
           return (
             <Link
               key={item.href}
@@ -127,11 +146,11 @@ export default function Sidebar({ open = true, onClose }: SidebarProps) {
               className={cn(
                 'flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all',
                 isActive
-                  ? 'bg-spike-cyan/10 text-spike-cyan border border-spike-cyan/20'
+                  ? `${activeBg} ${activeColor} border ${activeBorder}`
                   : 'text-spike-text-dim hover:text-spike-text hover:bg-spike-bg-hover'
               )}
             >
-              <span className={cn(isActive ? 'text-spike-cyan' : 'text-spike-text-muted')}>
+              <span className={cn(isActive ? activeColor : 'text-spike-text-muted')}>
                 {item.icon}
               </span>
               {item.label}
