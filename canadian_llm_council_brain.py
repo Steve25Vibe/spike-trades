@@ -312,6 +312,61 @@ class CouncilResult(BaseModel):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# RADAR MODELS (Pre-Market Smart Money Flow)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class RadarScoreBreakdown(BaseModel):
+    """Custom Radar rubric — different from the standard 5-category council rubric."""
+    catalyst_strength: float = Field(ge=0, le=30, description="Overnight Catalyst Strength (0-30)")
+    news_sentiment: float = Field(ge=0, le=25, description="News & Sentiment Momentum (0-25)")
+    technical_setup: float = Field(ge=0, le=25, description="Technical Breakout Setup (0-25)")
+    volume_signals: float = Field(ge=0, le=10, description="Volume & Accumulation Signals (0-10)")
+    sector_alignment: float = Field(ge=0, le=10, description="Sector & Macro Alignment (0-10)")
+    total: float = Field(ge=0, le=100)
+
+    @model_validator(mode="after")
+    def check_total(self) -> "RadarScoreBreakdown":
+        expected = (self.catalyst_strength + self.news_sentiment + self.technical_setup
+                    + self.volume_signals + self.sector_alignment)
+        if abs(self.total - expected) > 1.0:
+            raise ValueError(f"Radar score total {self.total} != sum of components {expected}")
+        return self
+
+
+class RadarPick(BaseModel):
+    """A single ticker flagged by the Radar scanner."""
+    rank: int = Field(ge=1, le=30)
+    ticker: str
+    company_name: str = ""
+    sector: str = "Unknown"
+    exchange: str = "TSX"
+    price: float = Field(gt=0, description="Previous close price")
+    smart_money_score: int = Field(ge=0, le=100)
+    score_breakdown: RadarScoreBreakdown
+    top_catalyst: str = Field(default="", description="Primary overnight signal description")
+    rationale: str = Field(default="", description="LLM-generated reasoning")
+    earnings_surprise: dict | None = Field(default=None, description="Most recent earnings surprise data")
+    analyst_grade_change: dict | None = Field(default=None, description="Recent grade change if any")
+    news_count_24h: int = Field(default=0, ge=0)
+    as_of: datetime
+
+
+class RadarResult(BaseModel):
+    """Complete output of a Radar scan."""
+    run_id: str
+    run_date: date
+    run_timestamp: datetime
+    tickers_scanned: int = Field(ge=0)
+    tickers_flagged: int = Field(ge=0)
+    picks: list[RadarPick] = Field(default_factory=list, max_length=30)
+    macro_context: MacroContext | None = None
+    scan_duration_seconds: float = Field(ge=0)
+    token_usage: dict = Field(default_factory=dict)
+    endpoint_health: dict = Field(default_factory=dict)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # LIVE DATA FETCHER
 # ═══════════════════════════════════════════════════════════════════════════
 
