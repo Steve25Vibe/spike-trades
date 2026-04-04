@@ -733,16 +733,27 @@ async def _fetch_spike_it_data(ticker: str) -> dict[str, Any] | None:
         return processed
 
     # Try 1-min bars first (FMP Ultimate)
-    if not isinstance(bars_1m_data, Exception) and bars_1m_data and len(bars_1m_data) >= 3:
+    if isinstance(bars_1m_data, Exception):
+        logger.info(f"Spike It: 1-min bars error for {ticker}: {bars_1m_data}")
+    elif bars_1m_data and isinstance(bars_1m_data, list) and len(bars_1m_data) >= 3:
         today_bars = _process_raw_bars(bars_1m_data)
         if len(today_bars) >= 3:
             intraday_available = True
             bar_interval = "1min"
+        else:
+            logger.info(f"Spike It: 1-min bars returned but only {len(today_bars)} from today — falling back")
 
     # Fallback: 5-min bars
     if not intraday_available:
-        bars_5m_data = await _fmp_get_spike(f"/historical-chart/5min/{ticker}", {"from": today_str, "to": today_str})
-        if bars_5m_data and not isinstance(bars_5m_data, Exception) and len(bars_5m_data) >= 3:
+        try:
+            bars_5m_data = await _fmp_get_spike(f"/historical-chart/5min/{ticker}", {"from": today_str, "to": today_str})
+        except asyncio.TimeoutError:
+            logger.info(f"Spike It: 5-min bars timed out for {ticker} — falling back to synthetic")
+            bars_5m_data = None
+        except Exception as e:
+            logger.warning(f"Spike It: 5-min bars error for {ticker}: {e}")
+            bars_5m_data = None
+        if bars_5m_data and isinstance(bars_5m_data, list) and len(bars_5m_data) >= 3:
             today_bars = _process_raw_bars(bars_5m_data)
             if len(today_bars) >= 3:
                 intraday_available = True
