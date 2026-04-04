@@ -762,12 +762,18 @@ export default function AdminPage() {
                       {triggerLabel && (
                         <span className="text-xs text-spike-text-muted">— {triggerLabel}</span>
                       )}
+                      {headerDuration && (
+                        <span className="text-xs mono text-spike-text-dim ml-2">{isLive ? `${headerDuration}` : headerDuration}</span>
+                      )}
                     </div>
-                    {headerDuration && (
-                      <span className="text-xs mono text-spike-text-dim">
-                        {isLive ? `Elapsed: ${headerDuration}` : headerDuration}
-                      </span>
-                    )}
+                    <button
+                      onClick={() => setShowConfirm(true)}
+                      disabled={isRunning || actionLoading === 'council' || council?.councilHealth?.status !== 'ok'}
+                      className="px-3 py-1.5 rounded-lg bg-spike-cyan/10 text-spike-cyan text-xs font-bold hover:bg-spike-cyan/20 transition-all border border-spike-cyan/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                      title={council?.councilHealth?.status !== 'ok' ? 'Python server offline' : isRunning ? 'Already running' : 'Run council scan'}
+                    >
+                      {isRunning ? 'Running...' : 'Run Council Scan'}
+                    </button>
                   </div>
 
                   {/* Stage cards */}
@@ -893,23 +899,6 @@ export default function AdminPage() {
                 <p className="text-spike-text-dim text-xs mt-1 mono break-all">{council.councilHealth.last_run_error}</p>
               </div>
             )}
-
-            {/* 7. Manual Scan */}
-            <div className="glass-card p-6">
-              <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-4">Manual Scan</h3>
-              <p className="text-spike-text-dim text-sm mb-4">
-                Trigger a full 4-stage LLM council scan. This will screen the entire TSX universe and produce today&apos;s Top 10 spikes.
-                Typical runtime is 15-20 minutes.
-              </p>
-              <button
-                onClick={() => setShowConfirm(true)}
-                disabled={isRunning || actionLoading === 'council' || council?.councilHealth?.status !== 'ok'}
-                className="px-6 py-3 rounded-lg bg-gradient-to-r from-spike-cyan to-spike-violet text-spike-bg font-bold text-sm hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                title={council?.councilHealth?.status !== 'ok' ? 'Python council server is offline' : isRunning ? 'Council is already running' : 'Run council scan'}
-              >
-                {actionLoading === 'council' ? 'Starting...' : isRunning ? 'Scan in Progress...' : 'Run Council Scan'}
-              </button>
-            </div>
 
             {/* Confirmation Modal */}
             {showConfirm && (

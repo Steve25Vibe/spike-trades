@@ -1204,6 +1204,15 @@ async def opening_bell_health():
     """Get Opening Bell FMP endpoint health from last run."""
     if _opening_bell_last_result and "endpoint_health" in _opening_bell_last_result:
         return {"success": True, "endpoints": _opening_bell_last_result["endpoint_health"]}
+    # Fall back to persisted file
+    ob_output_path = OUTPUT_DIR / "latest_opening_bell_output.json"
+    if ob_output_path.exists():
+        try:
+            data = json.loads(ob_output_path.read_text())
+            if "endpoint_health" in data:
+                return {"success": True, "endpoints": data["endpoint_health"]}
+        except Exception:
+            pass
     return {"success": False, "message": "No Opening Bell run data available"}
 
 
@@ -1309,7 +1318,16 @@ async def radar_status():
 async def radar_health():
     """Get Radar FMP endpoint health from last run."""
     if _radar_last_result and "endpoint_health" in _radar_last_result:
-        return _radar_last_result["endpoint_health"]
+        return {"success": True, "endpoints": _radar_last_result["endpoint_health"]}
+    # Fall back to persisted file
+    radar_output_path = OUTPUT_DIR / "latest_radar_output.json"
+    if radar_output_path.exists():
+        try:
+            data = json.loads(radar_output_path.read_text())
+            if "endpoint_health" in data:
+                return {"success": True, "endpoints": data["endpoint_health"]}
+        except Exception:
+            pass
     return {}
 
 

@@ -103,9 +103,9 @@ export async function GET() {
         runStatus: runStatusResult,
         latestStageMetadata,
         openingBellStatus,
-        openingBellHealth,
+        openingBellHealth: openingBellHealth?.success ? openingBellHealth : null,
         radarStatus,
-        radarHealth: radarHealth ? { endpoints: radarHealth } : null,
+        radarHealth: radarHealth?.success ? radarHealth : null,
         recentReports: recentReports.map((r) => ({
           id: r.id,
           date: r.date,
