@@ -37,6 +37,8 @@ export async function GET() {
       latestOutputResult,
       openingBellStatusResult,
       openingBellHealthResult,
+      radarStatusResult,
+      radarHealthResult,
       recentReports,
       latestLog,
     ] = await Promise.all([
@@ -55,6 +57,10 @@ export async function GET() {
       safeFetch<Record<string, unknown>>(`${COUNCIL_API_URL}/run-opening-bell-status`, 5000),
       // Opening Bell FMP health — non-critical, short timeout
       safeFetch<Record<string, unknown>>(`${COUNCIL_API_URL}/opening-bell-health`, 5000),
+      // Radar run status — non-critical, short timeout
+      safeFetch<Record<string, unknown>>(`${COUNCIL_API_URL}/run-radar-status`, 5000),
+      // Radar FMP health — non-critical, short timeout
+      safeFetch<Record<string, unknown>>(`${COUNCIL_API_URL}/radar-health`, 5000),
       // Prisma: recent reports
       prisma.dailyReport.findMany({
         take: 5,
@@ -79,6 +85,8 @@ export async function GET() {
     const latestStageMetadata = latestOutputResult?.stage_metadata ?? null;
     const openingBellStatus = openingBellStatusResult ?? null;
     const openingBellHealth = openingBellHealthResult ?? null;
+    const radarStatus = radarStatusResult ?? null;
+    const radarHealth = radarHealthResult ?? null;
 
     return NextResponse.json({
       success: true,
@@ -96,6 +104,8 @@ export async function GET() {
         latestStageMetadata,
         openingBellStatus,
         openingBellHealth,
+        radarStatus,
+        radarHealth: radarHealth ? { endpoints: radarHealth } : null,
         recentReports: recentReports.map((r) => ({
           id: r.id,
           date: r.date,
@@ -116,6 +126,32 @@ export async function GET() {
 // POST /api/admin/council — Trigger a council or opening-bell run (background)
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
+
+  // Route to Radar trigger
+  if (body.type === 'radar') {
+    try {
+      const res = await fetch(`${COUNCIL_API_URL}/run-radar`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => 'unknown error');
+        return NextResponse.json(
+          { success: false, error: `Radar trigger failed: ${errText}` },
+          { status: res.status }
+        );
+      }
+      return NextResponse.json({
+        success: true,
+        message: 'Radar run started. Poll GET /api/admin/council for status.',
+      });
+    } catch (error) {
+      return NextResponse.json(
+        { success: false, error: `Failed to reach Python server: ${String(error)}` },
+        { status: 503 }
+      );
+    }
+  }
 
   // Route to Opening Bell trigger
   if (body.type === 'opening-bell') {

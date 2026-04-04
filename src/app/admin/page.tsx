@@ -92,6 +92,8 @@ interface CouncilStatus {
   } | null;
   openingBellStatus?: OpeningBellStatus | null;
   openingBellHealth?: { endpoints?: Record<string, Record<string, number>> } | null;
+  radarStatus?: { running?: boolean; picks_count?: number; last_run_time?: number; last_error?: string; status?: string } | null;
+  radarHealth?: { endpoints?: Record<string, Record<string, number>> } | null;
 }
 
 function formatDuration(seconds: number): string {
@@ -266,6 +268,16 @@ export default function AdminPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'opening-bell' }),
+      });
+    } catch { /* polling will pick up status */ }
+  };
+
+  const triggerRadar = async () => {
+    try {
+      await fetch('/api/admin/council', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'radar' }),
       });
     } catch { /* polling will pick up status */ }
   };
@@ -655,6 +667,54 @@ export default function AdminPage() {
               );
             })()}
 
+            {/* Radar Status Card */}
+            {(() => {
+              const radar = council?.radarStatus;
+              const status = radar?.status ?? 'pending';
+              const statusColorMap: Record<string, string> = {
+                running: 'text-spike-amber',
+                complete: 'text-spike-green',
+                failed: 'text-spike-red',
+                pending: 'text-spike-text-dim',
+              };
+              const statusText = radar?.running ? 'Running' : status.charAt(0).toUpperCase() + status.slice(1);
+              const picks = radar?.picks_count ?? null;
+              const duration = radar?.last_run_time ?? null;
+              const error = radar?.last_error ?? null;
+              return (
+                <div className="glass-card p-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-bold text-green-400 uppercase tracking-wider">Radar Scanner</span>
+                    <button
+                      onClick={triggerRadar}
+                      className="px-3 py-1.5 rounded-lg bg-green-400/10 text-green-400 text-xs font-bold hover:bg-green-400/20 transition-all border border-green-400/30"
+                    >
+                      Run Radar
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3 text-center">
+                    <div>
+                      <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">Status</p>
+                      <p className={cn('text-sm font-bold mono', radar?.running ? 'text-spike-amber' : statusColorMap[status] ?? 'text-spike-text-dim')}>{statusText}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">Picks</p>
+                      <p className="text-sm font-bold mono text-green-400">{picks ?? '--'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">Duration</p>
+                      <p className="text-sm font-bold mono text-spike-text">{duration != null ? formatDuration(Math.round(duration)) : '--'}</p>
+                    </div>
+                  </div>
+                  {error && (
+                    <div className="mt-3 p-2 rounded bg-spike-red/10 border border-spike-red/20">
+                      <p className="text-xs text-spike-red mono break-all">{error}</p>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* Run Cost Breakdown */}
             {(() => {
               const tokenUsage = council?.latestStageMetadata?.token_usage;
@@ -930,7 +990,7 @@ export default function AdminPage() {
             </div>
 
             {/* Data Source Health */}
-            {(council?.fmpHealth?.endpoints || council?.openingBellHealth?.endpoints) && (
+            {(council?.fmpHealth?.endpoints || council?.openingBellHealth?.endpoints || council?.radarHealth?.endpoints) && (
               <div className="glass-card p-6">
                 <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-2">
                   Data Source Health
@@ -942,6 +1002,7 @@ export default function AdminPage() {
                   const allEndpoints = {
                     ...(council?.fmpHealth?.endpoints || {}),
                     ...(council?.openingBellHealth?.endpoints || {}),
+                    ...(council?.radarHealth?.endpoints || {}),
                   };
                   return (
                 <div className="overflow-x-auto">
