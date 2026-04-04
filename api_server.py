@@ -42,7 +42,7 @@ load_dotenv(override=True)
 FMP_BASE = "https://financialmodelingprep.com/stable"
 FMP_API_KEY = os.environ.get("FMP_API_KEY", "")
 
-from canadian_llm_council_brain import CanadianStockCouncilBrain, _call_grok, _extract_json, _call_anthropic
+from canadian_llm_council_brain import CanadianStockCouncilBrain, RadarScanner, _call_grok, _extract_json, _call_anthropic
 from canadian_portfolio_interface import CanadianPortfolioInterface
 from opening_bell_scanner import OpeningBellScanner
 
@@ -1184,6 +1184,93 @@ async def latest_opening_bell_mapped():
         "picks": data.get("picks", []),
         "tokenUsage": data.get("token_usage", {}),
     }
+
+
+# ── Radar State ──────────────────────────────────────────────────────
+_radar_running = False
+_radar_last_result: dict | None = None
+_radar_last_run_time: float | None = None
+_radar_last_error: str | None = None
+
+RADAR_TIMEOUT = 600  # 10-minute hard timeout (Radar scans more tickers)
+
+
+@app.post("/run-radar")
+async def run_radar(background_tasks: BackgroundTasks):
+    """Trigger pre-market Radar scan. Returns immediately, runs in background."""
+    global _radar_running
+    if _radar_running:
+        raise HTTPException(409, "Radar scan already running")
+
+    _radar_running = True
+    background_tasks.add_task(_execute_radar)
+    return {"success": True, "message": "Radar scan started"}
+
+
+async def _execute_radar():
+    """Background task for Radar execution with hard timeout."""
+    global _radar_running, _radar_last_result, _radar_last_run_time, _radar_last_error
+    start = time.time()
+    try:
+        scanner = RadarScanner(
+            fmp_api_key=os.environ.get("FMP_API_KEY", ""),
+            anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
+            finnhub_api_key=os.environ.get("FINNHUB_API_KEY"),
+        )
+        result = await asyncio.wait_for(scanner.run(), timeout=RADAR_TIMEOUT)
+        _radar_last_result = result
+        _radar_last_run_time = time.time() - start
+        if result.get("error"):
+            _radar_last_error = result.get("error")
+        else:
+            _radar_last_error = None
+
+        # Save to disk
+        output_path = OUTPUT_DIR / "latest_radar_output.json"
+        output_path.write_text(json.dumps(result, default=str))
+
+        logger.info(f"Radar completed in {_radar_last_run_time:.1f}s: {len(result.get('picks', []))} picks")
+
+    except asyncio.TimeoutError:
+        _radar_last_error = f"Hard timeout after {RADAR_TIMEOUT}s"
+        _radar_last_result = {"error": _radar_last_error, "success": False}
+        logger.error(_radar_last_error)
+    except Exception as e:
+        _radar_last_error = str(e)
+        _radar_last_result = {"error": str(e), "success": False}
+        logger.error(f"Radar failed: {e}")
+    finally:
+        _radar_running = False
+
+
+@app.get("/run-radar-status")
+async def radar_status():
+    """Get Radar run status."""
+    return {
+        "running": _radar_running,
+        "last_run_time": _radar_last_run_time,
+        "last_error": _radar_last_error,
+        "picks_count": len(_radar_last_result.get("picks", [])) if _radar_last_result else 0,
+    }
+
+
+@app.get("/radar-health")
+async def radar_health():
+    """Get Radar FMP endpoint health from last run."""
+    if _radar_last_result and "endpoint_health" in _radar_last_result:
+        return _radar_last_result["endpoint_health"]
+    return {}
+
+
+@app.get("/latest-radar-output")
+async def latest_radar_output():
+    """Return latest Radar results."""
+    if _radar_last_result:
+        return _radar_last_result
+    output_path = OUTPUT_DIR / "latest_radar_output.json"
+    if output_path.exists():
+        return json.loads(output_path.read_text())
+    raise HTTPException(404, "No radar output available")
 
 
 # ── Main ─────────────────────────────────────────────────────────────────
