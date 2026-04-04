@@ -29,6 +29,7 @@ const config: Config = {
           'text-dim': '#94A3B8',
           'text-muted': '#64748B',
         },
+        'radar-green': '#00FF41',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
@@ -55,6 +56,7 @@ const config: Config = {
         'fade-in': 'fadeIn 0.3s ease-out',
         'score-fill': 'scoreFill 1.5s ease-out forwards',
         'ring': 'ring 1.5s ease-in-out infinite',
+        'radar-sweep': 'radar-sweep 2s linear infinite',
       },
       keyframes: {
         pulseCyan: {
@@ -76,6 +78,10 @@ const config: Config = {
         scoreFill: {
           '0%': { width: '0%' },
           '100%': { width: 'var(--score-width)' },
+        },
+        'radar-sweep': {
+          '0%': { transform: 'rotate(0deg)' },
+          '100%': { transform: 'rotate(360deg)' },
         },
         ring: {
           '0%, 60%, 100%': { transform: 'rotate(0)' },
