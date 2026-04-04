@@ -220,8 +220,93 @@ export async function POST(request: NextRequest) {
       console.error('[Accuracy] Opening Bell backfill error (non-fatal):', obErr);
     }
 
-    console.log(`[Accuracy] Back-filled ${filled} actual returns, ${obFilled} Opening Bell picks`);
-    return NextResponse.json({ success: true, filled, openingBellFilled: obFilled });
+    // ── Radar accuracy backfill ──
+    let radarFilled = 0;
+    try {
+      const unfilled = await prisma.radarPick.findMany({
+        where: {
+          report: { date: { lte: new Date(todayStr + 'T23:59:59') } },
+          actualOpenPrice: null,
+        },
+        select: {
+          id: true,
+          ticker: true,
+          priceAtScan: true,
+          report: { select: { date: true } },
+        },
+      });
+
+      if (unfilled.length > 0) {
+        const radarTickers = [...new Set(unfilled.map(p => p.ticker))];
+        const radarQuotes = await getBatchQuotes(radarTickers);
+        const radarQuoteMap = new Map(radarQuotes.map(q => [q.ticker, q]));
+
+        for (const pick of unfilled) {
+          const q = radarQuoteMap.get(pick.ticker);
+          if (!q) continue;
+
+          const actualOpen = q.open || q.price;
+          const actualOpenChangePct = pick.priceAtScan > 0
+            ? ((actualOpen - pick.priceAtScan) / pick.priceAtScan) * 100
+            : 0;
+          const openMoveCorrect = actualOpenChangePct > 0; // Radar predicts bullish action
+
+          await prisma.radarPick.update({
+            where: { id: pick.id },
+            data: {
+              actualOpenPrice: actualOpen,
+              actualOpenChangePct: parseFloat(actualOpenChangePct.toFixed(4)),
+              actualDayHigh: q.high || q.price,
+              actualDayClose: q.price,
+              openMoveCorrect,
+            },
+          });
+          radarFilled++;
+        }
+      }
+    } catch (radarErr) {
+      console.error('[Accuracy] Radar backfill error (non-fatal):', radarErr);
+    }
+
+    // ── Update Radar pipeline flags ──
+    try {
+      const pipelineDate = new Date(todayStr + 'T00:00:00');
+
+      // Which Radar tickers passed Opening Bell today?
+      const obPipePicks = await prisma.openingBellPick.findMany({
+        where: { report: { date: pipelineDate } },
+        select: { ticker: true },
+      });
+      const obTickerSet = new Set(obPipePicks.map(p => p.ticker));
+
+      // Which Radar tickers passed Today's Spikes today?
+      const spikePipePicks = await prisma.spike.findMany({
+        where: { report: { date: pipelineDate } },
+        select: { ticker: true },
+      });
+      const spikeTickerSet = new Set(spikePipePicks.map(p => p.ticker));
+
+      // Update Radar picks with pipeline status
+      const radarPipePicks = await prisma.radarPick.findMany({
+        where: { report: { date: pipelineDate } },
+        select: { id: true, ticker: true },
+      });
+
+      for (const rp of radarPipePicks) {
+        await prisma.radarPick.update({
+          where: { id: rp.id },
+          data: {
+            passedOpeningBell: obTickerSet.has(rp.ticker),
+            passedSpikes: spikeTickerSet.has(rp.ticker),
+          },
+        });
+      }
+    } catch (flagErr) {
+      console.error('[Accuracy] Radar pipeline flag update error (non-fatal):', flagErr);
+    }
+
+    console.log(`[Accuracy] Back-filled ${filled} actual returns, ${obFilled} Opening Bell picks, ${radarFilled} Radar picks`);
+    return NextResponse.json({ success: true, filled, openingBellFilled: obFilled, radarFilled });
   } catch (error) {
     console.error('[Accuracy] Check error:', error);
     return NextResponse.json(
