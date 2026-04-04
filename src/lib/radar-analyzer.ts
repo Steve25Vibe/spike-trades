@@ -42,19 +42,35 @@ export async function runRadarAnalysis(): Promise<{ success: boolean; picksCount
   console.log('[Radar] Triggering scanner...');
 
   try {
-    // Step 1: Call Python FastAPI
-    const resp = await fetch(`${COUNCIL_API_URL}/run-radar`, {
+    // Step 1: Trigger Python FastAPI (returns immediately, runs in background)
+    const triggerRes = await fetch(`${COUNCIL_API_URL}/run-radar`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(360_000), // 6 min timeout
     });
 
-    if (!resp.ok) {
-      const errText = await resp.text();
-      throw new Error(`Radar API returned ${resp.status}: ${errText}`);
+    if (!triggerRes.ok) {
+      const errText = await triggerRes.text();
+      throw new Error(`Radar trigger failed: ${errText}`);
     }
 
-    const result: RadarResultData = await resp.json();
+    // Step 2: Poll for completion (max 6 minutes)
+    const maxWait = 360_000;
+    const pollInterval = 5_000;
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < maxWait) {
+      await new Promise((r) => setTimeout(r, pollInterval));
+      const statusRes = await fetch(`${COUNCIL_API_URL}/run-radar-status`);
+      const status = await statusRes.json();
+      if (!status.running) break;
+    }
+
+    // Step 3: Fetch results
+    const resultRes = await fetch(`${COUNCIL_API_URL}/latest-radar-output`);
+    if (!resultRes.ok) {
+      throw new Error(`Failed to fetch Radar results: ${resultRes.status}`);
+    }
+    const result: RadarResultData = await resultRes.json();
 
     if (result.error) {
       throw new Error(result.error);
