@@ -428,22 +428,21 @@ class LiveDataFetcher:
         return {}
 
     async def fetch_profiles_batch(self, tickers: list[str]) -> dict[str, dict]:
-        """Fetch profiles for multiple tickers (rate-limited, 3 at a time with delay)."""
+        """Fetch profiles for multiple tickers. Optimized for FMP Ultimate (3000 calls/min)."""
         result = {}
-        sem = asyncio.Semaphore(3)
+        sem = asyncio.Semaphore(10)  # Was 3 — 3.3x more concurrent
         async def _fetch(t: str):
             async with sem:
                 p = await self.fetch_profile(t)
                 if p:
                     result[t] = p
-                await asyncio.sleep(0.3)  # Rate limit: ~10 req/sec max
-        # Process in batches of 20 to avoid overwhelming FMP
-        for i in range(0, len(tickers), 20):
-            batch = tickers[i:i + 20]
+                await asyncio.sleep(0.05)  # Was 0.3s — minimal politeness delay
+        for i in range(0, len(tickers), 50):  # Was 20 — larger batches
+            batch = tickers[i:i + 50]
             await asyncio.gather(*[_fetch(t) for t in batch])
-            if i + 20 < len(tickers):
-                logger.info(f"Profiles: {min(i + 20, len(tickers))}/{len(tickers)} fetched")
-                await asyncio.sleep(3)  # Longer pause between batches
+            if i + 50 < len(tickers):
+                logger.info(f"Profiles: {min(i + 50, len(tickers))}/{len(tickers)} fetched")
+                await asyncio.sleep(0.5)  # Was 3s — much shorter pause
         return result
 
     # ── Quotes ────────────────────────────────────────────────────────
@@ -456,7 +455,7 @@ class LiveDataFetcher:
         now = datetime.now(timezone.utc)
         result = {}
         # batch-quote supports comma-separated symbols
-        batch_size = 50
+        batch_size = 100  # Was 50 — FMP Ultimate supports larger batches
         for i in range(0, len(tickers), batch_size):
             batch = tickers[i:i + batch_size]
             symbols = ",".join(batch)
@@ -4556,7 +4555,7 @@ class CanadianStockCouncilBrain:
             logger.info(f"Step 5: Stage 1 (Sonnet) — {len(payloads_list)} tickers")
             # Batch size 15 to stay under Anthropic rate limits (~30K tokens/min)
             BATCH_SIZE = 15
-            INTER_BATCH_DELAY = 8  # seconds between batches (reduced from 15s; retry logic handles any 429s)
+            INTER_BATCH_DELAY = 3  # seconds between batches (reduced from 8s; Anthropic rate limits are per-minute)
             stage1_start = asyncio.get_event_loop().time()
             _stage1_batch_count = (len(payloads_list) + BATCH_SIZE - 1) // BATCH_SIZE
             if tracker:
