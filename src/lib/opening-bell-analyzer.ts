@@ -2,6 +2,8 @@
  * Opening Bell Analyzer — triggers the Python scanner and stores results in Prisma.
  */
 import prisma from '@/lib/db/prisma';
+import fs from 'fs';
+import path from 'path';
 
 const COUNCIL_API_URL = process.env.COUNCIL_API_URL || 'http://localhost:8100';
 
@@ -35,6 +37,24 @@ interface OpeningBellResult {
 
 export async function runOpeningBellAnalysis(): Promise<{ success: boolean; picksCount: number; error?: string }> {
   console.log('[Opening Bell] Triggering scanner...');
+
+  // Read Radar overrides (if available)
+  let radarOverrides: { tickers: string[]; smart_money_scores: Record<string, number> } | null = null;
+  try {
+    const overridePath = path.join(process.cwd(), 'radar_opening_bell_overrides.json');
+    if (fs.existsSync(overridePath)) {
+      const raw = JSON.parse(fs.readFileSync(overridePath, 'utf-8'));
+      const today = new Date().toISOString().split('T')[0];
+      if (raw.date === today) {
+        radarOverrides = { tickers: raw.tickers, smart_money_scores: raw.smart_money_scores };
+        console.log(`[Opening Bell] Read ${raw.tickers.length} Radar overrides`);
+      } else {
+        console.log('[Opening Bell] Radar override file is stale — ignoring');
+      }
+    }
+  } catch {
+    console.log('[Opening Bell] No Radar overrides available');
+  }
 
   try {
     // Step 1: Trigger the Python scanner and wait for mapped results
