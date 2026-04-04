@@ -4288,6 +4288,382 @@ class CompoundingRoadmapEngine:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# RADAR SCANNER (Pre-Market Smart Money Flow)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class RadarScanner:
+    """Pre-market Smart Money Flow Radar scanner.
+
+    Runs at 8:15 AM AST, detects overnight signals that predict
+    institutional buying pressure at open. Flags tickers with a
+    Smart Money Conviction Score (0-100).
+
+    Usage:
+        scanner = RadarScanner(fmp_api_key="...", anthropic_api_key="...")
+        result = await scanner.run()
+    """
+
+    # Pre-score filter: must have at least one active signal
+    MIN_NEWS_FOR_SIGNAL = 1      # At least 1 article in 24h
+    NEUTRAL_RSI_LOW = 40         # RSI below this is not neutral
+    NEUTRAL_RSI_HIGH = 60        # RSI above this is not neutral
+    MIN_ADX_FOR_TREND = 15       # ADX above this shows trend
+    GRADE_RECENCY_DAYS = 7       # Grade changes within this window
+    EARNINGS_LOOKAHEAD_DAYS = 10 # Upcoming earnings within this window
+
+    RADAR_SYSTEM_PROMPT = """You are an expert pre-market institutional flow analyst for Canadian equities (TSX/TSXV).
+
+Your job: analyze overnight signals and identify stocks likely to see institutional buying pressure at market open.
+
+SCORING RUBRIC (100 points total):
+- Overnight Catalyst Strength (0-30): Analyst upgrades/downgrades, earnings surprise magnitude, price target revisions
+- News & Sentiment Momentum (0-25): Overnight news volume spike, headline sentiment, catalyst type (M&A, contract, regulatory)
+- Technical Breakout Setup (0-25): RSI recovery from oversold, MACD crossover, Bollinger squeeze, ADX trend strength
+- Volume & Accumulation Signals (0-10): Multi-day relative volume trend, OBV direction, volume-price divergence
+- Sector & Macro Alignment (0-10): Sector rotation momentum, macro regime fit, peer relative strength
+
+CHAIN-OF-VERIFICATION MANDATE:
+1. For each ticker, state the specific overnight signal that triggered your attention.
+2. Cross-verify: does the technical setup support the catalyst signal?
+3. If a ticker has a strong catalyst but weak technicals (or vice versa), score conservatively.
+4. Flag any data that seems stale or inconsistent.
+
+GROUNDING RULES:
+- All prices and volumes come from the data payload. Never invent or assume prices.
+- If a field is null or missing, score that category as 0.
+- Be skeptical of low-volume tickers with only news signals — they may be pump targets.
+
+Respond ONLY with valid JSON. No markdown, no explanation outside JSON."""
+
+    RADAR_USER_PROMPT_TEMPLATE = """## Pre-Market Radar Scan — {date}
+
+### Macro Context
+Oil: ${oil} | Gold: ${gold} CAD | CAD/USD: {cad_usd} | VIX: {vix} | TSX: {tsx_level} ({tsx_change}%)
+Regime: {regime}
+
+### Sector Performance (Previous Day)
+{sector_performance}
+
+### Candidates ({count} tickers with active overnight signals)
+
+{ticker_data}
+
+### Instructions
+Score each ticker using the 100-point Radar rubric. Return the top {top_n} ranked by total score.
+
+Required JSON format:
+{{
+  "picks": [
+    {{
+      "rank": 1,
+      "ticker": "RY.TO",
+      "smart_money_score": 82,
+      "catalyst_strength": 25,
+      "news_sentiment": 20,
+      "technical_setup": 20,
+      "volume_signals": 8,
+      "sector_alignment": 9,
+      "top_catalyst": "RBC upgraded to Outperform, PT raised to $175 (16% upside)",
+      "rationale": "Strong overnight catalyst...",
+      "verification_notes": "Price at $151 confirmed from data..."
+    }}
+  ]
+}}"""
+
+    def __init__(self, fmp_api_key: str, anthropic_api_key: str, finnhub_api_key: str | None = None):
+        self.fmp_api_key = fmp_api_key
+        self.anthropic_api_key = anthropic_api_key
+        self.finnhub_api_key = finnhub_api_key
+        self.fetcher = LiveDataFetcher(fmp_api_key, finnhub_api_key)
+        self.endpoint_health: dict[str, dict] = {}
+
+    async def run(self, top_n: int = 15) -> dict:
+        """Run pre-market Radar scan. Returns RadarResult as dict."""
+        import hashlib
+        run_id = hashlib.md5(datetime.now().isoformat().encode()).hexdigest()[:12]
+        start_time = time.time()
+        logger.info(f"[Radar] Starting scan (run_id={run_id})...")
+
+        try:
+            # 1. Fetch universe + quotes
+            universe = await self.fetcher.fetch_tsx_universe()
+            quotes = await self.fetcher.fetch_quotes(universe)
+            logger.info(f"[Radar] Universe: {len(universe)} tickers, {len(quotes)} quoted")
+
+            # 2. Liquidity filter (same as council: price > $1, ADV > $5M)
+            liquid = []
+            for ticker, q in quotes.items():
+                price = q.get("price", 0)
+                volume = q.get("volume", 0) or q.get("avgVolume", 0)
+                adv = price * volume
+                if price >= 1.0 and adv >= 5_000_000:
+                    liquid.append((ticker, q))
+            logger.info(f"[Radar] After liquidity filter: {len(liquid)} tickers")
+
+            # 3. Fetch enrichment data in parallel
+            tickers = [t for t, _ in liquid]
+            quote_map = {t: q for t, q in liquid}
+
+            macro = await self.fetcher.fetch_macro_context()
+            regime_filter = MacroRegimeFilter()
+            macro = regime_filter.apply_regime(macro)
+
+            # Parallel enrichment
+            grades_map, surprises_map, news_map, sector_perf = await self._fetch_enrichment(tickers)
+
+            # 4. Compute technicals from historical bars
+            tech_map = await self._compute_technicals_batch(tickers)
+
+            # 5. Pre-score filter: keep only tickers with at least one active signal
+            candidates = self._apply_prescore_filter(
+                tickers, quote_map, grades_map, surprises_map, news_map, tech_map
+            )
+            logger.info(f"[Radar] After pre-score filter: {len(candidates)} candidates")
+
+            if not candidates:
+                logger.info("[Radar] No candidates with active signals — returning empty result")
+                result = RadarResult(
+                    run_id=run_id, run_date=date.today(), run_timestamp=datetime.now(timezone.utc),
+                    tickers_scanned=len(liquid), tickers_flagged=0, picks=[],
+                    macro_context=macro, scan_duration_seconds=time.time() - start_time,
+                    endpoint_health=self.fetcher.endpoint_health,
+                )
+                return result.model_dump(mode="json")
+
+            # 6. Build LLM prompt and call Sonnet
+            picks, token_usage = await self._call_radar_sonnet(
+                candidates, quote_map, grades_map, surprises_map,
+                news_map, tech_map, sector_perf, macro, top_n
+            )
+
+            result = RadarResult(
+                run_id=run_id, run_date=date.today(), run_timestamp=datetime.now(timezone.utc),
+                tickers_scanned=len(liquid), tickers_flagged=len(picks), picks=picks,
+                macro_context=macro, scan_duration_seconds=time.time() - start_time,
+                token_usage=token_usage, endpoint_health=self.fetcher.endpoint_health,
+            )
+            logger.info(f"[Radar] Complete: {len(picks)} picks in {result.scan_duration_seconds:.1f}s")
+            return result.model_dump(mode="json")
+
+        except Exception as e:
+            logger.error(f"[Radar] Fatal error: {e}", exc_info=True)
+            return {"error": str(e), "success": False}
+        finally:
+            await self.fetcher.close()
+
+    async def _fetch_enrichment(self, tickers: list[str]) -> tuple[dict, dict, dict, list]:
+        """Fetch all enrichment data in parallel."""
+        sem = asyncio.Semaphore(12)
+        grades_map: dict[str, list] = {}
+        surprises_map: dict[str, list] = {}
+        news_map: dict[str, list] = {}
+
+        async def _grades(t):
+            async with sem:
+                data = await self.fetcher._fmp_get("/grades", {"symbol": t})
+                if data and isinstance(data, list):
+                    cutoff = (datetime.now() - timedelta(days=self.GRADE_RECENCY_DAYS)).strftime("%Y-%m-%d")
+                    recent = [g for g in data if g.get("date", "") >= cutoff]
+                    if recent:
+                        grades_map[t] = recent
+
+        async def _surprises(t):
+            async with sem:
+                data = await self.fetcher.fetch_earnings_surprises(t)
+                if data:
+                    surprises_map[t] = data
+
+        async def _news(t):
+            async with sem:
+                data = await self.fetcher.fetch_news(t, limit=10)
+                if data:
+                    news_map[t] = [n.model_dump() if hasattr(n, "model_dump") else n for n in data]
+
+        tasks = []
+        for t in tickers:
+            tasks.extend([_grades(t), _surprises(t), _news(t)])
+
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Fetch sector performance separately
+        yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+        sector_perf = await self.fetcher._fmp_get(
+            "/sector-performance-snapshot", {"exchange": "TSX", "date": yesterday}
+        )
+        if not isinstance(sector_perf, list):
+            sector_perf = []
+
+        return grades_map, surprises_map, news_map, sector_perf
+
+    async def _compute_technicals_batch(self, tickers: list[str]) -> dict[str, TechnicalIndicators | None]:
+        """Compute technicals from historical bars for all tickers."""
+        sem = asyncio.Semaphore(8)
+        tech_map: dict[str, TechnicalIndicators | None] = {}
+
+        async def _compute(t):
+            async with sem:
+                bars = await self.fetcher.fetch_historical(t, days=90)
+                if bars:
+                    tech = LiveDataFetcher.compute_technicals(bars)
+                    tech_map[t] = tech
+
+        await asyncio.gather(*[_compute(t) for t in tickers], return_exceptions=True)
+        return tech_map
+
+    def _apply_prescore_filter(
+        self, tickers: list[str], quote_map: dict, grades_map: dict,
+        surprises_map: dict, news_map: dict, tech_map: dict
+    ) -> list[str]:
+        """Keep only tickers with at least one active overnight signal."""
+        candidates = []
+        for t in tickers:
+            has_signal = False
+
+            # Signal 1: News in last 24h
+            if t in news_map and len(news_map[t]) >= self.MIN_NEWS_FOR_SIGNAL:
+                has_signal = True
+
+            # Signal 2: Recent analyst grade change
+            if t in grades_map:
+                has_signal = True
+
+            # Signal 3: Technical setup (RSI not neutral OR ADX showing trend)
+            tech = tech_map.get(t)
+            if tech:
+                if tech.rsi_14 < self.NEUTRAL_RSI_LOW or tech.rsi_14 > self.NEUTRAL_RSI_HIGH:
+                    has_signal = True
+                if tech.adx_14 >= self.MIN_ADX_FOR_TREND:
+                    has_signal = True
+
+            # Signal 4: Recent earnings surprise
+            if t in surprises_map:
+                has_signal = True
+
+            if has_signal:
+                candidates.append(t)
+
+        return candidates
+
+    async def _call_radar_sonnet(
+        self, candidates: list[str], quote_map: dict, grades_map: dict,
+        surprises_map: dict, news_map: dict, tech_map: dict,
+        sector_perf: list, macro: MacroContext, top_n: int
+    ) -> tuple[list[RadarPick], dict]:
+        """Call Sonnet 4.6 with Radar rubric prompt. Returns (picks, token_usage)."""
+        # Build ticker data blocks
+        ticker_blocks = []
+        for t in candidates:
+            q = quote_map.get(t, {})
+            tech = tech_map.get(t)
+            block = f"**{t}** — {q.get('name', 'Unknown')} | Sector: {q.get('sector', 'Unknown')}\n"
+            block += f"  Price: ${q.get('price', 0):.2f} | Change: {q.get('changesPercentage', 0):.2f}% | Volume: {q.get('volume', 0):,}\n"
+
+            if tech:
+                block += f"  RSI: {tech.rsi_14:.1f} | MACD: {tech.macd_histogram:.3f} | ADX: {tech.adx_14:.1f} | RelVol: {tech.relative_volume:.2f}\n"
+                block += f"  SMA20: ${tech.sma_20:.2f} | SMA50: ${tech.sma_50:.2f} | BB: [{tech.bollinger_lower:.2f}, {tech.bollinger_upper:.2f}]\n"
+
+            if t in grades_map:
+                for g in grades_map[t][:2]:
+                    block += f"  GRADE: {g.get('gradingCompany', '?')} → {g.get('newGrade', '?')} ({g.get('date', '?')})\n"
+
+            if t in surprises_map and surprises_map[t]:
+                s = surprises_map[t][0]
+                actual = s.get("actualEarningResult", 0)
+                est = s.get("estimatedEarning", 0)
+                surprise_pct = ((actual - est) / abs(est) * 100) if est else 0
+                block += f"  EARNINGS: Actual ${actual:.2f} vs Est ${est:.2f} ({surprise_pct:+.1f}% surprise)\n"
+
+            if t in news_map:
+                block += f"  NEWS: {len(news_map[t])} articles in 24h\n"
+                for n in news_map[t][:2]:
+                    headline = n.get("headline", n.get("title", ""))[:80]
+                    block += f"    - {headline}\n"
+
+            ticker_blocks.append(block)
+
+        # Format sector performance
+        sector_str = "\n".join([
+            f"  {s.get('sector', '?')}: {s.get('averageChange', 0):+.2f}%"
+            for s in (sector_perf or [])[:10]
+        ]) or "  (unavailable)"
+
+        # Call Sonnet in batches of 15
+        all_picks_raw = []
+        total_tokens = {"input_tokens": 0, "output_tokens": 0}
+        batch_size = 15
+
+        for i in range(0, len(ticker_blocks), batch_size):
+            batch_tickers = candidates[i:i + batch_size]
+            batch_blocks = ticker_blocks[i:i + batch_size]
+
+            batch_prompt = self.RADAR_USER_PROMPT_TEMPLATE.format(
+                date=date.today().isoformat(),
+                oil=f"{macro.oil_wti or 0:.2f}",
+                gold=f"{macro.gold_price or 0:.0f}",
+                cad_usd=f"{macro.cad_usd or 0:.4f}",
+                vix=f"{macro.vix or 0:.1f}",
+                tsx_level=f"{macro.tsx_composite or 0:.0f}",
+                tsx_change=f"{macro.tsx_change_pct or 0:.2f}",
+                regime=macro.regime,
+                sector_performance=sector_str,
+                count=len(batch_tickers),
+                ticker_data="\n".join(batch_blocks),
+                top_n=min(top_n, len(batch_tickers)),
+            )
+
+            response_text, usage = await _call_anthropic(
+                self.anthropic_api_key, "claude-sonnet-4-6",
+                self.RADAR_SYSTEM_PROMPT, batch_prompt,
+                max_tokens=8192, temperature=0.3,
+            )
+            total_tokens["input_tokens"] += usage.get("input_tokens", 0)
+            total_tokens["output_tokens"] += usage.get("output_tokens", 0)
+
+            parsed = _extract_json(response_text)
+            if parsed and "picks" in parsed:
+                all_picks_raw.extend(parsed["picks"])
+
+            if i + batch_size < len(ticker_blocks):
+                await asyncio.sleep(3)  # Rate limit respect
+
+        # Sort by smart_money_score descending, take top_n
+        all_picks_raw.sort(key=lambda p: p.get("smart_money_score", 0), reverse=True)
+        top_picks_raw = all_picks_raw[:top_n]
+
+        # Convert to Pydantic models
+        picks = []
+        for idx, raw in enumerate(top_picks_raw):
+            try:
+                pick = RadarPick(
+                    rank=idx + 1,
+                    ticker=raw["ticker"],
+                    company_name=quote_map.get(raw["ticker"], {}).get("name", ""),
+                    sector=quote_map.get(raw["ticker"], {}).get("sector", "Unknown"),
+                    exchange=quote_map.get(raw["ticker"], {}).get("exchange", "TSX"),
+                    price=quote_map.get(raw["ticker"], {}).get("price", 0),
+                    smart_money_score=int(raw.get("smart_money_score", 0)),
+                    score_breakdown=RadarScoreBreakdown(
+                        catalyst_strength=float(raw.get("catalyst_strength", 0)),
+                        news_sentiment=float(raw.get("news_sentiment", 0)),
+                        technical_setup=float(raw.get("technical_setup", 0)),
+                        volume_signals=float(raw.get("volume_signals", 0)),
+                        sector_alignment=float(raw.get("sector_alignment", 0)),
+                        total=float(raw.get("smart_money_score", 0)),
+                    ),
+                    top_catalyst=raw.get("top_catalyst", ""),
+                    rationale=raw.get("rationale", ""),
+                    news_count_24h=len(news_map.get(raw["ticker"], [])),
+                    as_of=datetime.now(timezone.utc),
+                )
+                picks.append(pick)
+            except Exception as e:
+                logger.warning(f"[Radar] Failed to parse pick {raw.get('ticker', '?')}: {e}")
+
+        return picks, total_tokens
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # PUBLIC INTERFACE (Session 3: full pipeline, Session 4 adds persistence)
 # ═══════════════════════════════════════════════════════════════════════════
 
