@@ -23,6 +23,7 @@ This plan is divided into 6 phases, each designed as a standalone session with i
 | 1b | Session 1 | 6a-6c | Batch optimization + bulk migration + Spike It hardening |
 | 2 | Session 2 | 7-10 | Radar Scanner (Python + FastAPI) |
 | 3 | Session 3 | 11-15 | Radar Integration (Prisma, Next.js, bridges) |
+| 3b | Session 3 | 15a-15f | Learning engine, accuracy, admin panel integration |
 | 4 | Session 4 | 16-20 | Frontend (Radar page, icons, cards, reports) |
 | 5 | Session 4 | 21-23 | Email, cron, version bump |
 
@@ -1784,6 +1785,510 @@ git commit -m "feat: Opening Bell analyzer reads Radar override file for priorit
 git push
 ```
 
+## Phase 3b: Learning Engine, Accuracy, Admin Panel Integration (Session 3)
+
+### Task 15a: Add Radar Accuracy Fields to Prisma Schema
+
+**Files:**
+- Modify: `prisma/schema.prisma` (RadarPick model)
+
+Radar picks need actual outcome tracking to validate the "smart money" thesis: did the flagged tickers actually gap up at open?
+
+- [ ] **Step 1: Add accuracy fields to RadarPick**
+
+In the RadarPick model (added in Task 11), add these fields after `passedSpikes`:
+
+```prisma
+  // Accuracy tracking — backfilled at 4:30 PM
+  actualOpenPrice     Float?    // Opening price on scan day
+  actualOpenChangePct Float?    // % change from previous close to open
+  actualDayHigh       Float?    // Highest price during the day
+  actualDayClose      Float?    // Closing price
+  openMoveCorrect     Boolean?  // Did ticker move in predicted direction at open?
+```
+
+- [ ] **Step 2: Run migration**
+
+```bash
+npx prisma migrate dev --name add-radar-accuracy-fields
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add prisma/
+git commit -m "feat: add accuracy tracking fields to RadarPick (open price, day high, close)"
+git push
+```
+
+### Task 15b: Add Source Tagging to Learning Engine SQLite Schema
+
+**Files:**
+- Modify: `canadian_llm_council_brain.py` (HistoricalPerformanceAnalyzer)
+
+Tag the source of each council pick so the learning engine can eventually compute Radar-specific vs non-Radar accuracy.
+
+- [ ] **Step 1: Add `source` column to pick_history table**
+
+In `HistoricalPerformanceAnalyzer.__init__`, find the `CREATE TABLE IF NOT EXISTS pick_history` statement. Add a new column:
+
+```python
+source TEXT DEFAULT 'council'  -- 'council', 'council_via_ob', 'council_via_radar', 'council_via_radar_ob'
+```
+
+- [ ] **Step 2: Add `source` column to accuracy_records table**
+
+In the same `__init__`, find the `CREATE TABLE IF NOT EXISTS accuracy_records`. Add:
+
+```python
+source TEXT DEFAULT 'council'
+```
+
+- [ ] **Step 3: Update `record_picks` to accept and store source**
+
+Modify the `record_picks` method signature:
+
+```python
+def record_picks(self, council_result: dict, ob_tickers: list[str] | None = None, radar_tickers: list[str] | None = None) -> int:
+```
+
+Inside the method, determine source for each pick:
+
+```python
+ob_set = set(ob_tickers or [])
+radar_set = set(radar_tickers or [])
+
+for pick in council_result.get("top_picks", []):
+    ticker = pick["ticker"]
+    if ticker in radar_set and ticker in ob_set:
+        source = "council_via_radar_ob"
+    elif ticker in radar_set:
+        source = "council_via_radar"
+    elif ticker in ob_set:
+        source = "council_via_ob"
+    else:
+        source = "council"
+    # Include source in INSERT statement
+```
+
+- [ ] **Step 4: Pass OB and Radar tickers when recording picks in run_council**
+
+In `run_council()`, find the call to `historical_analyzer.record_picks(result_dict)` near the end. Update it to pass the override tickers:
+
+```python
+# Load override tickers for source tagging
+ob_override_tickers = []
+radar_override_tickers = []
+try:
+    ob_path = Path("opening_bell_council_overrides.json")
+    if ob_path.exists():
+        ob_data = json.loads(ob_path.read_text())
+        if ob_data.get("date") == date.today().isoformat():
+            ob_override_tickers = ob_data.get("tickers", [])
+except Exception:
+    pass
+try:
+    radar_path = Path("radar_opening_bell_overrides.json")
+    if radar_path.exists():
+        radar_data = json.loads(radar_path.read_text())
+        if radar_data.get("date") == date.today().isoformat():
+            radar_override_tickers = radar_data.get("tickers", [])
+except Exception:
+    pass
+
+historical_analyzer.record_picks(result_dict, ob_tickers=ob_override_tickers, radar_tickers=radar_override_tickers)
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add canadian_llm_council_brain.py
+git commit -m "feat: add source tagging to learning engine (council, council_via_ob, council_via_radar)"
+git push
+```
+
+### Task 15c: Backfill Radar Accuracy in Accuracy Check Route
+
+**Files:**
+- Modify: `src/app/api/accuracy/check/route.ts`
+
+Add Radar accuracy backfill alongside the existing Opening Bell backfill (which runs at 4:30 PM AST).
+
+- [ ] **Step 1: Add Radar backfill section**
+
+After the existing Opening Bell backfill section (around line 179-221), add:
+
+```typescript
+// ── Radar accuracy backfill ──
+let radarFilled = 0;
+try {
+  const unfilled = await prisma.radarPick.findMany({
+    where: {
+      report: { date: { lte: new Date(todayStr + 'T23:59:59') } },
+      actualOpenPrice: null,
+    },
+    select: {
+      id: true,
+      ticker: true,
+      priceAtScan: true,
+      report: { select: { date: true } },
+    },
+  });
+
+  if (unfilled.length > 0) {
+    const radarTickers = [...new Set(unfilled.map(p => p.ticker))];
+    const radarQuotes = await getBatchQuotes(radarTickers);
+
+    for (const pick of unfilled) {
+      const q = radarQuotes[pick.ticker];
+      if (!q) continue;
+
+      const actualOpen = q.open || q.price;
+      const actualOpenChangePct = pick.priceAtScan > 0
+        ? ((actualOpen - pick.priceAtScan) / pick.priceAtScan) * 100
+        : 0;
+      const openMoveCorrect = actualOpenChangePct > 0; // Radar predicts bullish action
+
+      await prisma.radarPick.update({
+        where: { id: pick.id },
+        data: {
+          actualOpenPrice: actualOpen,
+          actualOpenChangePct: parseFloat(actualOpenChangePct.toFixed(4)),
+          actualDayHigh: q.dayHigh || q.high || q.price,
+          actualDayClose: q.price,
+          openMoveCorrect,
+        },
+      });
+      radarFilled++;
+    }
+  }
+} catch (radarErr) {
+  console.error('[Accuracy] Radar backfill error (non-fatal):', radarErr);
+}
+```
+
+- [ ] **Step 2: Update passedOpeningBell and passedSpikes flags**
+
+Also add cross-reference updates for the pipeline status indicators:
+
+```typescript
+// ── Update Radar pipeline flags ──
+try {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // Which Radar tickers passed Opening Bell today?
+  const obPicks = await prisma.openingBellPick.findMany({
+    where: { report: { date: today } },
+    select: { ticker: true },
+  });
+  const obTickerSet = new Set(obPicks.map(p => p.ticker));
+
+  // Which Radar tickers passed Today's Spikes today?
+  const spikePicks = await prisma.spike.findMany({
+    where: { report: { date: today } },
+    select: { ticker: true },
+  });
+  const spikeTickerSet = new Set(spikePicks.map(p => p.ticker));
+
+  // Update Radar picks with pipeline status
+  const radarPicks = await prisma.radarPick.findMany({
+    where: { report: { date: today } },
+    select: { id: true, ticker: true },
+  });
+
+  for (const rp of radarPicks) {
+    await prisma.radarPick.update({
+      where: { id: rp.id },
+      data: {
+        passedOpeningBell: obTickerSet.has(rp.ticker),
+        passedSpikes: spikeTickerSet.has(rp.ticker),
+      },
+    });
+  }
+} catch (flagErr) {
+  console.error('[Accuracy] Radar pipeline flag update error (non-fatal):', flagErr);
+}
+```
+
+- [ ] **Step 3: Update response to include Radar count**
+
+Change the return statement:
+
+```typescript
+return NextResponse.json({ success: true, filled, openingBellFilled: obFilled, radarFilled });
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add src/app/api/accuracy/check/route.ts
+git commit -m "feat: add Radar accuracy backfill and pipeline flag updates to accuracy check"
+git push
+```
+
+### Task 15d: Add Radar Section to Admin Panel
+
+**Files:**
+- Modify: `src/app/api/admin/council/route.ts`
+- Modify: `src/app/admin/page.tsx`
+
+- [ ] **Step 1: Fetch Radar health and status in admin council API**
+
+In `src/app/api/admin/council/route.ts`, add to the parallel fetch section (around line 33-75):
+
+```typescript
+const radarStatusPromise = fetch(`${COUNCIL_API_URL}/run-radar-status`).then(r => r.json()).catch(() => null);
+const radarHealthPromise = fetch(`${COUNCIL_API_URL}/radar-health`).then(r => r.json()).catch(() => null);
+```
+
+Add to the `Promise.all` or individual awaits, then include in the response:
+
+```typescript
+radarStatus: radarStatusData,
+radarHealth: { endpoints: radarHealthData },
+```
+
+- [ ] **Step 2: Merge Radar FMP health into admin page health table**
+
+In `src/app/admin/page.tsx`, find where `council?.fmpHealth?.endpoints` and `openingBellHealth?.endpoints` are merged for the Data Source Health table. Add Radar:
+
+```typescript
+// Merge all FMP endpoint health sources
+const allEndpoints: Record<string, Record<string, number>> = {
+  ...(council?.fmpHealth?.endpoints || {}),
+  ...(council?.openingBellHealth?.endpoints || {}),
+  ...(council?.radarHealth?.endpoints || {}),
+};
+```
+
+- [ ] **Step 3: Add Radar status card to admin panel**
+
+Add a Radar status card alongside the existing Opening Bell status card. Show:
+- Running status (green dot / gray dot)
+- Last run time
+- Picks flagged count
+- Last error (if any)
+- "Trigger Radar" button (POST to `/api/admin/council` with `type: 'radar'`)
+
+```tsx
+{/* Radar Status Card */}
+<div className="bg-gray-900/60 border border-radar-green/30 rounded-xl p-4">
+  <div className="flex items-center gap-2 mb-3">
+    <div className={`w-2 h-2 rounded-full ${council?.radarStatus?.running ? 'bg-radar-green animate-pulse' : 'bg-gray-600'}`} />
+    <h3 className="text-sm font-medium text-radar-green">Radar Scanner</h3>
+  </div>
+  <div className="space-y-1 text-xs text-gray-400">
+    <div>Picks: {council?.radarStatus?.picks_count ?? '—'}</div>
+    <div>Last run: {council?.radarStatus?.last_run_time ? `${council.radarStatus.last_run_time.toFixed(1)}s` : '—'}</div>
+    {council?.radarStatus?.last_error && (
+      <div className="text-red-400 text-[10px]">{council.radarStatus.last_error}</div>
+    )}
+  </div>
+  <button
+    onClick={() => triggerRun('radar')}
+    disabled={triggering}
+    className="mt-3 w-full py-1.5 text-xs rounded bg-radar-green/10 text-radar-green border border-radar-green/30 hover:bg-radar-green/20 disabled:opacity-50"
+  >
+    Trigger Radar
+  </button>
+</div>
+```
+
+- [ ] **Step 4: Add 'radar' trigger type to admin council POST handler**
+
+In `src/app/api/admin/council/route.ts`, in the POST handler, add:
+
+```typescript
+if (body.type === 'radar') {
+  const resp = await fetch(`${COUNCIL_API_URL}/run-radar`, { method: 'POST' });
+  const result = await resp.json();
+  return NextResponse.json({ success: true, result });
+}
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/app/api/admin/council/route.ts src/app/admin/page.tsx
+git commit -m "feat: add Radar health, status, and manual trigger to admin panel"
+git push
+```
+
+### Task 15e: Add Radar to Accuracy Page
+
+**Files:**
+- Modify: `src/app/api/accuracy/route.ts`
+- Modify: `src/app/accuracy/page.tsx`
+
+- [ ] **Step 1: Add Radar accuracy data to accuracy API**
+
+In `src/app/api/accuracy/route.ts`, add a Radar section to the response. After the existing data computation:
+
+```typescript
+// Radar accuracy
+const radarPicks = await prisma.radarPick.findMany({
+  where: {
+    actualOpenPrice: { not: null },
+    report: { date: { gte: cutoff } },
+  },
+  select: {
+    ticker: true,
+    smartMoneyScore: true,
+    priceAtScan: true,
+    actualOpenPrice: true,
+    actualOpenChangePct: true,
+    actualDayHigh: true,
+    actualDayClose: true,
+    openMoveCorrect: true,
+    passedOpeningBell: true,
+    passedSpikes: true,
+    report: { select: { date: true } },
+  },
+  orderBy: { report: { date: 'desc' } },
+});
+
+const radarTotal = radarPicks.length;
+const radarCorrect = radarPicks.filter(p => p.openMoveCorrect).length;
+const radarHitRate = radarTotal > 0 ? (radarCorrect / radarTotal) * 100 : null;
+const radarAvgOpenMove = radarTotal > 0
+  ? radarPicks.reduce((s, p) => s + (p.actualOpenChangePct || 0), 0) / radarTotal
+  : null;
+const radarPassedOB = radarPicks.filter(p => p.passedOpeningBell).length;
+const radarPassedSpikes = radarPicks.filter(p => p.passedSpikes).length;
+```
+
+Include in the response:
+
+```typescript
+radar: {
+  total: radarTotal,
+  correct: radarCorrect,
+  hitRate: radarHitRate,
+  avgOpenMove: radarAvgOpenMove,
+  passedOpeningBell: radarPassedOB,
+  passedSpikes: radarPassedSpikes,
+  recentPicks: radarPicks.slice(0, 20),
+},
+```
+
+- [ ] **Step 2: Add Radar scorecard to accuracy page**
+
+In `src/app/accuracy/page.tsx`, add a Radar section below the existing 3/5/8-day scorecards. Use green theme:
+
+```tsx
+{/* Radar Accuracy Scorecard */}
+{data?.radar && data.radar.total > 0 && (
+  <div className="bg-gray-900/60 border border-radar-green/30 rounded-xl p-4 mb-6">
+    <h3 className="text-radar-green font-bold mb-3">Radar — Pre-Market Signal Accuracy</h3>
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="text-center">
+        <div className="text-2xl font-bold text-radar-green">
+          {data.radar.hitRate?.toFixed(1)}%
+        </div>
+        <div className="text-[10px] text-gray-500">Open Direction Hit Rate</div>
+      </div>
+      <div className="text-center">
+        <div className="text-2xl font-bold text-gray-200">
+          {data.radar.correct}/{data.radar.total}
+        </div>
+        <div className="text-[10px] text-gray-500">Correct / Total</div>
+      </div>
+      <div className="text-center">
+        <div className="text-2xl font-bold text-gray-200">
+          {data.radar.avgOpenMove?.toFixed(2)}%
+        </div>
+        <div className="text-[10px] text-gray-500">Avg Open Move</div>
+      </div>
+      <div className="text-center">
+        <div className="text-2xl font-bold text-gray-200">
+          {data.radar.passedSpikes}/{data.radar.total}
+        </div>
+        <div className="text-[10px] text-gray-500">Made Final Spikes</div>
+      </div>
+    </div>
+  </div>
+)}
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/app/api/accuracy/route.ts src/app/accuracy/page.tsx
+git commit -m "feat: add Radar accuracy scorecard to accuracy page (open direction hit rate)"
+git push
+```
+
+### Task 15f: Add Radar to Archives (Reports Page)
+
+**Files:**
+- Modify: `src/app/reports/page.tsx`
+
+The Radar tab was defined in Task 20 but needs full archive card rendering matching the Spikes and Opening Bell patterns.
+
+- [ ] **Step 1: Add Radar archive card rendering**
+
+In `reports/page.tsx`, add the Radar tab data fetching and card rendering. The Radar tab follows the exact same pattern as the Opening Bell tab:
+
+```tsx
+// Tab definition (add to tabs array)
+{ id: 'radar', label: 'Radar', color: 'text-radar-green', borderColor: 'border-radar-green' }
+```
+
+For the Radar tab content, fetch from `/api/reports/radar?page=${page}&pageSize=20` and render each report as:
+
+```tsx
+{activeTab === 'radar' && radarReports.map((report: any) => (
+  <div key={report.id} className="bg-gray-900/60 border border-gray-800 rounded-xl p-4 hover:border-radar-green/30 transition-colors">
+    <div className="flex items-center justify-between">
+      <div>
+        <div className="text-sm font-medium text-gray-200">
+          {new Date(report.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+        </div>
+        <div className="flex items-center gap-2 mt-1">
+          <span className="text-xs text-radar-green">{report.tickersFlagged} flagged</span>
+          <span className="text-xs text-gray-600">|</span>
+          <span className="text-xs text-gray-500">{report.tickersScanned} scanned</span>
+          <span className="text-xs text-gray-600">|</span>
+          <span className="text-xs text-gray-500">{(report.scanDurationMs / 1000).toFixed(1)}s</span>
+        </div>
+        {report.picks && report.picks.length > 0 && (
+          <div className="text-xs text-gray-500 mt-1">
+            Top: {report.picks.map((p: any) => p.ticker).join(', ')}
+          </div>
+        )}
+      </div>
+      <div className="flex gap-2">
+        <a
+          href={`/radar?date=${new Date(report.date).toISOString().split('T')[0]}`}
+          className="px-3 py-1.5 text-xs rounded border border-radar-green/30 text-radar-green hover:bg-radar-green/10"
+        >
+          View
+        </a>
+      </div>
+    </div>
+  </div>
+))}
+```
+
+- [ ] **Step 2: Add empty state for Radar tab**
+
+```tsx
+{activeTab === 'radar' && radarReports.length === 0 && (
+  <div className="text-center text-gray-500 py-12">
+    No Radar reports yet. The pre-market scan runs at 8:15 AM AST on trading days.
+  </div>
+)}
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/app/reports/page.tsx
+git commit -m "feat: add Radar tab to archives with full report card rendering"
+git push
+```
+
 ---
 
 ## Phase 4: Frontend (Session 4)
@@ -2205,23 +2710,14 @@ git commit -m "feat: add Radar nav item to sidebar (first position, green theme)
 git push
 ```
 
-### Task 20: Add Radar Tab to Reports + emailRadar Toggle to Settings
+### Task 20: Add emailRadar Toggle to Settings
 
 **Files:**
-- Modify: `src/app/reports/page.tsx`
 - Modify: `src/app/settings/page.tsx`
 
-- [ ] **Step 1: Add Radar tab to reports page**
+Note: The Radar tab in Reports is handled by Task 15f. This task covers only the settings toggle.
 
-In `reports/page.tsx`, find the tab definition. Add a third tab:
-
-```tsx
-{ id: 'radar', label: 'Radar', color: 'radar-green', endpoint: '/api/reports/radar' }
-```
-
-Add corresponding report card rendering for the Radar tab showing: date, tickers flagged, avg Smart Money Score, top catalyst from first pick. Follow the exact pattern used by the Opening Bell tab.
-
-- [ ] **Step 2: Add emailRadar toggle to settings**
+- [ ] **Step 1: Add emailRadar toggle to settings**
 
 In `settings/page.tsx`, find the email preference toggles. Add after `emailOpeningBell`:
 
@@ -2244,11 +2740,11 @@ In `settings/page.tsx`, find the email preference toggles. Add after `emailOpeni
 </div>
 ```
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 2: Commit**
 
 ```bash
-git add src/app/reports/page.tsx src/app/settings/page.tsx
-git commit -m "feat: add Radar tab to reports page and emailRadar toggle to settings"
+git add src/app/settings/page.tsx
+git commit -m "feat: add emailRadar toggle to settings page"
 git push
 ```
 
@@ -2434,9 +2930,8 @@ git push
 
 ## Post-Launch Polish (Not Blocking v5.0)
 
-- **Accuracy backfill for Radar:** Add to `src/app/api/accuracy/check/route.ts` — after OB and Spikes run, update `RadarPick.passedOpeningBell` and `RadarPick.passedSpikes` by cross-referencing today's Opening Bell picks and Spike picks against Radar picks. The RadarCard pipeline status indicators will show "Awaiting..." until this runs.
 - **Radar icons in Spikes/OB HTML emails:** Add green radar SVG to the email templates for radar-flagged picks.
-- **Admin panel Radar section:** Add Radar status card and manual trigger button to the admin page.
+- **Learning engine Radar-specific mechanisms:** Once 50+ Radar-sourced council picks have accuracy data, the learning engine could compute Radar-specific stage weights and conviction thresholds. This requires building a new `compute_radar_edge()` method that filters `accuracy_records WHERE source LIKE '%radar%'`.
 
 ---
 

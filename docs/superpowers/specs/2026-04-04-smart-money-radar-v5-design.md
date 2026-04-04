@@ -235,8 +235,14 @@ model RadarPick {
   sectorAlignment  Int
   rationale        String?     @db.Text
   topCatalyst      String?
-  passedOpeningBell Boolean    @default(false)
-  passedSpikes      Boolean    @default(false)
+  passedOpeningBell   Boolean    @default(false)
+  passedSpikes        Boolean    @default(false)
+  // Accuracy tracking — backfilled at 4:30 PM
+  actualOpenPrice     Float?
+  actualOpenChangePct Float?
+  actualDayHigh       Float?
+  actualDayClose      Float?
+  openMoveCorrect     Boolean?
 }
 ```
 
@@ -395,7 +401,52 @@ SVG-based animated green radar screen. CSS animation (not emoji). Specifications
 
 ---
 
-## 9. What Does NOT Change
+## 9. Learning Engine Integration
+
+### 9.1 Source Tagging
+
+Add a `source` column to `pick_history` and `accuracy_records` SQLite tables:
+- `"council"` — standard council pick, no upstream signal
+- `"council_via_ob"` — council pick that was also an Opening Bell pick
+- `"council_via_radar"` — council pick that was flagged by Radar (but not OB)
+- `"council_via_radar_ob"` — council pick that passed all three scanners
+
+`record_picks()` accepts optional `ob_tickers` and `radar_tickers` lists to determine source per pick. Source is determined by cross-referencing the override files at record time.
+
+### 9.2 Radar Accuracy Tracking
+
+RadarPick gets actual outcome fields backfilled at 4:30 PM AST:
+- `actualOpenPrice` — opening price (validates the "gap up at open" thesis)
+- `actualOpenChangePct` — % change from previous close to open
+- `actualDayHigh` — highest price during the day
+- `actualDayClose` — closing price
+- `openMoveCorrect` — boolean: did ticker gap up? (Radar always predicts bullish)
+
+Pipeline status flags (`passedOpeningBell`, `passedSpikes`) also updated at 4:30 PM by cross-referencing today's OB picks and Spikes.
+
+### 9.3 Admin Panel
+
+- Fetch and display Radar FMP endpoint health in Data Source Health table
+- Radar status card: running status, picks count, last run time, last error
+- Manual "Trigger Radar" button (same pattern as existing OB trigger)
+
+### 9.4 Accuracy Page
+
+- Radar scorecard section: Open Direction Hit Rate, Correct/Total, Avg Open Move, Made Final Spikes ratio
+
+### 9.5 Archives
+
+- Radar tab in Reports page (green theme, matching Spikes/OB pattern)
+- Report cards show: date, tickers flagged/scanned, scan duration, top tickers
+- "View" link navigates to /radar?date=YYYY-MM-DD
+
+### 9.6 Future Learning (Post v5.0)
+
+Once 50+ Radar-sourced council picks have accuracy data, the learning engine can compute Radar-specific weights. The `source` column enables queries like "what is the 3-day hit rate for council_via_radar picks?" to inform future adaptive mechanisms.
+
+---
+
+## 10. What Does NOT Change
 
 Explicitly listing unchanged systems to prevent scope creep:
 
@@ -404,13 +455,13 @@ Explicitly listing unchanged systems to prevent scope creep:
 - All 4 LLM stage functions (Sonnet/Gemini/Opus/Grok) — no prompt changes
 - `MacroRegimeFilter` — no changes
 - `CouncilFactChecker` — no changes
-- `HistoricalPerformanceAnalyzer` — no changes
 - `HistoricalCalibrationEngine` — no changes
 - `LearningEngine` — no changes
 - `RiskPortfolioEngine` — no changes
 - `CompoundingRoadmapEngine` — no changes
+- HistoricalPerformanceAnalyzer — `record_picks` gains optional `ob_tickers`/`radar_tickers` params; new `source` column on SQLite tables; all existing behavior unchanged when params not passed
 - Pre-filter logic — only reads one additional override file
-- All existing Pydantic models — no field changes
+- All existing Pydantic models — no field changes (StockDataPayload gains optional `earnings_surprise_history` and `earnings_transcript_summary` fields with defaults)
 - Consensus scoring, conviction tiering, earnings penalty, disagreement adjustment — all unchanged
 - Docker architecture — no new services, no new ports
 - Authentication — no changes (Bearer token for cron, session for users)
@@ -418,7 +469,7 @@ Explicitly listing unchanged systems to prevent scope creep:
 
 ---
 
-## 10. Implementation Phasing
+## 11. Implementation Phasing
 
 Recommended phase order for the implementation plan:
 
@@ -466,7 +517,7 @@ Recommended phase order for the implementation plan:
 
 ---
 
-## 11. Risk Mitigation
+## 12. Risk Mitigation
 
 | Risk | Mitigation |
 |---|---|
