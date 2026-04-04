@@ -5,7 +5,13 @@
 import { Resend } from 'resend';
 import ical, { ICalCalendarMethod, ICalAlarmType } from 'ical-generator';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+let _resend: Resend | null = null;
+function getResend(): Resend {
+  if (!_resend) {
+    _resend = new Resend(process.env.RESEND_API_KEY);
+  }
+  return _resend;
+}
 const FROM_ALERTS = 'no-reply@spiketrades.ca';
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://spiketrades.ca';
 
@@ -100,7 +106,7 @@ export async function sendDailySummary(data: {
   </div>`;
 
   try {
-    await resend.emails.send({
+    await getResend().emails.send({
       from: FROM_ALERTS,
       to,
       subject: `Today's Spikes — ${date} | #1: ${topSpikes[0]?.ticker} (${topSpikes[0]?.spikeScore.toFixed(0)})`,
@@ -158,7 +164,7 @@ export async function sendSellReminder(data: {
   const isProfit = data.currentPrice >= data.entryPrice;
 
   try {
-    await resend.emails.send({
+    await getResend().emails.send({
       from: FROM_ALERTS,
       to: data.to,
       subject: `${data.horizon.toUpperCase()} Sell Reminder: ${data.ticker} (${isProfit ? '+' : ''}${pnlPct}%)`,
@@ -202,7 +208,7 @@ export async function sendCouncilEmail(data: {
   topScore: number;
 }) {
   try {
-    await resend.emails.send({
+    await getResend().emails.send({
       from: FROM_ALERTS,
       to: data.to,
       subject: `Today's Spikes — ${data.date} | #1: ${data.topTicker} (${data.topScore.toFixed(0)})`,
@@ -225,7 +231,7 @@ export async function sendDeviationAlert(data: {
   deviationPct: number;
 }) {
   try {
-    await resend.emails.send({
+    await getResend().emails.send({
       from: FROM_ALERTS,
       to: data.to,
       subject: `DEVIATION ALERT: ${data.ticker} — ${data.deviationPct > 0 ? '+' : ''}${data.deviationPct.toFixed(1)}% vs prediction`,
@@ -261,7 +267,7 @@ export async function sendInvitationEmail(data: {
   const expiryStr = data.expiresAt.toLocaleDateString('en-CA', { weekday: 'long', month: 'long', day: 'numeric' });
 
   try {
-    await resend.emails.send({
+    await getResend().emails.send({
       from: FROM_ALERTS,
       to: data.to,
       subject: 'You\'re Invited to Spike Trades',
@@ -302,7 +308,7 @@ export async function sendPasswordResetEmail(data: {
   tempPassword: string;
 }) {
   try {
-    await resend.emails.send({
+    await getResend().emails.send({
       from: FROM_ALERTS,
       to: data.to,
       subject: 'Spike Trades — Password Reset',
