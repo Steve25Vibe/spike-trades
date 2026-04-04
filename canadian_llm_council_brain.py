@@ -445,6 +445,38 @@ class LiveDataFetcher:
                 await asyncio.sleep(0.5)  # Was 3s — much shorter pause
         return result
 
+    async def fetch_profiles_bulk(self, tickers: list[str]) -> dict[str, dict]:
+        """Try FMP bulk profile endpoint first, fall back to per-ticker fetch.
+
+        The /stable/batch-profile endpoint (if available on Ultimate) returns
+        profiles for all requested symbols in a single call.
+        """
+        # Try bulk endpoint first
+        symbols = ",".join(tickers[:200])  # Cap at 200 per call
+        bulk_data = await self._fmp_get("/batch-profile", params={"symbols": symbols})
+
+        if bulk_data and isinstance(bulk_data, list) and len(bulk_data) > 5:
+            # Bulk endpoint works — use it
+            result = {}
+            for p in bulk_data:
+                if isinstance(p, dict) and p.get("symbol"):
+                    self._profile_cache[p["symbol"]] = p
+                    result[p["symbol"]] = p
+            logger.info(f"Bulk profile fetch: got {len(result)}/{len(tickers)} profiles in 1 call")
+
+            # Fetch remaining tickers not in bulk response (if any)
+            missing = [t for t in tickers if t not in result]
+            if missing:
+                logger.info(f"Bulk profile: {len(missing)} tickers missing — falling back to per-ticker")
+                extra = await self.fetch_profiles_batch(missing)
+                result.update(extra)
+
+            return result
+
+        # Bulk endpoint not available — fall back to per-ticker
+        logger.info("Bulk profile endpoint unavailable — using per-ticker fetch")
+        return await self.fetch_profiles_batch(tickers)
+
     # ── Quotes ────────────────────────────────────────────────────────
 
     async def fetch_quotes(self, tickers: list[str]) -> dict[str, dict]:
@@ -4308,7 +4340,7 @@ class CanadianStockCouncilBrain:
             )
 
             # Fetch profiles only for price-filtered tickers (much fewer API calls)
-            profiles = await self.fetcher.fetch_profiles_batch(price_filtered)
+            profiles = await self.fetcher.fetch_profiles_bulk(price_filtered)
 
             # Full liquidity filter: ADV >= $5M using avgVolume from profile
             liquid_tickers = []
