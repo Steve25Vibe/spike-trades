@@ -8,6 +8,7 @@ interface Preferences {
   emailSellReminders: boolean;
   emailDeviationAlerts: boolean;
   emailOpeningBell: boolean;
+  emailRadar: boolean;
 }
 
 export default function SettingsPage() {
@@ -56,6 +57,7 @@ export default function SettingsPage() {
                 { key: 'emailSellReminders' as const, label: 'Sell Reminders', desc: 'Get notified when your positions hit their target windows' },
                 { key: 'emailDeviationAlerts' as const, label: 'Deviation Alerts', desc: 'Alert when positions move significantly against predictions' },
                 { key: 'emailOpeningBell' as const, label: 'Opening Bell', desc: 'Receive early momentum picks at market open' },
+                { key: 'emailRadar' as const, label: 'Radar Alerts', desc: 'Pre-market institutional signal alerts at 8:15 AM AST' },
               ].map(({ key, label, desc }) => (
                 <div key={key} className="flex items-center justify-between py-3 border-b border-spike-border/50">
                   <div>
@@ -80,7 +82,7 @@ export default function SettingsPage() {
         </div>
 
         <div className="legal-footer">
-          <p className="mt-2">&copy; {new Date().getFullYear()} Spike Trades — spiketrades.ca &middot; Ver 4.0</p>
+          <p className="mt-2">&copy; {new Date().getFullYear()} Spike Trades — spiketrades.ca &middot; Ver 5.0</p>
         </div>
     </ResponsiveLayout>
   );
