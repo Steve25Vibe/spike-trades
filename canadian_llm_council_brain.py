@@ -4493,14 +4493,14 @@ Required JSON format:
             macro = regime_filter.apply_regime(macro)
 
             # Parallel enrichment
-            grades_map, surprises_map, news_map, sector_perf = await self._fetch_enrichment(tickers)
+            grades_map, earnings_map, news_map, sector_perf = await self._fetch_enrichment(tickers)
 
             # 4. Compute technicals from historical bars
             tech_map = await self._compute_technicals_batch(tickers)
 
             # 5. Pre-score filter: keep only tickers with at least one active signal
             candidates = self._apply_prescore_filter(
-                tickers, quote_map, grades_map, surprises_map, news_map, tech_map
+                tickers, quote_map, grades_map, earnings_map, news_map, tech_map
             )
             logger.info(f"[Radar] After pre-score filter: {len(candidates)} candidates")
 
@@ -4516,7 +4516,7 @@ Required JSON format:
 
             # 6. Build LLM prompt and call Sonnet
             picks, token_usage = await self._call_radar_sonnet(
-                candidates, quote_map, grades_map, surprises_map,
+                candidates, quote_map, grades_map, earnings_map,
                 news_map, tech_map, sector_perf, macro, top_n
             )
 
@@ -4536,10 +4536,16 @@ Required JSON format:
             await self.fetcher.close()
 
     async def _fetch_enrichment(self, tickers: list[str]) -> tuple[dict, dict, dict, list]:
-        """Fetch all enrichment data in parallel."""
+        """Fetch all enrichment data in parallel.
+
+        Returns (grades_map, earnings_map, news_map, sector_perf).
+        earnings_map uses bulk /earnings-calendar (1 call) instead of
+        per-ticker /earnings-surprises (which returns 404 for .TO tickers).
+        Falls back to Finnhub /calendar/earnings if FMP returns nothing.
+        """
         sem = asyncio.Semaphore(12)
         grades_map: dict[str, list] = {}
-        surprises_map: dict[str, list] = {}
+        earnings_map: dict[str, EarningsEvent] = {}
         news_map: dict[str, list] = {}
 
         async def _grades(t):
@@ -4551,21 +4557,52 @@ Required JSON format:
                     if recent:
                         grades_map[t] = recent
 
-        async def _surprises(t):
-            async with sem:
-                data = await self.fetcher.fetch_earnings_surprises(t)
-                if data:
-                    surprises_map[t] = data
-
         async def _news(t):
             async with sem:
                 data = await self.fetcher.fetch_news(t, limit=10)
                 if data:
                     news_map[t] = [n.model_dump() if hasattr(n, "model_dump") else n for n in data]
 
+        # Bulk earnings calendar (1 API call vs 352 per-ticker calls)
+        earnings_map = await fetch_earnings_calendar(self.fetcher, days_ahead=self.EARNINGS_LOOKAHEAD_DAYS)
+
+        # Finnhub backup if FMP returned nothing
+        if not earnings_map and self.fetcher.finnhub_key:
+            try:
+                from_d = date.today().isoformat()
+                to_d = (date.today() + timedelta(days=self.EARNINGS_LOOKAHEAD_DAYS)).isoformat()
+                data = await self.fetcher._finnhub_get(
+                    "/calendar/earnings", {"from": from_d, "to": to_d}
+                )
+                if data and "earningsCalendar" in data:
+                    today = date.today()
+                    for item in data["earningsCalendar"]:
+                        symbol = item.get("symbol", "")
+                        if not symbol.endswith(".TO") and not symbol.endswith(".V"):
+                            continue
+                        try:
+                            earn_date = date.fromisoformat(item["date"])
+                            earnings_map[symbol] = EarningsEvent(
+                                earnings_date=item["date"],
+                                eps_estimated=item.get("epsEstimate"),
+                                revenue_estimated=item.get("revenueEstimate"),
+                                days_until=max((earn_date - today).days, 0),
+                            )
+                        except (KeyError, ValueError):
+                            continue
+                    logger.info(f"Finnhub earnings backup: {len(earnings_map)} TSX tickers")
+            except Exception as e:
+                logger.warning(f"Finnhub earnings backup failed: {e}")
+
+        # Filter to only tickers in our liquid set
+        ticker_set = set(tickers)
+        earnings_map = {t: e for t, e in earnings_map.items() if t in ticker_set}
+        logger.info(f"[Radar] Earnings calendar: {len(earnings_map)} tickers with upcoming earnings")
+
+        # Parallel grades + news (no more per-ticker surprises calls)
         tasks = []
         for t in tickers:
-            tasks.extend([_grades(t), _surprises(t), _news(t)])
+            tasks.extend([_grades(t), _news(t)])
 
         await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -4577,7 +4614,7 @@ Required JSON format:
         if not isinstance(sector_perf, list):
             sector_perf = []
 
-        return grades_map, surprises_map, news_map, sector_perf
+        return grades_map, earnings_map, news_map, sector_perf
 
     async def _compute_technicals_batch(self, tickers: list[str]) -> dict[str, TechnicalIndicators | None]:
         """Compute technicals from historical bars for all tickers."""
@@ -4596,20 +4633,23 @@ Required JSON format:
 
     MAX_CANDIDATES = 60  # Cap to keep LLM batches under timeout
 
+    STRONG_TECH_RSI_LOW = 30    # RSI below this is oversold (strong signal)
+    STRONG_TECH_RSI_HIGH = 70   # RSI above this is overbought (strong signal)
+    STRONG_TECH_ADX = 25        # ADX above this shows strong trend
+
     def _apply_prescore_filter(
         self, tickers: list[str], quote_map: dict, grades_map: dict,
-        surprises_map: dict, news_map: dict, tech_map: dict
+        earnings_map: dict, news_map: dict, tech_map: dict
     ) -> list[str]:
         """Score tickers by signal count and return top candidates.
 
-        Requires at least one catalyst signal (news, grades, earnings).
-        Technical signals alone are not sufficient since most stocks
-        have non-neutral RSI or trending ADX.
+        Requires at least one catalyst signal (news, grades, upcoming earnings)
+        OR a strong technical setup (extreme RSI + strong ADX trend).
         """
         scored = []
         for t in tickers:
             signals = 0
-            has_catalyst = False  # Non-technical signal
+            has_catalyst = False
 
             # Signal 1: News in last 24h (catalyst)
             if t in news_map and len(news_map[t]) >= self.MIN_NEWS_FOR_SIGNAL:
@@ -4621,20 +4661,30 @@ Required JSON format:
                 signals += 1
                 has_catalyst = True
 
-            # Signal 3: Technical setup (RSI not neutral OR ADX showing trend)
+            # Signal 3: Technical setup
             tech = tech_map.get(t)
+            strong_tech = False
             if tech:
-                if tech.rsi_14 < self.NEUTRAL_RSI_LOW or tech.rsi_14 > self.NEUTRAL_RSI_HIGH:
+                extreme_rsi = tech.rsi_14 < self.STRONG_TECH_RSI_LOW or tech.rsi_14 > self.STRONG_TECH_RSI_HIGH
+                strong_adx = tech.adx_14 >= self.STRONG_TECH_ADX
+                if extreme_rsi:
                     signals += 1
-                if tech.adx_14 >= self.MIN_ADX_FOR_TREND:
+                elif tech.rsi_14 < self.NEUTRAL_RSI_LOW or tech.rsi_14 > self.NEUTRAL_RSI_HIGH:
                     signals += 1
+                if strong_adx:
+                    signals += 1
+                elif tech.adx_14 >= self.MIN_ADX_FOR_TREND:
+                    signals += 1
+                # Strong tech = extreme RSI + strong ADX (can pass without catalyst)
+                if extreme_rsi and strong_adx:
+                    strong_tech = True
 
-            # Signal 4: Recent earnings surprise (catalyst)
-            if t in surprises_map:
+            # Signal 4: Upcoming earnings within lookahead window (catalyst)
+            if t in earnings_map:
                 signals += 1
                 has_catalyst = True
 
-            if has_catalyst:
+            if has_catalyst or strong_tech:
                 scored.append((t, signals))
 
         # Sort by signal count descending, cap at MAX_CANDIDATES
@@ -4643,7 +4693,7 @@ Required JSON format:
 
     async def _call_radar_sonnet(
         self, candidates: list[str], quote_map: dict, grades_map: dict,
-        surprises_map: dict, news_map: dict, tech_map: dict,
+        earnings_map: dict, news_map: dict, tech_map: dict,
         sector_perf: list, macro: MacroContext, top_n: int
     ) -> tuple[list[RadarPick], dict]:
         """Call Sonnet 4.6 with Radar rubric prompt. Returns (picks, token_usage)."""
@@ -4663,12 +4713,10 @@ Required JSON format:
                 for g in grades_map[t][:2]:
                     block += f"  GRADE: {g.get('gradingCompany', '?')} → {g.get('newGrade', '?')} ({g.get('date', '?')})\n"
 
-            if t in surprises_map and surprises_map[t]:
-                s = surprises_map[t][0]
-                actual = s.get("actualEarningResult", 0)
-                est = s.get("estimatedEarning", 0)
-                surprise_pct = ((actual - est) / abs(est) * 100) if est else 0
-                block += f"  EARNINGS: Actual ${actual:.2f} vs Est ${est:.2f} ({surprise_pct:+.1f}% surprise)\n"
+            if t in earnings_map:
+                e = earnings_map[t]
+                eps_str = f"EPS Est: ${e.eps_estimated:.2f}" if e.eps_estimated else "EPS Est: N/A"
+                block += f"  EARNINGS: Reports {e.earnings_date} ({e.days_until}d away) | {eps_str}\n"
 
             if t in news_map:
                 block += f"  NEWS: {len(news_map[t])} articles in 24h\n"
