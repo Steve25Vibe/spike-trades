@@ -389,6 +389,13 @@ model RadarPick {
   passedOpeningBell Boolean     @default(false)
   passedSpikes      Boolean     @default(false)
 
+  // Accuracy tracking — backfilled at 4:30 PM
+  actualOpenPrice     Float?    // Opening price on scan day
+  actualOpenChangePct Float?    // % change from previous close to open
+  actualDayHigh       Float?    // Highest price during the day
+  actualDayClose      Float?    // Closing price
+  openMoveCorrect     Boolean?  // Did ticker move in predicted direction at open?
+
   @@index([reportId])
   @@index([ticker])
 }
