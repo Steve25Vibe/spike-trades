@@ -20,8 +20,8 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    // Also fetch the most recent spikes report for market header data
-    const latestSpikesReport = await prisma.report.findFirst({
+    // Also fetch the most recent daily report for market header data
+    const latestSpikesReport = await prisma.dailyReport.findFirst({
       orderBy: { date: 'desc' },
       select: {
         date: true,
@@ -32,10 +32,6 @@ export async function GET(request: NextRequest) {
         goldPrice: true,
         btcPrice: true,
         cadUsd: true,
-        prevOilPrice: true,
-        prevGoldPrice: true,
-        prevBtcPrice: true,
-        prevCadUsd: true,
       },
     });
 
