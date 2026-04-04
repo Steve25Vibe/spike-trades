@@ -2593,21 +2593,44 @@ class HistoricalPerformanceAnalyzer:
                 conn.commit()
             except Exception:
                 pass  # Column already exists
+            # Migration: add source column to pick_history and accuracy_records
+            try:
+                conn.execute("ALTER TABLE pick_history ADD COLUMN source TEXT DEFAULT 'council'")
+                conn.commit()
+            except Exception:
+                pass  # Column already exists
+            try:
+                conn.execute("ALTER TABLE accuracy_records ADD COLUMN source TEXT DEFAULT 'council'")
+                conn.commit()
+            except Exception:
+                pass  # Column already exists
         finally:
             conn.close()
         logger.info(f"HistoricalPerformanceAnalyzer: DB initialized at {self.db_path}")
 
-    def record_picks(self, council_result: dict) -> int:
+    def record_picks(self, council_result: dict, ob_tickers: list[str] | None = None, radar_tickers: list[str] | None = None) -> int:
         """Save council run picks to history. Returns number of picks recorded."""
         run_date = council_result.get("run_date", date.today().isoformat())
         run_id = council_result.get("run_id", "unknown")
         picks = council_result.get("top_picks", [])
+
+        ob_set = set(ob_tickers or [])
+        radar_set = set(radar_tickers or [])
 
         conn = sqlite3.connect(self.db_path)
         recorded = 0
         try:
             for pick in picks:
                 ticker = pick["ticker"]
+                # Determine source for learning engine tracking
+                if ticker in radar_set and ticker in ob_set:
+                    source = "council_via_radar_ob"
+                elif ticker in radar_set:
+                    source = "council_via_radar"
+                elif ticker in ob_set:
+                    source = "council_via_ob"
+                else:
+                    source = "council"
                 # Extract forecast data
                 forecasts = pick.get("forecasts", [])
                 f3 = next((f for f in forecasts if f.get("horizon_days") == 3), {})
@@ -2620,8 +2643,8 @@ class HistoricalPerformanceAnalyzer:
                     (run_date, run_id, ticker, predicted_direction, consensus_score,
                      conviction_tier, entry_price, forecast_3d_move_pct, forecast_5d_move_pct,
                      forecast_8d_move_pct, forecast_3d_direction, forecast_5d_direction,
-                     forecast_8d_direction, sector)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     forecast_8d_direction, sector, source)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     str(run_date), run_id, ticker,
                     f3.get("predicted_direction", "UP"),
@@ -2635,6 +2658,7 @@ class HistoricalPerformanceAnalyzer:
                     f5.get("predicted_direction"),
                     f8.get("predicted_direction"),
                     sector,
+                    source,
                 ))
                 recorded += 1
 
@@ -5385,7 +5409,26 @@ class CanadianStockCouncilBrain:
 
             # ── Step 15: Record picks to history ──
             logger.info("Step 15: Recording picks to history")
-            self.historical_analyzer.record_picks(result_dict)
+            # Load override tickers for source tagging
+            ob_override_tickers = []
+            radar_override_tickers = []
+            try:
+                ob_path = Path("opening_bell_council_overrides.json")
+                if ob_path.exists():
+                    ob_data = json.loads(ob_path.read_text())
+                    if ob_data.get("date") == date.today().isoformat():
+                        ob_override_tickers = ob_data.get("tickers", [])
+            except Exception:
+                pass
+            try:
+                radar_path = Path("radar_opening_bell_overrides.json")
+                if radar_path.exists():
+                    radar_data = json.loads(radar_path.read_text())
+                    if radar_data.get("date") == date.today().isoformat():
+                        radar_override_tickers = radar_data.get("tickers", [])
+            except Exception:
+                pass
+            self.historical_analyzer.record_picks(result_dict, ob_tickers=ob_override_tickers, radar_tickers=radar_override_tickers)
 
             # ── Step 16: Backfill actuals for past picks ──
             logger.info("Step 16: Backfilling accuracy for past picks")
