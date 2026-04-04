@@ -574,6 +574,13 @@ async def latest_output_mapped():
     return _map_to_prisma(data)
 
 
+def _get_radar_tickers() -> set[str]:
+    """Get today's radar pick tickers from the latest radar result."""
+    if _radar_last_result and _radar_last_result.get("picks"):
+        return {p["ticker"] for p in _radar_last_result["picks"]}
+    return set()
+
+
 @app.post("/render-email")
 async def render_email():
     """
@@ -585,7 +592,7 @@ async def render_email():
         raise HTTPException(404, "No council output found")
 
     renderer = CanadianPortfolioInterface()
-    html = renderer.render(data, "html")
+    html = renderer.render(data, "html", radar_tickers=_get_radar_tickers())
     return HTMLResponse(content=html)
 
 
@@ -597,7 +604,7 @@ async def render_email_get():
         raise HTTPException(404, "No council output found")
 
     renderer = CanadianPortfolioInterface()
-    html = renderer.render(data, "html")
+    html = renderer.render(data, "html", radar_tickers=_get_radar_tickers())
     return HTMLResponse(content=html)
 
 

@@ -43,16 +43,31 @@ export async function sendOpeningBellEmail(picks: Pick[], sectorSnapshot?: unkno
 
   const today = new Date().toISOString().slice(0, 10);
 
+  // Check which picks were flagged by Radar
+  const radarTickers = new Set<string>();
+  try {
+    const todayDate = new Date();
+    todayDate.setHours(0, 0, 0, 0);
+    const radarPicks = await prisma.radarPick.findMany({
+      where: { report: { date: todayDate } },
+      select: { ticker: true },
+    });
+    for (const rp of radarPicks) radarTickers.add(rp.ticker);
+  } catch { /* radar table may not exist yet */ }
+
   // Top 3 sectors by average change
   const hotSectors = buildHotSectors(picks, sectorSnapshot);
+
+  const radarBadge = `<span style="display:inline-block;background:#00FF4122;color:#00FF41;border:1px solid #00FF4144;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:bold;margin-left:4px;vertical-align:middle">RADAR</span>`;
 
   const pickRows = picks.slice(0, 10).map((p) => {
     const changeColor = p.changePercent >= 0 ? '#00FF88' : '#FF3366';
     const convColor = p.conviction === 'high' ? '#00FF88' : p.conviction === 'medium' ? '#FFB800' : '#94A3B8';
+    const isRadar = radarTickers.has(p.ticker);
     return `<tr style="border-bottom:1px solid #1E3A5F">
       <td style="padding:10px 12px;color:#FFB800;font-weight:bold">#${p.rank}</td>
       <td style="padding:10px 12px">
-        <strong style="color:#E2E8F0">${p.ticker}</strong><br>
+        <strong style="color:#E2E8F0">${p.ticker}</strong>${isRadar ? radarBadge : ''}<br>
         <span style="color:#94A3B8;font-size:11px">${p.name}</span>
       </td>
       <td style="padding:10px 12px;color:#E2E8F0;text-align:right">$${p.priceAtScan.toFixed(2)}</td>
