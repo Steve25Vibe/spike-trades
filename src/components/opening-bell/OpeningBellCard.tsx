@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import RadarIcon from '@/components/radar/RadarIcon';
 
 export interface OpeningBellPickData {
   id: string;
@@ -21,6 +22,8 @@ export interface OpeningBellPickData {
   rationale: string | null;
   actualHigh?: number | null;
   targetHit?: boolean | null;
+  isRadarPick?: boolean;
+  radarScore?: number | null;
 }
 
 interface Props {
@@ -76,6 +79,12 @@ export default function OpeningBellCard({ pick, selected, onSelect, onLockIn, se
               <a href={`https://finance.yahoo.com/quote/${pick.ticker}`} target="_blank" rel="noopener noreferrer" className="text-lg font-extrabold text-spike-text hover:text-spike-amber transition-colors">
                 {pick.ticker}
               </a>
+              {pick.isRadarPick && (
+                <RadarIcon
+                  size={16}
+                  title={`Flagged by Smart Money Radar${pick.radarScore ? ` (Score: ${pick.radarScore})` : ''}`}
+                />
+              )}
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-spike-cyan/10 text-spike-cyan font-semibold">{pick.exchange}</span>
               {pick.sector && <span className="text-[10px] px-1.5 py-0.5 rounded bg-spike-violet/10 text-spike-violet font-semibold">{pick.sector}</span>}
             </div>
