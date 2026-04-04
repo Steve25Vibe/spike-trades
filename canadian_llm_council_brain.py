@@ -4477,8 +4477,8 @@ Required JSON format:
             # 2. Liquidity filter (same as council: price > $1, ADV > $5M)
             liquid = []
             for ticker, q in quotes.items():
-                price = q.get("price", 0)
-                volume = q.get("volume", 0) or q.get("avgVolume", 0)
+                price = q.get("price") or 0
+                volume = q.get("volume") or q.get("avgVolume") or 0
                 adv = price * volume
                 if price >= 1.0 and adv >= 5_000_000:
                     liquid.append((ticker, q))
