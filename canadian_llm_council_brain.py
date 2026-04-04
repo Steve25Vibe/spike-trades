@@ -515,6 +515,79 @@ class LiveDataFetcher:
         bars = sorted(bars, key=lambda b: b.get("date", ""))
         return bars
 
+    async def fetch_1min_bars(self, ticker: str, date: str | None = None) -> list[dict]:
+        """Fetch 1-minute intraday bars. Falls back to 5-min if unavailable.
+
+        Args:
+            ticker: Stock ticker (e.g., 'RY.TO')
+            date: Optional date string 'YYYY-MM-DD'. Defaults to today.
+
+        Returns:
+            List of OHLCV dicts with 'date', 'open', 'high', 'low', 'close', 'volume' keys.
+            Empty list if unavailable.
+        """
+        if not date:
+            date = datetime.now().strftime("%Y-%m-%d")
+
+        # Try 1-min first (Ultimate only)
+        bars = await self._fmp_get(
+            f"/historical-chart/1min/{ticker}",
+            params={"from": date, "to": date}
+        )
+
+        if bars and isinstance(bars, list) and len(bars) > 0:
+            logger.info(f"[LiveDataFetcher] {ticker}: got {len(bars)} 1-min bars")
+            return bars
+
+        # Fallback to 5-min
+        bars_5m = await self._fmp_get(
+            f"/historical-chart/5min/{ticker}",
+            params={"from": date, "to": date}
+        )
+
+        if bars_5m and isinstance(bars_5m, list) and len(bars_5m) > 0:
+            logger.info(f"[LiveDataFetcher] {ticker}: 1-min unavailable, got {len(bars_5m)} 5-min bars")
+            return bars_5m
+
+        logger.warning(f"[LiveDataFetcher] {ticker}: no intraday bars available")
+        return []
+
+    async def fetch_earnings_surprises(self, ticker: str) -> list[dict]:
+        """Fetch historical earnings surprise data (actual vs estimated EPS).
+
+        Returns:
+            List of dicts with 'date', 'actualEarningResult', 'estimatedEarning',
+            'revenue', 'revenueEstimated' keys. Empty list if unavailable.
+        """
+        data = await self._fmp_get(f"/earnings-surprises/{ticker}")
+
+        if data and isinstance(data, list):
+            logger.info(f"[LiveDataFetcher] {ticker}: got {len(data)} earnings surprises")
+            return data[:8]  # Last 8 quarters (2 years)
+
+        return []
+
+    async def fetch_earnings_transcript(self, ticker: str, year: int, quarter: int) -> dict | None:
+        """Fetch earnings call transcript. Returns None if unavailable.
+
+        Most Canadian-only companies won't have transcripts on FMP.
+        This is optional enrichment — never required for scoring.
+        """
+        data = await self._fmp_get(
+            f"/earnings-transcript/{ticker}",
+            params={"year": year, "quarter": quarter}
+        )
+
+        if data and isinstance(data, list) and len(data) > 0:
+            transcript = data[0]
+            # Truncate to first 2000 chars to avoid blowing up LLM context
+            if "content" in transcript and len(transcript["content"]) > 2000:
+                transcript["content"] = transcript["content"][:2000] + "... [truncated]"
+            logger.info(f"[LiveDataFetcher] {ticker}: got transcript for Q{quarter} {year}")
+            return transcript
+
+        return None
+
     # ── Technical Indicators ──────────────────────────────────────────
 
     @staticmethod
