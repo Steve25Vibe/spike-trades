@@ -18,8 +18,9 @@ This plan is divided into 6 phases, each designed as a standalone session with i
 
 | Phase | Session | Tasks | Focus |
 |-------|---------|-------|-------|
-| 0 | Session 1 | 1-2 | FMP Ultimate verification |
+| 0 | Session 1 | 1-2 | FMP Ultimate verification + bulk endpoint discovery |
 | 1 | Session 1 | 3-6 | FMP endpoint integration (Spike It, OB, Spikes) |
+| 1b | Session 1 | 6a-6c | Batch optimization + bulk migration + Spike It hardening |
 | 2 | Session 2 | 7-10 | Radar Scanner (Python + FastAPI) |
 | 3 | Session 3 | 11-15 | Radar Integration (Prisma, Next.js, bridges) |
 | 4 | Session 4 | 16-20 | Frontend (Radar page, icons, cards, reports) |
@@ -138,6 +139,7 @@ async def main():
             ("price-target-consensus", f"{BASE}/stable/price-target-consensus?symbol={ticker}&apikey={FMP_KEY}"),
             ("sector-performance", f"{BASE}/stable/sector-performance-snapshot?exchange=TSX&date={yesterday}&apikey={FMP_KEY}"),
             ("technical-indicators RSI", f"{BASE}/stable/technical-indicator/daily/{ticker}?type=rsi&period=14&apikey={FMP_KEY}"),
+            ("batch-profile (bulk)", f"{BASE}/stable/batch-profile?symbols=RY.TO,TD.TO,ENB.TO&apikey={FMP_KEY}"),
         ]
 
         print(f"\n{'='*70}")
@@ -473,6 +475,192 @@ cd /Users/coeus/spiketrades.ca/claude-code && npx jest src/__tests__/opening-bel
 ```bash
 git add -A
 git commit -m "chore: Phase 0-1 complete — FMP Ultimate endpoints integrated across all scanners"
+git push
+```
+
+## Phase 1b: Batch Optimization + Bulk Migration + Spike It Hardening (Session 1)
+
+### Task 6a: Harden Spike It 1-Min Bar Fallback with Freshness Validation
+
+**Files:**
+- Modify: `api_server.py` (the `_fetch_spike_it_data` function)
+
+The 1-min bar fallback chain from Task 3 needs additional validation: FMP may return bars from yesterday (stale) or return a 402/403 if the account hasn't been upgraded. These must be caught.
+
+- [ ] **Step 1: Add bar freshness validation after fetching 1-min bars**
+
+After the 1-min bar fetch succeeds (inside the `if resp.status == 200` block added in Task 3), add validation before accepting the bars:
+
+```python
+if isinstance(data, list) and len(data) > 0:
+    # Validate bars are from today (not stale yesterday data)
+    today_str = datetime.now(ZoneInfo("America/Halifax")).strftime("%Y-%m-%d")
+    today_bars_only = [b for b in data if b.get("date", "")[:10] == today_str]
+    if len(today_bars_only) >= 3:
+        intraday_bars = today_bars_only
+        bar_interval = "1min"
+    else:
+        logger.info(f"Spike It: 1-min bars returned but only {len(today_bars_only)} from today — falling back")
+```
+
+- [ ] **Step 2: Add 402/403 handling for non-Ultimate accounts**
+
+In the 1-min fetch try/except block, add explicit handling:
+
+```python
+try:
+    async with session.get(bars_1m_url, params=bars_1m_params, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+        if resp.status == 200:
+            # ... existing validation from Step 1 ...
+        elif resp.status in (402, 403):
+            logger.info(f"Spike It: 1-min bars not available (status {resp.status}) — likely not on Ultimate plan")
+        elif resp.status == 429:
+            logger.warning(f"Spike It: 1-min bars rate limited — falling back to 5-min")
+        # All other statuses silently fall through to 5-min fallback
+except asyncio.TimeoutError:
+    logger.info(f"Spike It: 1-min bars timed out for {ticker} — falling back")
+except Exception as e:
+    logger.warning(f"Spike It: 1-min bars error for {ticker}: {e}")
+```
+
+- [ ] **Step 3: Update data_limitations to be more specific**
+
+Replace the existing limitation messages with bar_interval-specific ones:
+
+```python
+if bar_interval == "synthetic":
+    data_limitations.append("Intraday bars unavailable — using daily quote data (VWAP and RSI are approximate)")
+elif bar_interval == "5min":
+    data_limitations.append("Using 5-minute bars — VWAP has reduced granularity vs 1-minute")
+elif bar_interval == "1min":
+    pass  # No limitation — best available data
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add api_server.py
+git commit -m "fix: harden Spike It 1-min bar fallback with freshness validation and error handling"
+git push
+```
+
+### Task 6b: Optimize Batch Sizes for 3,000 calls/min
+
+**Files:**
+- Modify: `canadian_llm_council_brain.py` (LiveDataFetcher methods)
+
+The current code is throttled for 750 calls/min. With Ultimate's 3,000/min, we can safely increase parallelism.
+
+- [ ] **Step 1: Increase profile fetch parallelism**
+
+In `fetch_profiles_batch` (currently Semaphore(3) with 0.3s delay and 3s batch pauses), update:
+
+```python
+async def fetch_profiles_batch(self, tickers: list[str]) -> dict[str, dict]:
+    """Fetch profiles for multiple tickers. Optimized for FMP Ultimate (3000 calls/min)."""
+    result = {}
+    sem = asyncio.Semaphore(10)  # Was 3 — 3.3x more concurrent
+    async def _fetch(t: str):
+        async with sem:
+            p = await self.fetch_profile(t)
+            if p:
+                result[t] = p
+            await asyncio.sleep(0.05)  # Was 0.3s — minimal politeness delay
+    for i in range(0, len(tickers), 50):  # Was 20 — larger batches
+        batch = tickers[i:i + 50]
+        await asyncio.gather(*[_fetch(t) for t in batch])
+        if i + 50 < len(tickers):
+            logger.info(f"Profiles: {min(i + 50, len(tickers))}/{len(tickers)} fetched")
+            await asyncio.sleep(0.5)  # Was 3s — much shorter pause
+    return result
+```
+
+**Impact:** Profile fetch for 200 tickers: ~35s → ~5s.
+
+- [ ] **Step 2: Increase quote batch size**
+
+In `fetch_quotes`, increase `batch_size` from 50 to 100:
+
+```python
+batch_size = 100  # Was 50 — FMP Ultimate supports larger batches
+```
+
+- [ ] **Step 3: Reduce inter-batch delays in Stage 1 Sonnet**
+
+Find the `INTER_BATCH_DELAY` constant (or the 8-second sleep between Stage 1 batches) and reduce it:
+
+```python
+# In run_stage1_sonnet batch loop:
+await asyncio.sleep(3)  # Was 8 — Anthropic rate limits are per-minute, not per-second
+```
+
+**Note:** This is an Anthropic rate limit, not FMP. The reduction from 8s to 3s is conservative.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add canadian_llm_council_brain.py
+git commit -m "perf: optimize batch sizes and parallelism for FMP Ultimate 3000 calls/min"
+git push
+```
+
+### Task 6c: Add Bulk Profile Endpoint (if available)
+
+**Files:**
+- Modify: `canadian_llm_council_brain.py` (LiveDataFetcher)
+
+FMP Ultimate may support bulk profile fetches in a single call. This task adds the bulk path with fallback to the per-ticker approach.
+
+- [ ] **Step 1: Add `fetch_profiles_bulk` method to LiveDataFetcher**
+
+```python
+async def fetch_profiles_bulk(self, tickers: list[str]) -> dict[str, dict]:
+    """Try FMP bulk profile endpoint first, fall back to per-ticker fetch.
+
+    The /stable/batch-profile endpoint (if available on Ultimate) returns
+    profiles for all requested symbols in a single call.
+    """
+    # Try bulk endpoint first
+    symbols = ",".join(tickers[:200])  # Cap at 200 per call
+    bulk_data = await self._fmp_get("/batch-profile", params={"symbols": symbols})
+
+    if bulk_data and isinstance(bulk_data, list) and len(bulk_data) > 5:
+        # Bulk endpoint works — use it
+        result = {}
+        for p in bulk_data:
+            if isinstance(p, dict) and p.get("symbol"):
+                self._profile_cache[p["symbol"]] = p
+                result[p["symbol"]] = p
+        logger.info(f"Bulk profile fetch: got {len(result)}/{len(tickers)} profiles in 1 call")
+
+        # Fetch remaining tickers not in bulk response (if any)
+        missing = [t for t in tickers if t not in result]
+        if missing:
+            logger.info(f"Bulk profile: {len(missing)} tickers missing — falling back to per-ticker")
+            extra = await self.fetch_profiles_batch(missing)
+            result.update(extra)
+
+        return result
+
+    # Bulk endpoint not available — fall back to per-ticker
+    logger.info("Bulk profile endpoint unavailable — using per-ticker fetch")
+    return await self.fetch_profiles_batch(tickers)
+```
+
+- [ ] **Step 2: Update `run_council` to use `fetch_profiles_bulk` instead of `fetch_profiles_batch`**
+
+In the council's Step 3 (liquidity filter), find the call to `fetch_profiles_batch` and replace it:
+
+```python
+# Was: profiles = await fetcher.fetch_profiles_batch(price_filtered)
+profiles = await fetcher.fetch_profiles_bulk(price_filtered)
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add canadian_llm_council_brain.py
+git commit -m "feat: add bulk profile fetch with fallback to per-ticker for FMP Ultimate"
 git push
 ```
 
