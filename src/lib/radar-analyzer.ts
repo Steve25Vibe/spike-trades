@@ -5,6 +5,7 @@
 import prisma from '@/lib/db/prisma';
 import fs from 'fs';
 import path from 'path';
+import { sendRadarEmail } from '@/lib/email/radar-email';
 
 const COUNCIL_API_URL = process.env.COUNCIL_API_URL || 'http://localhost:8100';
 
@@ -120,6 +121,22 @@ export async function runRadarAnalysis(): Promise<{ success: boolean; picksCount
       smart_money_scores: smartMoneyScores,
     }));
     console.log(`[Radar] Wrote override file with ${overrideTickers.length} tickers`);
+
+    // Step 4: Send email to opted-in users
+    try {
+      await sendRadarEmail(
+        (result.picks || []).map((p) => ({
+          rank: p.rank,
+          ticker: p.ticker,
+          name: p.company_name,
+          smartMoneyScore: p.smart_money_score,
+          topCatalyst: p.top_catalyst,
+        })),
+        today.toISOString().split('T')[0],
+      );
+    } catch (emailErr) {
+      console.error('[Radar] Email failed (non-fatal):', emailErr);
+    }
 
     return { success: true, picksCount: result.picks?.length || 0 };
   } catch (error) {
