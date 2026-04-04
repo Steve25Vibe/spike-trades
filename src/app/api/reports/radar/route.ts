@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { isAuthenticated } from '@/lib/auth';
 import prisma from '@/lib/db/prisma';
 
 export async function GET(request: NextRequest) {
-  const page = parseInt(request.nextUrl.searchParams.get('page') || '1');
-  const pageSize = parseInt(request.nextUrl.searchParams.get('pageSize') || '20');
+  if (!(await isAuthenticated())) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const page = Math.max(1, parseInt(request.nextUrl.searchParams.get('page') || '1', 10));
+  const pageSize = Math.min(100, Math.max(1, parseInt(request.nextUrl.searchParams.get('pageSize') || '20', 10)));
   const skip = (page - 1) * pageSize;
 
   try {
@@ -30,6 +35,6 @@ export async function GET(request: NextRequest) {
       totalPages: Math.ceil(total / pageSize),
     });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Internal server error' }, { status: 500 });
   }
 }

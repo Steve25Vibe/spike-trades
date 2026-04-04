@@ -1,17 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { isAuthenticated } from '@/lib/auth';
 import prisma from '@/lib/db/prisma';
 
 export async function GET(request: NextRequest) {
+  if (!(await isAuthenticated())) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const dateParam = request.nextUrl.searchParams.get('date');
 
   try {
     let dateFilter: Date;
     if (dateParam) {
-      dateFilter = new Date(dateParam);
+      dateFilter = new Date(dateParam + 'T12:00:00');
     } else {
-      dateFilter = new Date();
+      const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Halifax' });
+      dateFilter = new Date(todayStr + 'T12:00:00');
     }
-    dateFilter.setHours(0, 0, 0, 0);
 
     const report = await prisma.radarReport.findUnique({
       where: { date: dateFilter },
@@ -37,6 +42,6 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ report, picks: report.picks });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Internal server error' }, { status: 500 });
   }
 }

@@ -4488,6 +4488,15 @@ Required JSON format:
             tickers = [t for t, _ in liquid]
             quote_map = {t: q for t, q in liquid}
 
+            # Enrich with profile data (sector, companyName) — same as main council
+            profiles = await self.fetcher.fetch_profiles_bulk(tickers)
+            for t in tickers:
+                prof = profiles.get(t, {})
+                if prof:
+                    quote_map[t]["sector"] = prof.get("sector", "Unknown")
+                    quote_map[t]["name"] = prof.get("companyName", quote_map[t].get("name", ""))
+            logger.info(f"[Radar] Enriched {len(profiles)} tickers with profile data (sector)")
+
             macro = await self.fetcher.fetch_macro_context()
             regime_filter = MacroRegimeFilter()
             macro = regime_filter.apply_regime(macro)

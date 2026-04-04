@@ -8,8 +8,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const page = parseInt(request.nextUrl.searchParams.get('page') || '1');
-  const pageSize = parseInt(request.nextUrl.searchParams.get('pageSize') || '30');
+  const page = Math.max(1, parseInt(request.nextUrl.searchParams.get('page') || '1', 10));
+  const pageSize = Math.min(100, Math.max(1, parseInt(request.nextUrl.searchParams.get('pageSize') || '30', 10)));
 
   try {
     const [reports, total] = await Promise.all([

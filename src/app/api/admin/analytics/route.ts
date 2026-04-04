@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAdmin } from '@/lib/auth';
 import ExcelJS from 'exceljs';
 
 const COUNCIL_API_URL = process.env.COUNCIL_API_URL || 'http://localhost:8100';
 
 // GET /api/admin/analytics — Stage performance + accuracy data
 export async function GET(request: NextRequest) {
+  const admin = await requireAdmin();
+  if (!admin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
   const isExport = request.nextUrl.searchParams.get('export') === 'xlsx';
 
   try {
@@ -30,7 +34,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: true, data: analytics });
   } catch (error) {
     return NextResponse.json(
-      { success: false, error: String(error) },
+      { success: false, error: error instanceof Error ? error.message : 'Internal server error' },
       { status: 500 }
     );
   }

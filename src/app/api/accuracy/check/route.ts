@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
 
       for (const spike of spikes) {
         const closingPrice = priceMap.get(spike.ticker);
-        if (!closingPrice || spike.price === 0) continue;
+        if (closingPrice === undefined || spike.price === 0) continue;
 
         const actualReturn =
           ((closingPrice - spike.price) / spike.price) * 100;
@@ -310,7 +310,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('[Accuracy] Check error:', error);
     return NextResponse.json(
-      { success: false, error: String(error) },
+      { success: false, error: error instanceof Error ? error.message : 'Internal server error' },
       { status: 500 }
     );
   }

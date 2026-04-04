@@ -60,9 +60,13 @@ export async function runRadarAnalysis(): Promise<{ success: boolean; picksCount
 
     while (Date.now() - startTime < maxWait) {
       await new Promise((r) => setTimeout(r, pollInterval));
-      const statusRes = await fetch(`${COUNCIL_API_URL}/run-radar-status`);
-      const status = await statusRes.json();
-      if (!status.running) break;
+      try {
+        const statusRes = await fetch(`${COUNCIL_API_URL}/run-radar-status`);
+        const status = await statusRes.json();
+        if (!status.running) break;
+      } catch (pollErr) {
+        console.warn('[Radar] Status poll failed, retrying...', pollErr);
+      }
     }
 
     // Step 3: Fetch results
@@ -82,8 +86,8 @@ export async function runRadarAnalysis(): Promise<{ success: boolean; picksCount
     }
 
     // Step 2: Save to database
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Halifax' });
+    const today = new Date(todayStr + 'T12:00:00');
 
     // Delete existing report for today (idempotent re-run)
     await prisma.radarPick.deleteMany({

@@ -44,7 +44,7 @@ export async function runOpeningBellAnalysis(): Promise<{ success: boolean; pick
     const overridePath = path.join('/tmp', 'radar_opening_bell_overrides.json');
     if (fs.existsSync(overridePath)) {
       const raw = JSON.parse(fs.readFileSync(overridePath, 'utf-8'));
-      const today = new Date().toISOString().split('T')[0];
+      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Halifax' });
       if (raw.date === today) {
         radarOverrides = { tickers: raw.tickers, smart_money_scores: raw.smart_money_scores };
         console.log(`[Opening Bell] Read ${raw.tickers.length} Radar overrides`);
@@ -75,9 +75,13 @@ export async function runOpeningBellAnalysis(): Promise<{ success: boolean; pick
 
     while (Date.now() - startTime < maxWait) {
       await new Promise((r) => setTimeout(r, pollInterval));
-      const statusRes = await fetch(`${COUNCIL_API_URL}/run-opening-bell-status`);
-      const status = await statusRes.json();
-      if (!status.running) break;
+      try {
+        const statusRes = await fetch(`${COUNCIL_API_URL}/run-opening-bell-status`);
+        const status = await statusRes.json();
+        if (!status.running) break;
+      } catch (pollErr) {
+        console.warn('[Opening Bell] Status poll failed, retrying...', pollErr);
+      }
     }
 
     // Step 3: Fetch mapped results

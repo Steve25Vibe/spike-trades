@@ -117,7 +117,7 @@ export async function GET() {
     });
   } catch (error) {
     return NextResponse.json(
-      { success: false, error: String(error) },
+      { success: false, error: error instanceof Error ? error.message : 'Internal server error' },
       { status: 500 }
     );
   }
@@ -221,7 +221,7 @@ export async function POST(request: Request) {
         success: false,
         startedAt: _lastTriggerResult?.startedAt,
         completedAt: new Date().toISOString(),
-        error: String(error),
+        error: error instanceof Error ? error.message : 'Internal server error',
       };
     })
     .finally(() => {
