@@ -129,6 +129,37 @@ export async function GET(request: NextRequest) {
       return new Date(b.date).getTime() - new Date(a.date).getTime();
     });
 
+    // 5. Radar accuracy
+    const radarPicks = await prisma.radarPick.findMany({
+      where: {
+        actualOpenPrice: { not: null },
+        report: { date: { gte: cutoff } },
+      },
+      select: {
+        ticker: true,
+        smartMoneyScore: true,
+        priceAtScan: true,
+        actualOpenPrice: true,
+        actualOpenChangePct: true,
+        actualDayHigh: true,
+        actualDayClose: true,
+        openMoveCorrect: true,
+        passedOpeningBell: true,
+        passedSpikes: true,
+        report: { select: { date: true } },
+      },
+      orderBy: { report: { date: 'desc' } },
+    });
+
+    const radarTotal = radarPicks.length;
+    const radarCorrect = radarPicks.filter(p => p.openMoveCorrect).length;
+    const radarHitRate = radarTotal > 0 ? (radarCorrect / radarTotal) * 100 : null;
+    const radarAvgOpenMove = radarTotal > 0
+      ? radarPicks.reduce((s, p) => s + (p.actualOpenChangePct || 0), 0) / radarTotal
+      : null;
+    const radarPassedOB = radarPicks.filter(p => p.passedOpeningBell).length;
+    const radarPassedSpikes = radarPicks.filter(p => p.passedSpikes).length;
+
     return NextResponse.json({
       success: true,
       data: {
@@ -139,6 +170,15 @@ export async function GET(request: NextRequest) {
           day3: Math.round(index3 * 100) / 100,
           day5: Math.round(index5 * 100) / 100,
           day8: Math.round(index8 * 100) / 100,
+        },
+        radar: {
+          total: radarTotal,
+          correct: radarCorrect,
+          hitRate: radarHitRate != null ? Math.round(radarHitRate * 10) / 10 : null,
+          avgOpenMove: radarAvgOpenMove != null ? Math.round(radarAvgOpenMove * 100) / 100 : null,
+          passedOpeningBell: radarPassedOB,
+          passedSpikes: radarPassedSpikes,
+          recentPicks: radarPicks.slice(0, 20),
         },
       },
     });
