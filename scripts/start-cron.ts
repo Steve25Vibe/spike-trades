@@ -45,6 +45,26 @@ console.log(`[Cron] Spike Trades scheduler starting...`);
 console.log(`[Cron] Scheduled: ${CRON_MINUTE} ${CRON_HOUR} * * 1-5 (${TIMEZONE})`);
 console.log(`[Cron] App URL: ${APP_URL}`);
 
+// ── Pre-market Radar — 8:15 AM AST weekdays ──
+cron.schedule(
+  '15 8 * * 1-5',
+  async () => {
+    console.log(`[Cron] Triggering Radar scan at ${new Date().toISOString()}`);
+    try {
+      const res = await httpRequest(`${APP_URL}/api/cron/radar`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${CRON_SECRET}`, 'Content-Type': 'application/json' },
+        timeout: 360_000, // 6 minutes
+      });
+      console.log(`[Cron] Radar result: ${res.status} — ${res.body.substring(0, 200)}`);
+    } catch (err) {
+      console.error(`[Cron] Radar failed:`, err);
+    }
+  },
+  { timezone: TIMEZONE }
+);
+console.log(`[Cron] Radar: 15 8 * * 1-5 (${TIMEZONE})`);
+
 // Main daily analysis — weekdays at 10:45am AST
 cron.schedule(
   `${CRON_MINUTE} ${CRON_HOUR} * * 1-5`,
