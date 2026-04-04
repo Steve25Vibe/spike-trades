@@ -399,7 +399,7 @@ export default function AccuracyPage() {
             Past performance is no guarantee of future results.
             Trading stocks involves risk. You may lose your entire investment.
           </p>
-          <p className="mt-2">&copy; {new Date().getFullYear()} Spike Trades — spiketrades.ca &middot; Ver 4.0</p>
+          <p className="mt-2">&copy; {new Date().getFullYear()} Spike Trades — spiketrades.ca &middot; Ver 5.0</p>
         </div>
     </ResponsiveLayout>
   );

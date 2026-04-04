@@ -93,9 +93,16 @@ function RadarContent() {
           </div>
         )}
 
-        {/* Legal */}
-        <div className="mt-8 text-center text-[10px] text-gray-600">
-          For informational purposes only. Not financial advice.
+        {/* Legal footer */}
+        <div className="legal-footer">
+          <p>
+            For educational and informational purposes only. Not financial advice.
+            Past performance is no guarantee of future results.
+            Trading stocks involves risk. You may lose your entire investment.
+          </p>
+          <p className="mt-2">
+            &copy; {new Date().getFullYear()} Spike Trades &mdash; spiketrades.ca. All rights reserved. &middot; Ver 5.0
+          </p>
         </div>
       </div>
     </ResponsiveLayout>
