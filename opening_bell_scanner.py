@@ -132,14 +132,20 @@ class OpeningBellScanner:
         return grades_map
 
     async def fetch_intraday_bars(self, session: aiohttp.ClientSession, ticker: str) -> list[dict]:
-        """Fetch 5-min intraday bars. Returns empty list if unavailable (common for Canadian stocks)."""
-        data = await self._fmp_get(session, f"/historical-chart/5min/{ticker}")
-        if not data or not isinstance(data, list):
-            return []
-        # Filter to today only
-        today_str = datetime.now(ZoneInfo("America/Halifax")).strftime("%Y-%m-%d")
-        today_bars = [b for b in data if (b.get("date", "")[:10] == today_str)]
-        return today_bars
+        """Fetch intraday bars: 1-min (preferred) → 5-min (fallback) → empty."""
+        today = datetime.now(ZoneInfo("America/Halifax")).strftime("%Y-%m-%d")
+
+        # Try 1-min bars (FMP Ultimate)
+        bars = await self._fmp_get(session, f"/historical-chart/1min/{ticker}", {"from": today, "to": today})
+        if bars and isinstance(bars, list) and len(bars) > 0:
+            return bars
+
+        # Fallback: 5-min bars
+        bars = await self._fmp_get(session, f"/historical-chart/5min/{ticker}", {"from": today, "to": today})
+        if bars and isinstance(bars, list) and len(bars) > 0:
+            return bars
+
+        return []
 
     # ── Ranking Computation ───────────────────────────────────────────
 
