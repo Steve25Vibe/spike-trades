@@ -689,14 +689,15 @@ def _calculate_rsi(closes: list[float], period: int = 14) -> float | None:
 
 async def _fetch_spike_it_data(ticker: str) -> dict[str, Any] | None:
     """Fetch all FMP data needed for Spike It analysis. Returns assembled dict or None on critical failure."""
+    today_str = datetime.now(ZoneInfo("America/Halifax")).strftime("%Y-%m-%d")
     quote_task = _fmp_get_spike("/batch-quote", {"symbols": ticker})
-    bars_task = _fmp_get_spike(f"/historical-chart/5min/{ticker}")
+    bars_1m_task = _fmp_get_spike(f"/historical-chart/1min/{ticker}", {"from": today_str, "to": today_str})
     hist_task = _fmp_get_spike("/historical-price-eod/full", {"symbol": ticker, "limit": "15"})
     news_task = _fmp_get_spike("/news/stock", {"symbols": ticker, "limit": "5"})
     macro_task = _fmp_get_spike("/batch-quote", {"symbols": "USO,GLD,CADUSD=X,XIU.TO"})
 
-    quote_data, bars_data, hist_data, news_data, macro_data = await asyncio.gather(
-        quote_task, bars_task, hist_task, news_task, macro_task,
+    quote_data, bars_1m_data, hist_data, news_data, macro_data = await asyncio.gather(
+        quote_task, bars_1m_task, hist_task, news_task, macro_task,
         return_exceptions=True,
     )
 
@@ -705,12 +706,15 @@ async def _fetch_spike_it_data(ticker: str) -> dict[str, Any] | None:
         return None
     quote = quote_data[0]
 
-    # ── Process intraday bars (with daily fallback) ──
+    # ── Process intraday bars: 1-min → 5-min → synthetic fallback chain ──
     today_bars = []
     intraday_available = False
-    if not isinstance(bars_data, Exception) and bars_data and len(bars_data) >= 5:
-        today_str = datetime.now(ZoneInfo("America/Halifax")).strftime("%Y-%m-%d")
-        for bar in reversed(bars_data):
+    bar_interval = "synthetic"
+
+    def _process_raw_bars(raw_bars: list) -> list[dict]:
+        """Convert raw FMP bars to today-only bars with AST times."""
+        processed = []
+        for bar in reversed(raw_bars):
             bar_date = bar.get("date", "")[:10]
             if bar_date == today_str:
                 try:
@@ -718,7 +722,7 @@ async def _fetch_spike_it_data(ticker: str) -> dict[str, Any] | None:
                     ast_time = dt.astimezone(ZoneInfo("America/Halifax")).strftime("%H:%M")
                 except Exception:
                     ast_time = bar["date"][11:16]
-                today_bars.append({
+                processed.append({
                     "time": ast_time,
                     "open": bar["open"],
                     "high": bar["high"],
@@ -726,10 +730,25 @@ async def _fetch_spike_it_data(ticker: str) -> dict[str, Any] | None:
                     "close": bar["close"],
                     "volume": bar.get("volume", 0),
                 })
+        return processed
+
+    # Try 1-min bars first (FMP Ultimate)
+    if not isinstance(bars_1m_data, Exception) and bars_1m_data and len(bars_1m_data) >= 3:
+        today_bars = _process_raw_bars(bars_1m_data)
         if len(today_bars) >= 3:
             intraday_available = True
+            bar_interval = "1min"
 
-    # Fallback: build synthetic bars from daily quote data
+    # Fallback: 5-min bars
+    if not intraday_available:
+        bars_5m_data = await _fmp_get_spike(f"/historical-chart/5min/{ticker}", {"from": today_str, "to": today_str})
+        if bars_5m_data and not isinstance(bars_5m_data, Exception) and len(bars_5m_data) >= 3:
+            today_bars = _process_raw_bars(bars_5m_data)
+            if len(today_bars) >= 3:
+                intraday_available = True
+                bar_interval = "5min"
+
+    # Fallback: synthetic bars from daily quote data
     if not intraday_available:
         logger.info(f"Spike It: no intraday bars for {ticker}, using daily quote fallback")
         o = quote.get("open", quote.get("price", 0))
@@ -783,8 +802,10 @@ async def _fetch_spike_it_data(ticker: str) -> dict[str, Any] | None:
     above_vwap = vwap_distance > 0 if vwap_distance is not None else None
 
     data_limitations = []
-    if not intraday_available:
-        data_limitations.append("Intraday bars unavailable — using daily quote data (VWAP is approximate)")
+    if bar_interval == "synthetic":
+        data_limitations.append("Intraday bars unavailable — using daily quote data (VWAP and RSI are approximate)")
+    elif bar_interval == "5min":
+        data_limitations.append("Using 5-minute bars — VWAP has reduced granularity vs 1-minute")
     if rsi is None:
         data_limitations.append("Insufficient data for 14-period RSI calculation")
     if rel_volume is None:
