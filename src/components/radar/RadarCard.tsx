@@ -64,18 +64,18 @@ export default function RadarCard({ pick }: { pick: RadarPickData }) {
             >
               {pick.ticker}
             </a>
-            <RadarIcon
-              size={16}
-              title={`Smart Money Score: ${pick.smartMoneyScore}`}
-            />
             <span className="text-xs px-2 py-0.5 rounded-full bg-spike-border/50 text-spike-text-dim flex-shrink-0">
               {pick.exchange}
             </span>
-            {pick.sector && (
+            {pick.sector && pick.sector !== 'Unknown' && (
               <span className="text-xs px-2 py-0.5 rounded-full bg-spike-violet/10 text-spike-violet flex-shrink-0">
                 {pick.sector}
               </span>
             )}
+            <RadarIcon
+              size={24}
+              title={`Smart Money Score: ${pick.smartMoneyScore}`}
+            />
           </div>
           <p className="text-sm text-spike-text-dim line-clamp-2">{pick.name}</p>
 

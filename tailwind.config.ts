@@ -56,6 +56,7 @@ const config: Config = {
         'fade-in': 'fadeIn 0.3s ease-out',
         'score-fill': 'scoreFill 1.5s ease-out forwards',
         'ring': 'ring 1.5s ease-in-out infinite',
+        'bell-ring': 'ring 1.5s ease-in-out infinite',
         'radar-sweep': 'radar-sweep 2s linear infinite',
       },
       keyframes: {

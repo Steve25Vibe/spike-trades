@@ -79,14 +79,20 @@ export default function OpeningBellCard({ pick, selected, onSelect, onLockIn, se
               <a href={`https://finance.yahoo.com/quote/${pick.ticker}`} target="_blank" rel="noopener noreferrer" className="text-lg font-extrabold text-spike-text hover:text-spike-amber transition-colors">
                 {pick.ticker}
               </a>
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-spike-cyan/10 text-spike-cyan font-semibold">{pick.exchange}</span>
+              {pick.sector && <span className="text-[10px] px-1.5 py-0.5 rounded bg-spike-violet/10 text-spike-violet font-semibold">{pick.sector}</span>}
               {pick.isRadarPick && (
                 <RadarIcon
-                  size={16}
+                  size={24}
                   title={`Flagged by Smart Money Radar${pick.radarScore ? ` (Score: ${pick.radarScore})` : ''}`}
                 />
               )}
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-spike-cyan/10 text-spike-cyan font-semibold">{pick.exchange}</span>
-              {pick.sector && <span className="text-[10px] px-1.5 py-0.5 rounded bg-spike-violet/10 text-spike-violet font-semibold">{pick.sector}</span>}
+              <span
+                className="inline-block text-xl animate-bell-ring"
+                title="Opening Bell pick"
+              >
+                🔔
+              </span>
             </div>
             <p className="text-xs text-spike-text-muted">{pick.name}</p>
           </div>
