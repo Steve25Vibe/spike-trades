@@ -11,7 +11,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    if (!isTradingDay(new Date())) {
+    const force = request.nextUrl.searchParams.get('force') === 'true';
+    if (!force && !isTradingDay(new Date())) {
       console.log('[Cron] Skipping Radar — TSX closed (holiday)');
       return NextResponse.json({ success: true, skipped: true, reason: 'TSX closed (holiday)' });
     }
