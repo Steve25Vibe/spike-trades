@@ -282,7 +282,7 @@ function ReportsContent() {
 
           {openingBellReports.length === 0 && !loading && (
             <div className="glass-card p-12 text-center text-spike-text-dim">
-              No Opening Bell reports yet. The scan runs at 9:45 AM ET on market days.
+              No Opening Bell reports yet. The scan runs at 10:35 AM AST on market days.
             </div>
           )}
         </div>

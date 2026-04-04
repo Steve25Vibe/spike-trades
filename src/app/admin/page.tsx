@@ -114,7 +114,8 @@ const LLM_PRICING: Record<string, { input: number; output: number; label: string
   'claude-opus-4-20250514': { input: 15.00, output: 75.00, label: 'Opus 4' },
   'gemini-3.1-pro-preview': { input: 1.25, output: 10.00, label: 'Gemini 3.1 Pro' },
   'gemini-3.1-pro': { input: 1.25, output: 10.00, label: 'Gemini 3.1 Pro' },
-  'grok-4-0709': { input: 3.00, output: 15.00, label: 'Grok 4' },
+  'grok-4-0709': { input: 3.00, output: 15.00, label: 'Grok 4 (legacy)' },
+  'grok-4.20-multi-agent-0309': { input: 2.00, output: 6.00, label: 'Grok 4.20 Multi-Agent' },
 };
 const FALLBACK_PRICING = { input: 15.00, output: 75.00, label: 'Unknown' };
 

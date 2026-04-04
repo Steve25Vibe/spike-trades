@@ -871,6 +871,64 @@ async def _fetch_spike_it_data(ticker: str) -> dict[str, Any] | None:
     }
 
 
+async def _call_grok_multi_agent(
+    api_key: str,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    max_tokens: int = 2048,
+    temperature: float = 0.3,
+    reasoning_effort: str = "high",
+) -> tuple[str, dict]:
+    """Call xAI Grok Multi-Agent via Responses API (/v1/responses).
+    The multi-agent model does NOT work with the OpenAI Chat Completions API."""
+    url = "https://api.x.ai/v1/responses"
+    payload = {
+        "model": model,
+        "reasoning": {"effort": reasoning_effort},
+        "input": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": temperature,
+        "max_output_tokens": max_tokens,
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            session = await _get_spike_session()
+            async with session.post(url, json=payload, headers=headers,
+                                    timeout=aiohttp.ClientTimeout(total=180)) as resp:
+                if resp.status != 200:
+                    body = await resp.text()
+                    raise Exception(f"Grok multi-agent {resp.status}: {body[:300]}")
+                data = await resp.json()
+                # Extract text from Responses API format
+                text = ""
+                usage = {"input_tokens": 0, "output_tokens": 0}
+                if "output" in data:
+                    for item in data["output"]:
+                        if item.get("type") == "message":
+                            for content in item.get("content", []):
+                                if content.get("type") == "output_text":
+                                    text += content.get("text", "")
+                if "usage" in data:
+                    usage["input_tokens"] = data["usage"].get("input_tokens", 0)
+                    usage["output_tokens"] = data["usage"].get("output_tokens", 0)
+                return text, usage
+        except Exception as e:
+            if attempt < max_retries - 1:
+                wait = min(15 * (2 ** attempt), 60)
+                logger.warning(f"Grok multi-agent transient error, retrying in {wait}s (attempt {attempt + 1}/{max_retries}): {e}")
+                await asyncio.sleep(wait)
+            else:
+                raise
+
+
 SPIKE_IT_SYSTEM_PROMPT = """You are SuperGrok Heavy, elite real-time TSX intraday analyst.
 
 You will receive a JSON payload containing live FMP data for a single TSX stock that the user holds in an active position. Your job is to perform a quick health check: should they hold for more upside today, or has momentum faded?
@@ -992,45 +1050,31 @@ async def spike_it(request: SpikeItRequest):
     # ── LLM analysis (per-user entry price) ──
     user_prompt = _build_spike_it_user_prompt(data, entry_price)
     xai_key = os.environ.get("XAI_API_KEY", "")
-    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    used_model = "grok-4.20-multi-agent-0309"
 
-    grok_raw = None
-    used_model = "grok-4-0709"
+    if not xai_key:
+        raise HTTPException(502, "SuperGrok Heavy is unavailable (no XAI_API_KEY)")
 
-    if xai_key:
-        try:
-            grok_raw, _ = await _call_grok(
-                api_key=xai_key,
-                model="grok-4-0709",
-                system_prompt=SPIKE_IT_SYSTEM_PROMPT,
-                user_prompt=user_prompt,
-                max_tokens=2048,
-                temperature=0.3,
-            )
-        except Exception as e:
-            logger.warning(f"Spike It: Grok failed for {ticker}, falling back to Opus: {e}")
-
-    if not grok_raw and anthropic_key:
-        try:
-            used_model = "claude-opus-4-6"
-            grok_raw, _ = await _call_anthropic(
-                api_key=anthropic_key,
-                model="claude-opus-4-6",
-                system_prompt=SPIKE_IT_SYSTEM_PROMPT,
-                user_prompt=user_prompt,
-                max_tokens=2048,
-                temperature=0.3,
-            )
-        except Exception as e:
-            logger.error(f"Spike It: Opus fallback also failed for {ticker}: {e}")
-            raise HTTPException(502, f"LLM analysis failed for {ticker}")
+    try:
+        grok_raw, _ = await _call_grok_multi_agent(
+            api_key=xai_key,
+            model="grok-4.20-multi-agent-0309",
+            system_prompt=SPIKE_IT_SYSTEM_PROMPT,
+            user_prompt=user_prompt,
+            max_tokens=2048,
+            temperature=0.3,
+            reasoning_effort="high",
+        )
+    except Exception as e:
+        logger.error(f"Spike It: SuperGrok Heavy failed for {ticker}: {e}")
+        raise HTTPException(502, f"SuperGrok Heavy is unavailable. Please try again.")
 
     if not grok_raw:
-        raise HTTPException(502, f"No LLM API keys available for Spike It")
+        raise HTTPException(502, "SuperGrok Heavy returned empty response")
 
     parsed = _extract_json(grok_raw)
     if parsed is None:
-        logger.error(f"Spike It: failed to parse Grok JSON for {ticker}")
+        logger.error(f"Spike It: failed to parse SuperGrok JSON for {ticker}")
         raise HTTPException(502, f"Failed to parse analysis for {ticker}")
 
     ast_now = datetime.now(ZoneInfo("America/Halifax"))

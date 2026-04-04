@@ -180,7 +180,7 @@ If any endpoint returns empty for Canadian stocks, the code gracefully degrades 
 - Fallback chain: 1-min bars → 5-min bars → synthetic (existing)
 
 **Opening Bell:**
-- Replace 5-min bars with 1-min bars (65 data points from 9:30-10:35 AM)
+- Replace 5-min bars with 1-min bars (5 data points from 10:30-10:35 AM AST)
 - Better momentum slope calculation
 - Better institutional accumulation pattern detection
 - Fallback: 5-min bars → daily quote (existing)

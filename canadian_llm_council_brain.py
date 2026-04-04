@@ -1546,6 +1546,64 @@ async def _call_grok(
                 raise
 
 
+async def _call_grok_multi_agent(
+    api_key: str,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    max_tokens: int = 16384,
+    temperature: float = 0.3,
+    reasoning_effort: str = "high",
+) -> tuple[str, dict]:
+    """Call xAI Grok Multi-Agent via Responses API (/v1/responses).
+    The multi-agent model does NOT work with the OpenAI Chat Completions API."""
+    url = "https://api.x.ai/v1/responses"
+    payload = {
+        "model": model,
+        "reasoning": {"effort": reasoning_effort},
+        "input": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": temperature,
+        "max_output_tokens": max_tokens,
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    max_retries = 4
+    for attempt in range(max_retries):
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, headers=headers,
+                                        timeout=aiohttp.ClientTimeout(total=300)) as resp:
+                    if resp.status != 200:
+                        body = await resp.text()
+                        raise Exception(f"Grok multi-agent {resp.status}: {body[:300]}")
+                    data = await resp.json()
+                    text = ""
+                    usage = {"input_tokens": 0, "output_tokens": 0}
+                    if "output" in data:
+                        for item in data["output"]:
+                            if item.get("type") == "message":
+                                for content in item.get("content", []):
+                                    if content.get("type") == "output_text":
+                                        text += content.get("text", "")
+                    if "usage" in data:
+                        usage["input_tokens"] = data["usage"].get("input_tokens", 0)
+                        usage["output_tokens"] = data["usage"].get("output_tokens", 0)
+                    return text, usage
+        except Exception as e:
+            if _is_transient(e) and attempt < max_retries - 1:
+                wait = min(30 * (2 ** attempt), 300)
+                logger.warning(f"Grok multi-agent transient error, retrying in {wait}s (attempt {attempt + 1}/{max_retries}): {e}")
+                await asyncio.sleep(wait)
+            else:
+                logger.error(f"Grok multi-agent call failed: {e}")
+                raise
+
+
 # ── Grounding + Chain-of-Verification Mandate ────────────────────────
 
 GROUNDING_MANDATE = """
@@ -1999,10 +2057,10 @@ async def run_stage4_grok(
     stage3_results: list[dict],
     learning_engine: Optional["LearningEngine"] = None,
 ) -> list[dict]:
-    """Stage 4: Grok (or Opus fallback) produces final Top 10 with probabilistic forecasts."""
-    logger.info(f"Stage 4 (Grok): Processing {len(stage3_results)} tickers from Stage 3")
+    """Stage 4: SuperGrok Heavy Multi-Agent (or Opus fallback) produces final Top 10 with probabilistic forecasts."""
+    logger.info(f"Stage 4 (SuperGrok Heavy): Processing {len(stage3_results)} tickers from Stage 3")
     start = time.time()
-    stage_tokens = {"model": "grok-4-0709", "input_tokens": 0, "output_tokens": 0}
+    stage_tokens = {"model": "grok-4.20-multi-agent-0309", "input_tokens": 0, "output_tokens": 0}
 
     passed_tickers = {r["ticker"] for r in stage3_results}
     payload_dicts = []
@@ -2025,25 +2083,26 @@ async def run_stage4_grok(
         f"{json.dumps(payload_dicts, **_COMPACT)}"
     )
 
-    # Try Grok first, fall back to Opus if xAI key is missing or call fails
+    # Try SuperGrok Heavy Multi-Agent first, fall back to Opus if xAI key is missing or call fails
     use_grok = bool(xai_api_key)
     if use_grok:
         try:
-            raw, _usage = await _call_grok(
+            raw, _usage = await _call_grok_multi_agent(
                 api_key=xai_api_key,
-                model="grok-4-0709",
+                model="grok-4.20-multi-agent-0309",
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 max_tokens=16384,
+                reasoning_effort="high",
             )
             stage_tokens["input_tokens"] += _usage.get("input_tokens", 0)
             stage_tokens["output_tokens"] += _usage.get("output_tokens", 0)
         except Exception as e:
-            logger.warning(f"Grok failed, falling back to Opus for Stage 4: {e}")
+            logger.warning(f"SuperGrok Heavy failed, falling back to Opus for Stage 4: {e}")
             use_grok = False
 
     if not use_grok:
-        logger.info("Stage 4: Using Opus as fallback for Grok")
+        logger.info("Stage 4: Using Opus as fallback for SuperGrok Heavy")
         raw, _usage = await _call_anthropic(
             api_key=anthropic_api_key,
             model="claude-opus-4-6",
@@ -2080,7 +2139,7 @@ async def run_stage4_grok(
             logger.warning(f"Stage 4: Invalid score for {r.get('ticker','?')}: {e}")
 
     elapsed = time.time() - start
-    model_used = "grok-3" if use_grok else "claude-opus-4.6 (fallback)"
+    model_used = "grok-4.20-multi-agent" if use_grok else "claude-opus-4.6 (fallback)"
     logger.info(f"Stage 4 ({model_used}): {len(validated)} tickers passed in {elapsed:.1f}s")
     return sorted(validated, key=lambda x: x["score"]["total"], reverse=True), stage_tokens
 
