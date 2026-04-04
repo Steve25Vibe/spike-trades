@@ -4594,39 +4594,52 @@ Required JSON format:
         await asyncio.gather(*[_compute(t) for t in tickers], return_exceptions=True)
         return tech_map
 
+    MAX_CANDIDATES = 60  # Cap to keep LLM batches under timeout
+
     def _apply_prescore_filter(
         self, tickers: list[str], quote_map: dict, grades_map: dict,
         surprises_map: dict, news_map: dict, tech_map: dict
     ) -> list[str]:
-        """Keep only tickers with at least one active overnight signal."""
-        candidates = []
+        """Score tickers by signal count and return top candidates.
+
+        Requires at least one catalyst signal (news, grades, earnings).
+        Technical signals alone are not sufficient since most stocks
+        have non-neutral RSI or trending ADX.
+        """
+        scored = []
         for t in tickers:
-            has_signal = False
+            signals = 0
+            has_catalyst = False  # Non-technical signal
 
-            # Signal 1: News in last 24h
+            # Signal 1: News in last 24h (catalyst)
             if t in news_map and len(news_map[t]) >= self.MIN_NEWS_FOR_SIGNAL:
-                has_signal = True
+                signals += 1
+                has_catalyst = True
 
-            # Signal 2: Recent analyst grade change
+            # Signal 2: Recent analyst grade change (catalyst)
             if t in grades_map:
-                has_signal = True
+                signals += 1
+                has_catalyst = True
 
             # Signal 3: Technical setup (RSI not neutral OR ADX showing trend)
             tech = tech_map.get(t)
             if tech:
                 if tech.rsi_14 < self.NEUTRAL_RSI_LOW or tech.rsi_14 > self.NEUTRAL_RSI_HIGH:
-                    has_signal = True
+                    signals += 1
                 if tech.adx_14 >= self.MIN_ADX_FOR_TREND:
-                    has_signal = True
+                    signals += 1
 
-            # Signal 4: Recent earnings surprise
+            # Signal 4: Recent earnings surprise (catalyst)
             if t in surprises_map:
-                has_signal = True
+                signals += 1
+                has_catalyst = True
 
-            if has_signal:
-                candidates.append(t)
+            if has_catalyst:
+                scored.append((t, signals))
 
-        return candidates
+        # Sort by signal count descending, cap at MAX_CANDIDATES
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return [t for t, _ in scored[:self.MAX_CANDIDATES]]
 
     async def _call_radar_sonnet(
         self, candidates: list[str], quote_map: dict, grades_map: dict,
