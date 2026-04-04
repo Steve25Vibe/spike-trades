@@ -41,7 +41,7 @@ export async function runOpeningBellAnalysis(): Promise<{ success: boolean; pick
   // Read Radar overrides (if available)
   let radarOverrides: { tickers: string[]; smart_money_scores: Record<string, number> } | null = null;
   try {
-    const overridePath = path.join(process.cwd(), 'radar_opening_bell_overrides.json');
+    const overridePath = path.join('/tmp', 'radar_opening_bell_overrides.json');
     if (fs.existsSync(overridePath)) {
       const raw = JSON.parse(fs.readFileSync(overridePath, 'utf-8'));
       const today = new Date().toISOString().split('T')[0];

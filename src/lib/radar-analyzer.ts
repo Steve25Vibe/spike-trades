@@ -130,7 +130,7 @@ export async function runRadarAnalysis(): Promise<{ success: boolean; picksCount
       smartMoneyScores[p.ticker] = p.smart_money_score;
     }
 
-    const overridePath = path.join(process.cwd(), 'radar_opening_bell_overrides.json');
+    const overridePath = path.join('/tmp', 'radar_opening_bell_overrides.json');
     fs.writeFileSync(overridePath, JSON.stringify({
       date: today.toISOString().split('T')[0],
       tickers: overrideTickers,
