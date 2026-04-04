@@ -591,7 +591,7 @@ export default function AdminPage() {
         {/* Council Tab */}
         {tab === 'council' && (
           <div className="space-y-6">
-            {/* Status Cards */}
+            {/* 1. Server Status + Last Run */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="glass-card p-4 text-center">
                 <p className="text-xs text-spike-text-muted uppercase tracking-wider mb-1">Last Run</p>
@@ -620,55 +620,7 @@ export default function AdminPage() {
               </div>
             </div>
 
-            {/* Opening Bell Status Card */}
-            {(() => {
-              const ob = council?.openingBellStatus;
-              const status = ob?.status ?? 'pending';
-              const statusColorMap: Record<string, string> = {
-                running: 'text-spike-amber',
-                complete: 'text-spike-green',
-                failed: 'text-spike-red',
-                pending: 'text-spike-text-dim',
-              };
-              const statusText = status.charAt(0).toUpperCase() + status.slice(1);
-              const picks = ob?.picks ?? ob?.last_result_summary?.picks ?? null;
-              const duration = ob?.duration_s ?? ob?.last_result_summary?.duration_s ?? null;
-              const error = ob?.last_result_summary?.success === false ? ob?.last_result_summary?.error : null;
-              return (
-                <div className="glass-card p-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-bold text-spike-amber uppercase tracking-wider">Opening Bell</span>
-                    <button
-                      onClick={triggerOpeningBell}
-                      className="px-3 py-1.5 rounded-lg bg-spike-amber/10 text-spike-amber text-xs font-bold hover:bg-spike-amber/20 transition-all border border-spike-amber/30"
-                    >
-                      Run Opening Bell
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-3 gap-3 text-center">
-                    <div>
-                      <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">Status</p>
-                      <p className={cn('text-sm font-bold mono', statusColorMap[status] ?? 'text-spike-text-dim')}>{statusText}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">Picks</p>
-                      <p className="text-sm font-bold mono text-spike-cyan">{picks ?? '--'}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">Duration</p>
-                      <p className="text-sm font-bold mono text-spike-text">{duration != null ? formatDuration(Math.round(duration)) : '--'}</p>
-                    </div>
-                  </div>
-                  {error && (
-                    <div className="mt-3 p-2 rounded bg-spike-red/10 border border-spike-red/20">
-                      <p className="text-xs text-spike-red mono break-all">{error}</p>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-
-            {/* Radar Status Card */}
+            {/* 2. Radar Scanner (first in pipeline sequence) */}
             {(() => {
               const radar = council?.radarStatus;
               const status = radar?.status ?? 'pending';
@@ -716,59 +668,55 @@ export default function AdminPage() {
               );
             })()}
 
-            {/* Run Cost Breakdown */}
+            {/* 3. Opening Bell (second in pipeline sequence) */}
             {(() => {
-              const tokenUsage = council?.latestStageMetadata?.token_usage;
-              if (!tokenUsage) return (
-                <div className="glass-card p-4">
-                  <p className="text-xs text-spike-text-muted uppercase tracking-wider mb-2">Run Cost Breakdown</p>
-                  <p className="text-xs text-spike-text-dim">Token data not available for this run</p>
-                </div>
-              );
-
-              const stages = [
-                { key: 'stage1', label: 'Stage 1', ...(tokenUsage.stage1 || { model: 'skipped', input_tokens: 0, output_tokens: 0 }) },
-                { key: 'stage2', label: 'Stage 2', ...(tokenUsage.stage2 || { model: 'skipped', input_tokens: 0, output_tokens: 0 }) },
-                { key: 'stage3', label: 'Stage 3', ...(tokenUsage.stage3 || { model: 'skipped', input_tokens: 0, output_tokens: 0 }) },
-                { key: 'stage4', label: 'Stage 4', ...(tokenUsage.stage4 || { model: 'skipped', input_tokens: 0, output_tokens: 0 }) },
-              ].filter(s => s.model && s.model !== 'skipped');
-
-              let totalCost = 0;
-              const rows = stages.map(s => {
-                const { cost, pricing } = calculateStageCost(s);
-                totalCost += cost;
-                return { ...s, cost, displayLabel: `${s.label} · ${pricing.label}` };
-              });
-
+              const ob = council?.openingBellStatus;
+              const status = ob?.status ?? 'pending';
+              const statusColorMap: Record<string, string> = {
+                running: 'text-spike-amber',
+                complete: 'text-spike-green',
+                failed: 'text-spike-red',
+                pending: 'text-spike-text-dim',
+              };
+              const statusText = status.charAt(0).toUpperCase() + status.slice(1);
+              const picks = ob?.picks ?? ob?.last_result_summary?.picks ?? null;
+              const duration = ob?.duration_s ?? ob?.last_result_summary?.duration_s ?? null;
+              const error = ob?.last_result_summary?.success === false ? ob?.last_result_summary?.error : null;
               return (
-                <div className="glass-card p-4">
-                  <p className="text-xs text-spike-text-muted uppercase tracking-wider mb-3">Run Cost Breakdown</p>
-                  <div className="space-y-2">
-                    {rows.map(r => (
-                      <div key={r.key} className="flex items-center justify-between text-xs">
-                        <div>
-                          <span className="text-spike-text">{r.displayLabel}</span>
-                          <span className="text-spike-text-dim ml-2">{formatTokens(r.input_tokens)} in / {formatTokens(r.output_tokens)} out</span>
-                        </div>
-                        <span className="text-spike-cyan mono font-medium">${r.cost.toFixed(2)}</span>
-                      </div>
-                    ))}
-                    {council?.openingBellStatus?.last_result_summary?.success && (
-                      <div className="flex justify-between items-center py-1 text-xs">
-                        <span className="text-spike-text-dim">Opening Bell · Sonnet 4.6</span>
-                        <span className="text-spike-cyan font-mono">~$0.50-1.00</span>
-                      </div>
-                    )}
+                <div className="glass-card p-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-bold text-spike-amber uppercase tracking-wider">Opening Bell</span>
+                    <button
+                      onClick={triggerOpeningBell}
+                      className="px-3 py-1.5 rounded-lg bg-spike-amber/10 text-spike-amber text-xs font-bold hover:bg-spike-amber/20 transition-all border border-spike-amber/30"
+                    >
+                      Run Opening Bell
+                    </button>
                   </div>
-                  <div className="border-t border-spike-border/30 mt-3 pt-3 flex items-center justify-between">
-                    <span className="text-xs font-bold text-spike-text">Total</span>
-                    <span className="text-lg font-bold text-spike-cyan mono">${totalCost.toFixed(2)}</span>
+                  <div className="grid grid-cols-3 gap-3 text-center">
+                    <div>
+                      <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">Status</p>
+                      <p className={cn('text-sm font-bold mono', statusColorMap[status] ?? 'text-spike-text-dim')}>{statusText}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">Picks</p>
+                      <p className="text-sm font-bold mono text-spike-cyan">{picks ?? '--'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">Duration</p>
+                      <p className="text-sm font-bold mono text-spike-text">{duration != null ? formatDuration(Math.round(duration)) : '--'}</p>
+                    </div>
                   </div>
+                  {error && (
+                    <div className="mt-3 p-2 rounded bg-spike-red/10 border border-spike-red/20">
+                      <p className="text-xs text-spike-red mono break-all">{error}</p>
+                    </div>
+                  )}
                 </div>
               );
             })()}
 
-            {/* Stage Pipeline Visualization */}
+            {/* 4. Today's Spikes — Stage Pipeline Visualization */}
             {(() => {
               const STAGE_KEYS = ['pre_filter', 'stage1_sonnet', 'stage2_gemini', 'stage3_opus', 'stage4_grok', 'consensus'] as const;
               const STAGE_LABELS: Record<string, string> = {
@@ -808,8 +756,8 @@ export default function AdminPage() {
                       {isLive && (
                         <span className="inline-block w-2.5 h-2.5 rounded-full bg-spike-amber animate-pulse" />
                       )}
-                      <span className="text-xs font-bold text-spike-text-dim uppercase tracking-wider">
-                        {isLive ? 'Pipeline' : 'Last Pipeline Run'}
+                      <span className="text-xs font-bold text-spike-cyan uppercase tracking-wider">
+                        {isLive ? 'Today\'s Spikes — Running' : 'Today\'s Spikes'}
                       </span>
                       {triggerLabel && (
                         <span className="text-xs text-spike-text-muted">— {triggerLabel}</span>
@@ -872,7 +820,56 @@ export default function AdminPage() {
               );
             })()}
 
-            {/* Last trigger result */}
+            {/* 5. Run Cost Breakdown (Today's Spikes only) */}
+            {(() => {
+              const tokenUsage = council?.latestStageMetadata?.token_usage;
+              if (!tokenUsage) return (
+                <div className="glass-card p-4">
+                  <p className="text-xs text-spike-text-muted uppercase tracking-wider mb-2">Run Cost Breakdown</p>
+                  <p className="text-xs text-spike-text-dim">Token data not available for this run</p>
+                </div>
+              );
+
+              const stages = [
+                { key: 'stage1', label: 'Stage 1', ...(tokenUsage.stage1 || { model: 'skipped', input_tokens: 0, output_tokens: 0 }) },
+                { key: 'stage2', label: 'Stage 2', ...(tokenUsage.stage2 || { model: 'skipped', input_tokens: 0, output_tokens: 0 }) },
+                { key: 'stage3', label: 'Stage 3', ...(tokenUsage.stage3 || { model: 'skipped', input_tokens: 0, output_tokens: 0 }) },
+                { key: 'stage4', label: 'Stage 4', ...(tokenUsage.stage4 || { model: 'skipped', input_tokens: 0, output_tokens: 0 }) },
+              ].filter(s => s.model && s.model !== 'skipped');
+
+              let totalCost = 0;
+              const rows = stages.map(s => {
+                const { cost, pricing } = calculateStageCost(s);
+                totalCost += cost;
+                return { ...s, cost, displayLabel: `${s.label} · ${pricing.label}` };
+              });
+
+              return (
+                <div className="glass-card p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-xs text-spike-text-muted uppercase tracking-wider">Run Cost Breakdown</p>
+                    <span className="text-[10px] text-spike-text-dim">Today&apos;s Spikes only</span>
+                  </div>
+                  <div className="space-y-2">
+                    {rows.map(r => (
+                      <div key={r.key} className="flex items-center justify-between text-xs">
+                        <div>
+                          <span className="text-spike-text">{r.displayLabel}</span>
+                          <span className="text-spike-text-dim ml-2">{formatTokens(r.input_tokens)} in / {formatTokens(r.output_tokens)} out</span>
+                        </div>
+                        <span className="text-spike-cyan mono font-medium">${r.cost.toFixed(2)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="border-t border-spike-border/30 mt-3 pt-3 flex items-center justify-between">
+                    <span className="text-xs font-bold text-spike-text">Total</span>
+                    <span className="text-lg font-bold text-spike-cyan mono">${totalCost.toFixed(2)}</span>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* 6. Last trigger result */}
             {council?.lastTriggerResult?.completedAt && (
               <div className={cn(
                 'glass-card p-4 border',
@@ -897,7 +894,7 @@ export default function AdminPage() {
               </div>
             )}
 
-            {/* Trigger Button */}
+            {/* 7. Manual Scan */}
             <div className="glass-card p-6">
               <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-4">Manual Scan</h3>
               <p className="text-spike-text-dim text-sm mb-4">
@@ -949,7 +946,7 @@ export default function AdminPage() {
               </div>
             )}
 
-            {/* Recent Runs Table */}
+            {/* 8. Recent Reports */}
             <div className="glass-card p-6">
               <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-4">Recent Reports</h3>
               {loading ? (
@@ -990,74 +987,79 @@ export default function AdminPage() {
               )}
             </div>
 
-            {/* Data Source Health */}
-            {(council?.fmpHealth?.endpoints || council?.openingBellHealth?.endpoints || council?.radarHealth?.endpoints) && (
+            {/* 9. Data Source Health — per scanner */}
+            {(council?.radarHealth?.endpoints || council?.openingBellHealth?.endpoints || council?.fmpHealth?.endpoints) && (
               <div className="glass-card p-6">
-                <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-2">
+                <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-4">
                   Data Source Health
                 </h3>
-                <p className="text-spike-text-dim text-xs mb-4">
-                  FMP API endpoint status from the most recent council run ({council?.fmpHealth?.run_date || 'unknown'}).
-                </p>
                 {(() => {
-                  const allEndpoints = {
-                    ...(council?.fmpHealth?.endpoints || {}),
-                    ...(council?.openingBellHealth?.endpoints || {}),
-                    ...(council?.radarHealth?.endpoints || {}),
-                  };
+                  const sections: { label: string; color: string; endpoints: Record<string, Record<string, number>> }[] = [
+                    { label: 'Radar', color: 'text-green-400', endpoints: (council?.radarHealth?.endpoints || {}) as Record<string, Record<string, number>> },
+                    { label: 'Opening Bell', color: 'text-spike-amber', endpoints: (council?.openingBellHealth?.endpoints || {}) as Record<string, Record<string, number>> },
+                    { label: 'Today\'s Spikes', color: 'text-spike-cyan', endpoints: (council?.fmpHealth?.endpoints || {}) as Record<string, Record<string, number>> },
+                  ].filter(s => Object.keys(s.endpoints).length > 0);
+
                   return (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-spike-text-muted text-[10px] uppercase tracking-wider border-b border-spike-border/30">
-                        <th className="py-2 text-left">Endpoint</th>
-                        <th className="py-2 text-center">OK</th>
-                        <th className="py-2 text-center">404</th>
-                        <th className="py-2 text-center">429</th>
-                        <th className="py-2 text-center">Error</th>
-                        <th className="py-2 text-center">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Object.entries(allEndpoints as Record<string, Record<string, number>>).map(([endpoint, counts]) => {
-                        const ok = counts.ok || 0;
-                        const not_found = counts['404'] || 0;
-                        const rate_limited = counts['429'] || 0;
-                        const errors = counts.error || 0;
-                        const total = ok + not_found + rate_limited + errors;
-                        const healthPct = total > 0 ? (ok / total) * 100 : 0;
-                        const status = not_found > 0 && ok === 0
-                          ? 'DEPRECATED'
-                          : rate_limited > ok
-                            ? 'THROTTLED'
-                            : healthPct >= 90
-                              ? 'HEALTHY'
-                              : healthPct >= 50
-                                ? 'DEGRADED'
-                                : 'FAILING';
-                        const statusColor = {
-                          HEALTHY: 'text-spike-green',
-                          DEGRADED: 'text-spike-amber',
-                          THROTTLED: 'text-spike-amber',
-                          DEPRECATED: 'text-spike-red',
-                          FAILING: 'text-spike-red',
-                        }[status];
-                        return (
-                          <tr key={endpoint} className="border-b border-spike-border/10">
-                            <td className="py-2 mono text-spike-text text-xs">{endpoint}</td>
-                            <td className="py-2 text-center mono text-spike-green">{ok || '-'}</td>
-                            <td className="py-2 text-center mono text-spike-red">{not_found || '-'}</td>
-                            <td className="py-2 text-center mono text-spike-amber">{rate_limited || '-'}</td>
-                            <td className="py-2 text-center mono text-spike-red">{errors || '-'}</td>
-                            <td className={cn('py-2 text-center font-bold text-[10px] uppercase', statusColor)}>
-                              {status}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                    <div className="space-y-6">
+                      {sections.map((section) => (
+                        <div key={section.label}>
+                          <p className={cn('text-xs font-bold uppercase tracking-wider mb-2', section.color)}>{section.label}</p>
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                              <thead>
+                                <tr className="text-spike-text-muted text-[10px] uppercase tracking-wider border-b border-spike-border/30">
+                                  <th className="py-2 text-left">Endpoint</th>
+                                  <th className="py-2 text-center">OK</th>
+                                  <th className="py-2 text-center">404</th>
+                                  <th className="py-2 text-center">429</th>
+                                  <th className="py-2 text-center">Error</th>
+                                  <th className="py-2 text-center">Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {Object.entries(section.endpoints).map(([endpoint, counts]) => {
+                                  const ok = counts.ok || 0;
+                                  const not_found = counts['404'] || 0;
+                                  const rate_limited = counts['429'] || 0;
+                                  const errors = counts.error || 0;
+                                  const total = ok + not_found + rate_limited + errors;
+                                  const healthPct = total > 0 ? (ok / total) * 100 : 0;
+                                  const status = not_found > 0 && ok === 0
+                                    ? 'DEPRECATED'
+                                    : rate_limited > ok
+                                      ? 'THROTTLED'
+                                      : healthPct >= 90
+                                        ? 'HEALTHY'
+                                        : healthPct >= 50
+                                          ? 'DEGRADED'
+                                          : 'FAILING';
+                                  const statusColor = {
+                                    HEALTHY: 'text-spike-green',
+                                    DEGRADED: 'text-spike-amber',
+                                    THROTTLED: 'text-spike-amber',
+                                    DEPRECATED: 'text-spike-red',
+                                    FAILING: 'text-spike-red',
+                                  }[status];
+                                  return (
+                                    <tr key={endpoint} className="border-b border-spike-border/10">
+                                      <td className="py-2 mono text-spike-text text-xs">{endpoint}</td>
+                                      <td className="py-2 text-center mono text-spike-green">{ok || '-'}</td>
+                                      <td className="py-2 text-center mono text-spike-red">{not_found || '-'}</td>
+                                      <td className="py-2 text-center mono text-spike-amber">{rate_limited || '-'}</td>
+                                      <td className="py-2 text-center mono text-spike-red">{errors || '-'}</td>
+                                      <td className={cn('py-2 text-center font-bold text-[10px] uppercase', statusColor)}>
+                                        {status}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   );
                 })()}
               </div>
