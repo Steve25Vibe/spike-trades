@@ -20,6 +20,25 @@ export async function GET(request: NextRequest) {
       },
     });
 
+    // Also fetch the most recent spikes report for market header data
+    const latestSpikesReport = await prisma.report.findFirst({
+      orderBy: { date: 'desc' },
+      select: {
+        date: true,
+        marketRegime: true,
+        tsxLevel: true,
+        tsxChange: true,
+        oilPrice: true,
+        goldPrice: true,
+        btcPrice: true,
+        cadUsd: true,
+        prevOilPrice: true,
+        prevGoldPrice: true,
+        prevBtcPrice: true,
+        prevCadUsd: true,
+      },
+    });
+
     if (!report) {
       // Fallback: get most recent report
       const latest = await prisma.radarReport.findFirst({
@@ -30,12 +49,12 @@ export async function GET(request: NextRequest) {
       });
 
       if (!latest) {
-        return NextResponse.json({ report: null, picks: [] });
+        return NextResponse.json({ report: null, picks: [], market: latestSpikesReport });
       }
-      return NextResponse.json({ report: latest, picks: latest.picks });
+      return NextResponse.json({ report: latest, picks: latest.picks, market: latestSpikesReport });
     }
 
-    return NextResponse.json({ report, picks: report.picks });
+    return NextResponse.json({ report, picks: report.picks, market: latestSpikesReport });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
