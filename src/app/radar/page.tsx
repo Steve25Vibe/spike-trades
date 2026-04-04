@@ -3,8 +3,8 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import ResponsiveLayout from '@/components/layout/ResponsiveLayout';
-import MarketHeader from '@/components/layout/MarketHeader';
 import RadarCard from '@/components/radar/RadarCard';
+import RadarIcon from '@/components/radar/RadarIcon';
 
 function RadarContent() {
   const searchParams = useSearchParams();
@@ -31,7 +31,6 @@ function RadarContent() {
 
   const report = data?.report;
   const picks = data?.picks || [];
-  const market = data?.market;
 
   if (!report) {
     return (
@@ -52,32 +51,18 @@ function RadarContent() {
   return (
     <ResponsiveLayout>
       <div className="max-w-7xl mx-auto">
-        {/* Market header - same style as Today's Spikes */}
-        {market ? (
-          <MarketHeader
-            date={report.date ? new Date(report.date).toLocaleDateString('en-CA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : 'Today'}
-            regime={market.marketRegime || 'neutral'}
-            tsxLevel={market.tsxLevel || 0}
-            tsxChange={market.tsxChange || 0}
-            oilPrice={market.oilPrice || 0}
-            goldPrice={market.goldPrice || 0}
-            btcPrice={market.btcPrice || 0}
-            cadUsd={market.cadUsd || 0}
-            prevOilPrice={market.prevOilPrice}
-            prevGoldPrice={market.prevGoldPrice}
-            prevBtcPrice={market.prevBtcPrice}
-            prevCadUsd={market.prevCadUsd}
-            title="SMART MONEY RADAR"
-            titleColor="text-radar-green"
-          />
-        ) : (
-          <div className="glass-card p-4 mb-6">
-            <h2 className="text-xl font-display font-bold tracking-wide text-radar-green">SMART MONEY RADAR</h2>
-            <p className="text-sm text-spike-text-dim">
-              Pre-Market Signals &mdash; {report.date ? new Date(report.date).toLocaleDateString('en-CA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : 'Today'}
-            </p>
+        {/* Radar header — no market indicators (pre-market, market is closed) */}
+        <div className="glass-card p-4 mb-6">
+          <div className="flex items-center gap-3">
+            <RadarIcon size={28} />
+            <div>
+              <h2 className="text-xl font-display font-bold tracking-wide text-radar-green">SMART MONEY RADAR</h2>
+              <p className="text-sm text-spike-text-dim">
+                Pre-Market Signals &mdash; {report.date ? new Date(report.date).toLocaleDateString('en-CA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : 'Today'}
+              </p>
+            </div>
           </div>
-        )}
+        </div>
 
         {/* Stats grid */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
