@@ -157,6 +157,8 @@ class StockDataPayload(BaseModel):
     analyst_consensus: Optional[AnalystConsensus] = None
     sector_relative_strength: Optional[float] = Field(None, description="Ticker change% minus sector avg")
     iv_expected_move: Optional[IVExpectedMove] = Field(default=None)
+    earnings_surprise_history: list[dict] = Field(default_factory=list, description="Recent earnings surprises (last 8 quarters)")
+    earnings_transcript_summary: str | None = Field(default=None, description="Truncated most-recent earnings call transcript")
     as_of: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     data_quality: str = Field(default="OK", description="OK or STALE_DATA or MISSING_FIELD")
 
@@ -4504,8 +4506,23 @@ class CanadianStockCouncilBrain:
                     logger.warning(f"Enhanced signals fetch failed (non-fatal): {e}")
                     return {}, {}
 
-            earnings_map, (insider_map, analyst_map) = await asyncio.gather(
-                _fetch_earnings(), _fetch_enhanced()
+            async def _fetch_earnings_surprises_batch():
+                """Fetch earnings surprises for all tickers in parallel."""
+                surprises = {}
+                sem = asyncio.Semaphore(8)
+                async def _fetch_one(t):
+                    async with sem:
+                        data = await self.fetcher.fetch_earnings_surprises(t)
+                        if data:
+                            surprises[t] = data
+                try:
+                    await asyncio.gather(*[_fetch_one(p.ticker) for p in payloads_list])
+                except Exception as e:
+                    logger.warning(f"Earnings surprises batch fetch failed (non-fatal): {e}")
+                return surprises
+
+            earnings_map, (insider_map, analyst_map), surprises_map = await asyncio.gather(
+                _fetch_earnings(), _fetch_enhanced(), _fetch_earnings_surprises_batch()
             )
 
             # ── Step 4f: Compute sector-relative strength + attach all signals ──
@@ -4518,10 +4535,13 @@ class CanadianStockCouncilBrain:
                 if p.ticker in analyst_map:
                     p.analyst_consensus = analyst_map[p.ticker]
                 p.sector_relative_strength = rel_strength_map.get(p.ticker)
+                if p.ticker in surprises_map:
+                    p.earnings_surprise_history = surprises_map[p.ticker]
             logger.info(
                 f"Step 4f: Signals attached — "
                 f"{len(earnings_map)} earnings, {len(insider_map)} insider, "
-                f"{len(analyst_map)} analyst, {len(rel_strength_map)} sector-rel"
+                f"{len(analyst_map)} analyst, {len(rel_strength_map)} sector-rel, "
+                f"{len(surprises_map)} earnings-surprises"
             )
 
             # Index payloads by ticker for later lookup
