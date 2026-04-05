@@ -33,10 +33,12 @@ import json
 import logging
 import math
 import os
+import re
 import sqlite3
 import ssl
 import statistics
 import time
+from collections import defaultdict
 from datetime import datetime, timezone, timedelta, date
 from zoneinfo import ZoneInfo
 from enum import Enum
@@ -1053,49 +1055,6 @@ async def fetch_insider_trades(
     """
     # FMP /insider-trading removed from /stable/ API — skip to avoid 404 spam
     return None
-    # Original code preserved below for when FMP restores the endpoint:
-    data = await fetcher._fmp_get("/insider-trading", params={"symbol": ticker, "limit": 50})
-    if not data or not isinstance(data, list):
-        return None
-    cutoff = date.today() - timedelta(days=days_back)
-    buys, sells = 0, 0
-    net_shares = 0
-    recency_sum = 0.0
-    count = 0
-    latest_date = None
-    for txn in data:
-        try:
-            filing = date.fromisoformat(str(txn.get("filingDate", ""))[:10])
-        except (ValueError, TypeError):
-            continue
-        if filing < cutoff:
-            continue
-        txn_type = str(txn.get("transactionType", ""))
-        shares = abs(int(txn.get("securitiesTransacted", 0) or 0))
-        days_ago = (date.today() - filing).days
-        recency_weight = max(0.0, 1.0 - days_ago / days_back)
-        if txn_type.startswith("P"):  # Purchase
-            buys += shares
-            recency_sum += recency_weight
-        elif txn_type.startswith("S"):  # Sale
-            sells += shares
-            recency_sum -= recency_weight
-        net_shares += shares if txn_type.startswith("P") else -shares
-        count += 1
-        if latest_date is None or filing > latest_date:
-            latest_date = filing
-    if count == 0:
-        return None
-    total = buys + sells
-    net_buy_ratio = (buys - sells) / total if total > 0 else 0.0
-    recency_score = max(-1.0, min(1.0, recency_sum / max(count, 1)))
-    return InsiderActivity(
-        net_buy_ratio=round(net_buy_ratio, 4),
-        total_transactions=count,
-        net_shares=net_shares,
-        recency_weighted_score=round(recency_score, 4),
-        last_filing_date=latest_date.isoformat() if latest_date else None,
-    )
 
 
 async def fetch_analyst_consensus(
@@ -1105,9 +1064,10 @@ async def fetch_analyst_consensus(
     Uses /grades (raw actions) since /grades-summary was removed from FMP stable API.
     Computes buy/hold/sell summary from the most recent grade per analyst firm (last 12 months).
     """
-    grades_data = await fetcher._fmp_get("/grades", params={"symbol": ticker})
-    await asyncio.sleep(0.15)
-    target_data = await fetcher._fmp_get("/price-target-consensus", params={"symbol": ticker})
+    grades_data, target_data = await asyncio.gather(
+        fetcher._fmp_get("/grades", params={"symbol": ticker}),
+        fetcher._fmp_get("/price-target-consensus", params={"symbol": ticker}),
+    )
     # Compute grades summary from raw /grades data
     sb, b, h, s, ss = 0, 0, 0, 0, 0
     if grades_data and isinstance(grades_data, list):
@@ -1154,7 +1114,7 @@ async def fetch_enhanced_signals_batch(
     tickers: list[str],
     quotes: dict[str, dict],
 ) -> tuple[dict[str, InsiderActivity], dict[str, AnalystConsensus]]:
-    """Fetch insider + analyst data for tickers, rate-limited."""
+    """Fetch analyst data for tickers, rate-limited. (Insider trades disabled — FMP endpoint removed.)"""
     insider_map: dict[str, InsiderActivity] = {}
     analyst_map: dict[str, AnalystConsensus] = {}
     sem = asyncio.Semaphore(2)  # 2 concurrent to avoid FMP 429s on /grades + /price-target-consensus
@@ -1163,18 +1123,12 @@ async def fetch_enhanced_signals_batch(
         async with sem:
             price = quotes.get(ticker, {}).get("price", 0)
             try:
-                insider = await fetch_insider_trades(fetcher, ticker)
-                if insider:
-                    insider_map[ticker] = insider
-            except Exception as e:
-                logger.debug(f"Insider fetch failed for {ticker}: {e}")
-            try:
                 analyst = await fetch_analyst_consensus(fetcher, ticker, price)
                 if analyst:
                     analyst_map[ticker] = analyst
             except Exception as e:
                 logger.debug(f"Analyst fetch failed for {ticker}: {e}")
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.15)
 
     for i in range(0, len(tickers), 20):
         batch = tickers[i:i + 20]
@@ -1342,8 +1296,6 @@ class MacroRegimeFilter:
 
 # ── JSON Extraction ──────────────────────────────────────────────────
 
-import re
-
 def _extract_json(text: str) -> Any:
     """Extract JSON from an LLM response that may contain markdown fences or preamble.
     Tries multiple strategies: direct parse, fence extraction, brace extraction."""
@@ -1401,6 +1353,49 @@ def _slim_payload(d: dict) -> dict:
 
 
 _COMPACT = {"separators": (",", ":"), "default": str}
+
+
+def _prepare_stage_payloads(
+    payloads: list["StockDataPayload"],
+    passed_tickers: set[str] | None = None,
+) -> list[dict]:
+    """Build slimmed payload dicts for an LLM stage, optionally filtering by ticker set."""
+    result = []
+    for p in payloads:
+        if passed_tickers is not None and p.ticker not in passed_tickers:
+            continue
+        d = p.model_dump(mode="json")
+        d["historical_bars"] = d["historical_bars"][-5:]
+        _slim_payload(d)
+        result.append(d)
+    return result
+
+
+def _validate_stage_results(
+    raw_text: str,
+    stage_label: str,
+    stage_tokens: dict,
+    extra_validate: callable = None,
+) -> tuple[list[dict], dict]:
+    """Parse LLM response, validate ScoreBreakdown, sort by total score.
+    extra_validate is called on each result dict for stage-specific validation."""
+    parsed = _extract_json(raw_text)
+    if not parsed or "results" not in parsed:
+        logger.error(f"{stage_label}: Failed to parse response")
+        return [], stage_tokens
+
+    validated = []
+    for r in parsed["results"]:
+        try:
+            score = ScoreBreakdown(**r["score"])
+            r["score"] = score.model_dump()
+            if extra_validate:
+                extra_validate(r)
+            validated.append(r)
+        except Exception as e:
+            logger.warning(f"{stage_label}: Invalid score for {r.get('ticker','?')}: {e}")
+
+    return sorted(validated, key=lambda x: x["score"]["total"], reverse=True), stage_tokens
 
 
 # ── LLM API Callers ──────────────────────────────────────────────────
@@ -1695,13 +1690,7 @@ async def run_stage1_sonnet(
     start = time.time()
     stage_tokens = {"model": "claude-sonnet-4-6", "input_tokens": 0, "output_tokens": 0}
 
-    # Build user prompt with all ticker payloads (slimmed for token efficiency)
-    payload_dicts = []
-    for p in payloads:
-        d = p.model_dump(mode="json")
-        d["historical_bars"] = d["historical_bars"][-5:]
-        _slim_payload(d)
-        payload_dicts.append(d)
+    payload_dicts = _prepare_stage_payloads(payloads)
 
     user_prompt = (
         f"MACRO CONTEXT:\n{json.dumps(macro.model_dump(mode='json'), **_COMPACT)}\n\n"
@@ -1722,25 +1711,10 @@ async def run_stage1_sonnet(
     stage_tokens["input_tokens"] += _usage.get("input_tokens", 0)
     stage_tokens["output_tokens"] += _usage.get("output_tokens", 0)
 
-    parsed = _extract_json(raw)
-    if not parsed or "results" not in parsed:
-        logger.error("Stage 1 Sonnet: Failed to parse response")
-        return [], stage_tokens
-
-    results = parsed["results"]
-    # Validate scores
-    validated = []
-    for r in results:
-        try:
-            score = ScoreBreakdown(**r["score"])
-            r["score"] = score.model_dump()
-            validated.append(r)
-        except Exception as e:
-            logger.warning(f"Stage 1: Invalid score for {r.get('ticker','?')}: {e}")
-
+    validated, stage_tokens = _validate_stage_results(raw, "Stage 1 Sonnet", stage_tokens)
     elapsed = time.time() - start
     logger.info(f"Stage 1 (Sonnet): {len(validated)} tickers passed in {elapsed:.1f}s")
-    return sorted(validated, key=lambda x: x["score"]["total"], reverse=True), stage_tokens
+    return validated, stage_tokens
 
 
 # ── Stage 2: Gemini Re-scorer ────────────────────────────────────────
@@ -1798,15 +1772,8 @@ async def run_stage2_gemini(
     start = time.time()
     stage_tokens = {"model": os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview"), "input_tokens": 0, "output_tokens": 0}
 
-    # Build payload subset — only tickers that passed Stage 1 (slimmed)
     passed_tickers = {r["ticker"] for r in stage1_results}
-    payload_dicts = []
-    for p in payloads:
-        if p.ticker in passed_tickers:
-            d = p.model_dump(mode="json")
-            d["historical_bars"] = d["historical_bars"][-5:]
-            _slim_payload(d)
-            payload_dicts.append(d)
+    payload_dicts = _prepare_stage_payloads(payloads, passed_tickers)
 
     prompt_context = learning_engine.build_prompt_context(2) if learning_engine else ""
     system_prompt = GEMINI_SYSTEM_PROMPT + prompt_context
@@ -1827,24 +1794,10 @@ async def run_stage2_gemini(
     stage_tokens["input_tokens"] += _usage.get("input_tokens", 0)
     stage_tokens["output_tokens"] += _usage.get("output_tokens", 0)
 
-    parsed = _extract_json(raw)
-    if not parsed or "results" not in parsed:
-        logger.error("Stage 2 Gemini: Failed to parse response")
-        return [], stage_tokens
-
-    results = parsed["results"]
-    validated = []
-    for r in results:
-        try:
-            score = ScoreBreakdown(**r["score"])
-            r["score"] = score.model_dump()
-            validated.append(r)
-        except Exception as e:
-            logger.warning(f"Stage 2: Invalid score for {r.get('ticker','?')}: {e}")
-
+    validated, stage_tokens = _validate_stage_results(raw, "Stage 2 Gemini", stage_tokens)
     elapsed = time.time() - start
     logger.info(f"Stage 2 (Gemini): {len(validated)} tickers passed in {elapsed:.1f}s")
-    return sorted(validated, key=lambda x: x["score"]["total"], reverse=True), stage_tokens
+    return validated, stage_tokens
 
 
 # ── Stage 3: Opus Challenger ─────────────────────────────────────────
@@ -1908,13 +1861,7 @@ async def run_stage3_opus(
     stage_tokens = {"model": "claude-opus-4-6", "input_tokens": 0, "output_tokens": 0}
 
     passed_tickers = {r["ticker"] for r in stage2_results}
-    payload_dicts = []
-    for p in payloads:
-        if p.ticker in passed_tickers:
-            d = p.model_dump(mode="json")
-            d["historical_bars"] = d["historical_bars"][-5:]
-            _slim_payload(d)
-            payload_dicts.append(d)
+    payload_dicts = _prepare_stage_payloads(payloads, passed_tickers)
 
     prompt_context = learning_engine.build_prompt_context(3) if learning_engine else ""
     system_prompt = OPUS_SYSTEM_PROMPT + prompt_context
@@ -1937,29 +1884,16 @@ async def run_stage3_opus(
     stage_tokens["input_tokens"] += _usage.get("input_tokens", 0)
     stage_tokens["output_tokens"] += _usage.get("output_tokens", 0)
 
-    parsed = _extract_json(raw)
-    if not parsed or "results" not in parsed:
-        logger.error("Stage 3 Opus: Failed to parse response")
-        return [], stage_tokens
+    def _opus_extra(r):
+        if not r.get("kill_condition"):
+            r["kill_condition"] = "Not specified"
+        if not r.get("worst_case_scenario"):
+            r["worst_case_scenario"] = "Not specified"
 
-    results = parsed["results"]
-    validated = []
-    for r in results:
-        try:
-            score = ScoreBreakdown(**r["score"])
-            r["score"] = score.model_dump()
-            # Ensure kill_condition and worst_case are populated
-            if not r.get("kill_condition"):
-                r["kill_condition"] = "Not specified"
-            if not r.get("worst_case_scenario"):
-                r["worst_case_scenario"] = "Not specified"
-            validated.append(r)
-        except Exception as e:
-            logger.warning(f"Stage 3: Invalid score for {r.get('ticker','?')}: {e}")
-
+    validated, stage_tokens = _validate_stage_results(raw, "Stage 3 Opus", stage_tokens, _opus_extra)
     elapsed = time.time() - start
     logger.info(f"Stage 3 (Opus): {len(validated)} tickers passed in {elapsed:.1f}s")
-    return sorted(validated, key=lambda x: x["score"]["total"], reverse=True), stage_tokens
+    return validated, stage_tokens
 
 
 # ── Stage 4: Grok Final Authority ────────────────────────────────────
@@ -2063,13 +1997,7 @@ async def run_stage4_grok(
     stage_tokens = {"model": "grok-4.20-multi-agent-0309", "input_tokens": 0, "output_tokens": 0}
 
     passed_tickers = {r["ticker"] for r in stage3_results}
-    payload_dicts = []
-    for p in payloads:
-        if p.ticker in passed_tickers:
-            d = p.model_dump(mode="json")
-            d["historical_bars"] = d["historical_bars"][-5:]
-            _slim_payload(d)
-            payload_dicts.append(d)
+    payload_dicts = _prepare_stage_payloads(payloads, passed_tickers)
 
     prompt_context = learning_engine.build_prompt_context(4) if learning_engine else ""
     system_prompt = GROK_SYSTEM_PROMPT + prompt_context
@@ -2114,34 +2042,21 @@ async def run_stage4_grok(
         stage_tokens["input_tokens"] += _usage.get("input_tokens", 0)
         stage_tokens["output_tokens"] += _usage.get("output_tokens", 0)
 
-    parsed = _extract_json(raw)
-    if not parsed or "results" not in parsed:
-        logger.error("Stage 4: Failed to parse response")
-        return [], stage_tokens
+    def _grok_extra(r):
+        valid_forecasts = []
+        for f in r.get("forecasts", []):
+            try:
+                pf = ProbabilisticForecast(**f)
+                valid_forecasts.append(pf.model_dump())
+            except Exception as fe:
+                logger.warning(f"Stage 4: Invalid forecast for {r.get('ticker','?')}: {fe}")
+        r["forecasts"] = valid_forecasts
 
-    results = parsed["results"]
-    validated = []
-    for r in results:
-        try:
-            score = ScoreBreakdown(**r["score"])
-            r["score"] = score.model_dump()
-            # Validate forecasts
-            valid_forecasts = []
-            for f in r.get("forecasts", []):
-                try:
-                    pf = ProbabilisticForecast(**f)
-                    valid_forecasts.append(pf.model_dump())
-                except Exception as fe:
-                    logger.warning(f"Stage 4: Invalid forecast for {r.get('ticker','?')}: {fe}")
-            r["forecasts"] = valid_forecasts
-            validated.append(r)
-        except Exception as e:
-            logger.warning(f"Stage 4: Invalid score for {r.get('ticker','?')}: {e}")
-
+    validated, stage_tokens = _validate_stage_results(raw, "Stage 4", stage_tokens, _grok_extra)
     elapsed = time.time() - start
     model_used = "grok-4.20-multi-agent" if use_grok else "claude-opus-4.6 (fallback)"
     logger.info(f"Stage 4 ({model_used}): {len(validated)} tickers passed in {elapsed:.1f}s")
-    return sorted(validated, key=lambda x: x["score"]["total"], reverse=True), stage_tokens
+    return validated, stage_tokens
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -3315,7 +3230,6 @@ class HistoricalCalibrationEngine:
             return {"error": "No data points collected", "tickers_processed": 0}
 
         # Aggregate into base rates
-        from collections import defaultdict
         buckets: dict[tuple, list[tuple[float, int]]] = defaultdict(list)
         for rsi_b, macd_dir, adx_b, vol_b, horizon, move_pct, went_up in data_points:
             key = (rsi_b, macd_dir, adx_b, vol_b, horizon)
@@ -3377,7 +3291,6 @@ class HistoricalCalibrationEngine:
                 if not rows:
                     continue
 
-                from collections import defaultdict
                 buckets: dict[str, list[int]] = defaultdict(list)
                 for score, accurate in rows:
                     bucket = self._bucket_confidence(score)

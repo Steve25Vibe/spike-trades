@@ -6,6 +6,34 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
+ * Get today's date in AST (America/Halifax) timezone as a noon Date object.
+ * Used across analyzers, API routes, and accuracy checks.
+ */
+export function getTodayAST(): Date {
+  const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Halifax' });
+  return new Date(todayStr + 'T12:00:00');
+}
+
+/**
+ * Get today's date string in YYYY-MM-DD format in AST timezone.
+ */
+export function getTodayASTString(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Halifax' });
+}
+
+/**
+ * Parse pagination params from URL search params with clamping.
+ */
+export function parsePagination(
+  searchParams: URLSearchParams,
+  defaults?: { pageSize?: number }
+): { page: number; pageSize: number; skip: number } {
+  const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
+  const pageSize = Math.min(100, Math.max(1, parseInt(searchParams.get('pageSize') || String(defaults?.pageSize ?? 20), 10)));
+  return { page, pageSize, skip: (page - 1) * pageSize };
+}
+
+/**
  * Parse a date string (e.g. "2026-03-20") as a local date without UTC shift.
  * new Date("2026-03-20") treats it as UTC midnight, which shifts to previous day
  * in timezones west of UTC. This adds T12:00:00 to keep it on the correct day.

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isAuthenticated } from '@/lib/auth';
 import prisma from '@/lib/db/prisma';
+import { getTodayAST } from '@/lib/utils';
 
 export async function GET(request: NextRequest) {
   if (!(await isAuthenticated())) {
@@ -14,8 +15,7 @@ export async function GET(request: NextRequest) {
     if (dateParam) {
       dateFilter = new Date(dateParam + 'T12:00:00');
     } else {
-      const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Halifax' });
-      dateFilter = new Date(todayStr + 'T12:00:00');
+      dateFilter = getTodayAST();
     }
 
     const report = await prisma.radarReport.findUnique({

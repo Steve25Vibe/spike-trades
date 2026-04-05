@@ -2,7 +2,7 @@
 ## Changelog: v4.0 → v5.0
 
 **Release Date:** 2026-04-04
-**Commits:** 48 (6914b90..7058239)
+**Commits:** 58 (6914b90..7058239)
 **Tag Line:** Pre-market intelligence meets autonomous AI stock analysis
 
 ---
@@ -181,7 +181,7 @@ Version 5.0 introduces the **Smart Money Flow Radar**, a pre-market scanner that
 
 ### Commit Index
 
-All 48 commits from v4.0 to v5.0, in chronological order:
+All 58 commits from v4.0 to v5.0, in chronological order:
 
 | # | Hash | Summary |
 |---|------|---------|

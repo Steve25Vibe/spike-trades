@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
 import { getBatchQuotes } from '@/lib/api/fmp';
-import { subtractTradingDays } from '@/lib/utils';
+import { subtractTradingDays, getTodayAST, getTodayASTString } from '@/lib/utils';
 
 // POST /api/accuracy/check — Runs daily at 4:30 PM AST after market close
 // Back-fills actual3Day / actual5Day / actual8Day on historical spikes
@@ -16,9 +16,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // Use AST/ADT timezone for "today"
-    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Halifax' });
-    const today = new Date(todayStr + 'T12:00:00');
+    const todayStr = getTodayASTString();
+    const today = getTodayAST();
     let filled = 0;
 
     // ---- 1. Sweep all unfilled actuals for each horizon ----
@@ -58,6 +57,7 @@ export async function POST(request: NextRequest) {
       // Track which report dates got fills for metrics computation
       const filledReportDates = new Set<string>();
 
+      const spikeUpdates = [];
       for (const spike of spikes) {
         const closingPrice = priceMap.get(spike.ticker);
         if (closingPrice === undefined || spike.price === 0) continue;
@@ -65,12 +65,17 @@ export async function POST(request: NextRequest) {
         const actualReturn =
           ((closingPrice - spike.price) / spike.price) * 100;
 
-        await prisma.spike.update({
-          where: { id: spike.id },
-          data: { [actualField]: Math.round(actualReturn * 100) / 100 },
-        });
+        spikeUpdates.push(
+          prisma.spike.update({
+            where: { id: spike.id },
+            data: { [actualField]: Math.round(actualReturn * 100) / 100 },
+          })
+        );
         filled++;
         filledReportDates.add(spike.report.date.toISOString().split('T')[0]);
+      }
+      if (spikeUpdates.length > 0) {
+        await prisma.$transaction(spikeUpdates);
       }
 
       // ---- 2. Compute accuracy metrics for each report date that got fills ----
@@ -146,32 +151,21 @@ export async function POST(request: NextRequest) {
         const correlation =
           denomA > 0 && denomB > 0 ? numerator / (denomA * denomB) : 0;
 
+        const metrics = {
+          totalPredictions: n,
+          correctDirection,
+          meanAbsError: Math.round(mae * 1000) / 1000,
+          meanError: Math.round(meanError * 1000) / 1000,
+          hitRate: Math.round(hitRate * 10) / 10,
+          avgPredicted: Math.round(avgPred * 100) / 100,
+          avgActual: Math.round(avgActual * 100) / 100,
+          correlation: Math.round(correlation * 1000) / 1000,
+        };
+
         await prisma.accuracyRecord.upsert({
-          where: {
-            date_horizon: { date: dateOnly, horizon },
-          },
-          create: {
-            date: dateOnly,
-            horizon,
-            totalPredictions: n,
-            correctDirection,
-            meanAbsError: Math.round(mae * 1000) / 1000,
-            meanError: Math.round(meanError * 1000) / 1000,
-            hitRate: Math.round(hitRate * 10) / 10,
-            avgPredicted: Math.round(avgPred * 100) / 100,
-            avgActual: Math.round(avgActual * 100) / 100,
-            correlation: Math.round(correlation * 1000) / 1000,
-          },
-          update: {
-            totalPredictions: n,
-            correctDirection,
-            meanAbsError: Math.round(mae * 1000) / 1000,
-            meanError: Math.round(meanError * 1000) / 1000,
-            hitRate: Math.round(hitRate * 10) / 10,
-            avgPredicted: Math.round(avgPred * 100) / 100,
-            avgActual: Math.round(avgActual * 100) / 100,
-            correlation: Math.round(correlation * 1000) / 1000,
-          },
+          where: { date_horizon: { date: dateOnly, horizon } },
+          create: { date: dateOnly, horizon, ...metrics },
+          update: metrics,
         });
       }
     }
@@ -200,6 +194,7 @@ export async function POST(request: NextRequest) {
         const quotes = await getBatchQuotes(obTickers);
         const quoteMap = new Map(quotes.map((q) => [q.ticker, q]));
 
+        const obUpdates = [];
         for (const pick of obPicks) {
           const q = quoteMap.get(pick.ticker);
           if (!q) continue;
@@ -209,11 +204,16 @@ export async function POST(request: NextRequest) {
           const targetHit = actualHigh >= pick.intradayTarget;
           const keyLevelBroken = q.low != null ? q.low <= pick.keyLevel : false;
 
-          await prisma.openingBellPick.update({
-            where: { id: pick.id },
-            data: { actualHigh, actualClose, targetHit, keyLevelBroken },
-          });
+          obUpdates.push(
+            prisma.openingBellPick.update({
+              where: { id: pick.id },
+              data: { actualHigh, actualClose, targetHit, keyLevelBroken },
+            })
+          );
           obFilled++;
+        }
+        if (obUpdates.length > 0) {
+          await prisma.$transaction(obUpdates);
         }
       }
     } catch (obErr) {
@@ -241,6 +241,7 @@ export async function POST(request: NextRequest) {
         const radarQuotes = await getBatchQuotes(radarTickers);
         const radarQuoteMap = new Map(radarQuotes.map(q => [q.ticker, q]));
 
+        const radarUpdates = [];
         for (const pick of unfilled) {
           const q = radarQuoteMap.get(pick.ticker);
           if (!q) continue;
@@ -249,19 +250,24 @@ export async function POST(request: NextRequest) {
           const actualOpenChangePct = pick.priceAtScan > 0
             ? ((actualOpen - pick.priceAtScan) / pick.priceAtScan) * 100
             : 0;
-          const openMoveCorrect = actualOpenChangePct > 0; // Radar predicts bullish action
+          const openMoveCorrect = actualOpenChangePct > 0;
 
-          await prisma.radarPick.update({
-            where: { id: pick.id },
-            data: {
-              actualOpenPrice: actualOpen,
-              actualOpenChangePct: parseFloat(actualOpenChangePct.toFixed(4)),
-              actualDayHigh: q.high || q.price,
-              actualDayClose: q.price,
-              openMoveCorrect,
-            },
-          });
+          radarUpdates.push(
+            prisma.radarPick.update({
+              where: { id: pick.id },
+              data: {
+                actualOpenPrice: actualOpen,
+                actualOpenChangePct: parseFloat(actualOpenChangePct.toFixed(4)),
+                actualDayHigh: q.high || q.price,
+                actualDayClose: q.price,
+                openMoveCorrect,
+              },
+            })
+          );
           radarFilled++;
+        }
+        if (radarUpdates.length > 0) {
+          await prisma.$transaction(radarUpdates);
         }
       }
     } catch (radarErr) {
@@ -270,7 +276,7 @@ export async function POST(request: NextRequest) {
 
     // ── Update Radar pipeline flags ──
     try {
-      const pipelineDate = new Date(todayStr + 'T00:00:00');
+      const pipelineDate = today;
 
       // Which Radar tickers passed Opening Bell today?
       const obPipePicks = await prisma.openingBellPick.findMany({
@@ -292,14 +298,17 @@ export async function POST(request: NextRequest) {
         select: { id: true, ticker: true },
       });
 
-      for (const rp of radarPipePicks) {
-        await prisma.radarPick.update({
+      const pipelineUpdates = radarPipePicks.map((rp) =>
+        prisma.radarPick.update({
           where: { id: rp.id },
           data: {
             passedOpeningBell: obTickerSet.has(rp.ticker),
             passedSpikes: spikeTickerSet.has(rp.ticker),
           },
-        });
+        })
+      );
+      if (pipelineUpdates.length > 0) {
+        await prisma.$transaction(pipelineUpdates);
       }
     } catch (flagErr) {
       console.error('[Accuracy] Radar pipeline flag update error (non-fatal):', flagErr);

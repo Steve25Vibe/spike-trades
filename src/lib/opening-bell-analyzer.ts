@@ -4,6 +4,7 @@
 import prisma from '@/lib/db/prisma';
 import fs from 'fs';
 import path from 'path';
+import { getTodayAST, getTodayASTString } from '@/lib/utils';
 
 const COUNCIL_API_URL = process.env.COUNCIL_API_URL || 'http://localhost:8100';
 
@@ -44,8 +45,8 @@ export async function runOpeningBellAnalysis(): Promise<{ success: boolean; pick
     const overridePath = path.join('/tmp', 'radar_opening_bell_overrides.json');
     if (fs.existsSync(overridePath)) {
       const raw = JSON.parse(fs.readFileSync(overridePath, 'utf-8'));
-      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Halifax' });
-      if (raw.date === today) {
+      const todayCheck = getTodayASTString();
+      if (raw.date === todayCheck) {
         radarOverrides = { tickers: raw.tickers, smart_money_scores: raw.smart_money_scores };
         console.log(`[Opening Bell] Read ${raw.tickers.length} Radar overrides`);
       } else {
@@ -95,8 +96,8 @@ export async function runOpeningBellAnalysis(): Promise<{ success: boolean; pick
     }
 
     // Step 4: Store in database
-    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Halifax' });
-    const reportDate = new Date(todayStr + 'T12:00:00');
+    const todayStr = getTodayASTString();
+    const reportDate = getTodayAST();
 
     // Upsert report (in case of re-run)
     const report = await prisma.openingBellReport.upsert({
@@ -118,39 +119,36 @@ export async function runOpeningBellAnalysis(): Promise<{ success: boolean; pick
     // Delete old picks for this report (if re-run)
     await prisma.openingBellPick.deleteMany({ where: { reportId: report.id } });
 
-    // Insert new picks
-    for (const pick of result.picks) {
-      await prisma.openingBellPick.create({
-        data: {
-          reportId: report.id,
-          rank: pick.rank,
-          ticker: pick.ticker,
-          name: pick.name,
-          sector: pick.sector || null,
-          exchange: pick.exchange,
-          priceAtScan: pick.priceAtScan,
-          previousClose: pick.previousClose,
-          changePercent: pick.changePercent,
-          relativeVolume: pick.relativeVolume,
-          sectorMomentum: pick.sectorMomentum || null,
-          momentumScore: pick.momentumScore,
-          intradayTarget: pick.intradayTarget,
-          keyLevel: pick.keyLevel,
-          conviction: pick.conviction,
-          rationale: pick.rationale || null,
-          tokenUsage: result.tokenUsage ?? undefined,
-        },
-      });
-    }
+    // Insert new picks (batched)
+    await prisma.openingBellPick.createMany({
+      data: result.picks.map((pick) => ({
+        reportId: report.id,
+        rank: pick.rank,
+        ticker: pick.ticker,
+        name: pick.name,
+        sector: pick.sector || null,
+        exchange: pick.exchange,
+        priceAtScan: pick.priceAtScan,
+        previousClose: pick.previousClose,
+        changePercent: pick.changePercent,
+        relativeVolume: pick.relativeVolume,
+        sectorMomentum: pick.sectorMomentum || null,
+        momentumScore: pick.momentumScore,
+        intradayTarget: pick.intradayTarget,
+        keyLevel: pick.keyLevel,
+        conviction: pick.conviction,
+        rationale: pick.rationale || null,
+        tokenUsage: result.tokenUsage ?? undefined,
+      })),
+    });
 
     console.log(`[Opening Bell] Saved ${result.picks.length} picks for ${todayStr}`);
 
     // Step 5: Save top 10 tickers for Council pre-filter override
     const overrideTickers = result.picks.map((p) => p.ticker);
-    // Write to a file the Council can read
-    const fs = await import('fs');
+    const overridePath = path.join('/tmp', 'opening_bell_council_overrides.json');
     fs.writeFileSync(
-      'opening_bell_council_overrides.json',
+      overridePath,
       JSON.stringify({ date: todayStr, tickers: overrideTickers })
     );
 

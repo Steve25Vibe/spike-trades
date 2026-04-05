@@ -6,6 +6,7 @@ import prisma from '@/lib/db/prisma';
 import fs from 'fs';
 import path from 'path';
 import { sendRadarEmail } from '@/lib/email/radar-email';
+import { getTodayAST } from '@/lib/utils';
 
 const COUNCIL_API_URL = process.env.COUNCIL_API_URL || 'http://localhost:8100';
 
@@ -85,9 +86,8 @@ export async function runRadarAnalysis(): Promise<{ success: boolean; picksCount
       // Still save the report (0 picks is valid)
     }
 
-    // Step 2: Save to database
-    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Halifax' });
-    const today = new Date(todayStr + 'T12:00:00');
+    // Step 4: Save to database
+    const today = getTodayAST();
 
     // Delete existing report for today (idempotent re-run)
     await prisma.radarPick.deleteMany({
@@ -127,7 +127,7 @@ export async function runRadarAnalysis(): Promise<{ success: boolean; picksCount
 
     console.log(`[Radar] Saved ${result.picks?.length || 0} picks to database`);
 
-    // Step 3: Write override file for Opening Bell
+    // Step 5: Write override file for Opening Bell
     const overrideTickers = (result.picks || []).map((p) => p.ticker);
     const smartMoneyScores: Record<string, number> = {};
     for (const p of result.picks || []) {
@@ -142,7 +142,7 @@ export async function runRadarAnalysis(): Promise<{ success: boolean; picksCount
     }));
     console.log(`[Radar] Wrote override file with ${overrideTickers.length} tickers`);
 
-    // Step 4: Send email to opted-in users
+    // Step 6: Send email to opted-in users
     try {
       await sendRadarEmail(
         (result.picks || []).map((p) => ({

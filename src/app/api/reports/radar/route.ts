@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isAuthenticated } from '@/lib/auth';
 import prisma from '@/lib/db/prisma';
+import { parsePagination } from '@/lib/utils';
 
 export async function GET(request: NextRequest) {
   if (!(await isAuthenticated())) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const page = Math.max(1, parseInt(request.nextUrl.searchParams.get('page') || '1', 10));
-  const pageSize = Math.min(100, Math.max(1, parseInt(request.nextUrl.searchParams.get('pageSize') || '20', 10)));
-  const skip = (page - 1) * pageSize;
+  const { page, pageSize, skip } = parsePagination(request.nextUrl.searchParams);
 
   try {
     const [reports, total] = await Promise.all([
@@ -28,13 +27,17 @@ export async function GET(request: NextRequest) {
     ]);
 
     return NextResponse.json({
-      reports,
-      total,
+      success: true,
+      data: reports,
       page,
       pageSize,
-      totalPages: Math.ceil(total / pageSize),
+      total,
     });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Internal server error' }, { status: 500 });
+    console.error('Radar reports fetch error:', error);
+    return NextResponse.json(
+      { success: false, error: 'Failed to fetch radar reports' },
+      { status: 500 }
+    );
   }
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isAuthenticated } from '@/lib/auth';
 import prisma from '@/lib/db/prisma';
+import { parsePagination } from '@/lib/utils';
 
 // GET /api/reports — List all daily reports
 export async function GET(request: NextRequest) {
@@ -8,14 +9,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const page = Math.max(1, parseInt(request.nextUrl.searchParams.get('page') || '1', 10));
-  const pageSize = Math.min(100, Math.max(1, parseInt(request.nextUrl.searchParams.get('pageSize') || '30', 10)));
+  const { page, pageSize, skip } = parsePagination(request.nextUrl.searchParams, { pageSize: 30 });
 
   try {
     const [reports, total] = await Promise.all([
       prisma.dailyReport.findMany({
         orderBy: { date: 'desc' },
-        skip: (page - 1) * pageSize,
+        skip,
         take: pageSize,
         include: {
           spikes: {
