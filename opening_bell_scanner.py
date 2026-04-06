@@ -131,12 +131,12 @@ class OpeningBellScanner:
         today = datetime.now(ZoneInfo("America/Halifax")).strftime("%Y-%m-%d")
 
         # Try 1-min bars (FMP Ultimate)
-        bars = await self._fmp_get(session, f"/historical-chart/1min/{ticker}", {"from": today, "to": today})
+        bars = await self._fmp_get(session, "/historical-chart/1min", {"symbol": ticker, "from": today, "to": today})
         if bars and isinstance(bars, list) and len(bars) > 0:
             return bars
 
         # Fallback: 5-min bars
-        bars = await self._fmp_get(session, f"/historical-chart/5min/{ticker}", {"from": today, "to": today})
+        bars = await self._fmp_get(session, "/historical-chart/5min", {"symbol": ticker, "from": today, "to": today})
         if bars and isinstance(bars, list) and len(bars) > 0:
             return bars
 
@@ -330,18 +330,26 @@ Always respond with valid JSON only. No markdown, no explanation outside the JSO
 
                 logger.info(f"Opening Bell: {len(movers)} top movers identified")
 
-                # Step 2b: Enrich movers with averageVolume + sector from profiles
+                # Step 2b: Enrich movers with profile data, filter ghost tickers
+                enriched_movers = []
                 for m in movers:
                     prof = await self._fmp_get(session, "/profile", {"symbol": m["symbol"]})
                     if prof and isinstance(prof, list):
                         p = prof[0]
+                        # Skip ghost tickers and ETFs
+                        if not p.get("isActivelyTrading", False):
+                            continue
+                        if p.get("isEtf", False):
+                            continue
                         avg_vol = p.get("averageVolume", 0) or 0
                         vol = m.get("volume", 0) or 0
                         m["avgVolume"] = avg_vol
                         m["relative_volume"] = round(vol / avg_vol, 1) if avg_vol > 0 else 0.0
                         m["sector"] = p.get("sector", "")
+                        enriched_movers.append(m)
                     await asyncio.sleep(0.05)
-                logger.info(f"Opening Bell: enriched {len(movers)} movers with profile data")
+                movers = enriched_movers
+                logger.info(f"Opening Bell: {len(movers)} movers after profile enrichment (filtered ghost tickers + ETFs)")
 
                 # Step 3: Enrich — fetch sector perf + grades in parallel
                 mover_tickers = [m["symbol"] for m in movers]

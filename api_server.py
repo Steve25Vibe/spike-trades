@@ -698,7 +698,7 @@ async def _fetch_spike_it_data(ticker: str) -> dict[str, Any] | None:
     """Fetch all FMP data needed for Spike It analysis. Returns assembled dict or None on critical failure."""
     today_str = datetime.now(ZoneInfo("America/Halifax")).strftime("%Y-%m-%d")
     quote_task = _fmp_get_spike("/batch-quote", {"symbols": ticker})
-    bars_1m_task = _fmp_get_spike(f"/historical-chart/1min/{ticker}", {"from": today_str, "to": today_str})
+    bars_1m_task = _fmp_get_spike("/historical-chart/1min", {"symbol": ticker, "from": today_str, "to": today_str})
     hist_task = _fmp_get_spike("/historical-price-eod/full", {"symbol": ticker, "limit": "15"})
     news_task = _fmp_get_spike("/news/stock", {"symbols": ticker, "limit": "5"})
     macro_task = _fmp_get_spike("/batch-quote", {"symbols": "USO,GLD,CADUSD=X,XIU.TO"})
@@ -753,7 +753,7 @@ async def _fetch_spike_it_data(ticker: str) -> dict[str, Any] | None:
     # Fallback: 5-min bars
     if not intraday_available:
         try:
-            bars_5m_data = await _fmp_get_spike(f"/historical-chart/5min/{ticker}", {"from": today_str, "to": today_str})
+            bars_5m_data = await _fmp_get_spike("/historical-chart/5min", {"symbol": ticker, "from": today_str, "to": today_str})
         except asyncio.TimeoutError:
             logger.info(f"Spike It: 5-min bars timed out for {ticker} — falling back to synthetic")
             bars_5m_data = None

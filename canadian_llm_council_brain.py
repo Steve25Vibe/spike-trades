@@ -621,8 +621,8 @@ class LiveDataFetcher:
 
         # Try 1-min first (Ultimate only)
         bars = await self._fmp_get(
-            f"/historical-chart/1min/{ticker}",
-            params={"from": date, "to": date}
+            "/historical-chart/1min",
+            params={"symbol": ticker, "from": date, "to": date}
         )
 
         if bars and isinstance(bars, list) and len(bars) > 0:
@@ -631,8 +631,8 @@ class LiveDataFetcher:
 
         # Fallback to 5-min
         bars_5m = await self._fmp_get(
-            f"/historical-chart/5min/{ticker}",
-            params={"from": date, "to": date}
+            "/historical-chart/5min",
+            params={"symbol": ticker, "from": date, "to": date}
         )
 
         if bars_5m and isinstance(bars_5m, list) and len(bars_5m) > 0:
