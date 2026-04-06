@@ -35,9 +35,17 @@ function RadarContent() {
   if (!report) {
     return (
       <ResponsiveLayout>
-        <div className="flex flex-col items-center justify-center min-h-[50vh] text-gray-500">
-          <p className="text-lg">No Radar report yet.</p>
-          <p className="text-sm mt-1">The pre-market scan runs at 8:15 AM AST on trading days.</p>
+        <div className="flex items-center justify-center h-[60vh]">
+          <div className="glass-card p-8 text-center max-w-md">
+            <div className="w-16 h-16 rounded-full bg-radar-green/10 flex items-center justify-center mx-auto mb-4">
+              <RadarIcon size={32} />
+            </div>
+            <h3 className="text-lg font-bold text-spike-text mb-2">No Radar Data</h3>
+            <p className="text-spike-text-dim text-sm">No Radar report found</p>
+            <p className="text-spike-text-muted text-xs mt-4">
+              The pre-market scan runs at 8:15 AM AST on trading days.
+            </p>
+          </div>
         </div>
       </ResponsiveLayout>
     );

@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import ResponsiveLayout from '@/components/layout/ResponsiveLayout';
 import MarketHeader from '@/components/layout/MarketHeader';
 import OpeningBellCard, { type OpeningBellPickData } from '@/components/opening-bell/OpeningBellCard';
+import BellIcon from '@/components/opening-bell/BellIcon';
 import LockInModal from '@/components/portfolio/LockInModal';
 import BulkLockInModal from '@/components/portfolio/BulkLockInModal';
 import PortfolioChoiceModal from '@/components/portfolio/PortfolioChoiceModal';
@@ -213,11 +214,7 @@ function OpeningBellContent() {
         <div className="flex items-center justify-center h-[60vh]">
           <div className="glass-card p-8 text-center max-w-md">
             <div className="w-16 h-16 rounded-full bg-spike-amber/10 flex items-center justify-center mx-auto mb-4">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#FFB800" strokeWidth="2">
-                <circle cx="12" cy="12" r="10" />
-                <line x1="12" y1="8" x2="12" y2="12" />
-                <line x1="12" y1="16" x2="12.01" y2="16" />
-              </svg>
+              <BellIcon size={32} />
             </div>
             <h3 className="text-lg font-bold text-spike-text mb-2">No Opening Bell Data</h3>
             <p className="text-spike-text-dim text-sm">{error}</p>
