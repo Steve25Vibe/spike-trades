@@ -173,14 +173,15 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { spikeId, spikeIds, openingBellPickId, openingBellPickIds, portfolioId, portfolioSize, mode, shares: manualShares, positionSize: manualPositionSize, fixedAmount, perSpikeShares, kellyMaxPct, kellyWinRate } = body;
+    const { spikeId, spikeIds, openingBellPickId, openingBellPickIds, radarPickId, radarPickIds, portfolioId, portfolioSize, mode, shares: manualShares, positionSize: manualPositionSize, fixedAmount, perSpikeShares, kellyMaxPct, kellyWinRate } = body;
 
     const idsToLock: string[] = spikeIds || (spikeId ? [spikeId] : []);
     const obIdsToLock: string[] = openingBellPickIds || (openingBellPickId ? [openingBellPickId] : []);
+    const radarIdsToLock: string[] = radarPickIds || (radarPickId ? [radarPickId] : []);
 
-    if (idsToLock.length === 0 && obIdsToLock.length === 0) {
+    if (idsToLock.length === 0 && obIdsToLock.length === 0 && radarIdsToLock.length === 0) {
       return NextResponse.json(
-        { success: false, error: 'spikeId or spikeIds required' },
+        { success: false, error: 'spikeId, openingBellPickId, or radarPickId required' },
         { status: 400 }
       );
     }
@@ -331,6 +332,66 @@ export async function POST(request: NextRequest) {
         },
       });
       entries.push(obEntry);
+    }
+
+    // Process Radar picks
+    for (const id of radarIdsToLock) {
+      const pick = await prisma.radarPick.findUnique({ where: { id } });
+      if (!pick) {
+        errors.push({ id, error: 'Radar pick not found' });
+        continue;
+      }
+
+      const existingRadarWhere: Record<string, unknown> = { radarPickId: id, status: 'active' };
+      if (portfolioId) existingRadarWhere.portfolioId = portfolioId;
+      const existingRadar = await prisma.portfolioEntry.findFirst({ where: existingRadarWhere });
+      if (existingRadar) {
+        errors.push({ id, ticker: pick.ticker, error: 'Already locked in' });
+        continue;
+      }
+
+      // Radar picks don't have ATR directly, estimate 2% for sizing
+      const atrEstimatePct = 2;
+      let radarShares: number;
+      let radarPositionPct: number;
+
+      if (effectiveMode === 'fixed' && (fixedAmount || portfolio?.fixedAmount)) {
+        const amount = fixedAmount || portfolio?.fixedAmount || 2500;
+        radarShares = Math.floor(amount / pick.priceAtScan);
+        radarPositionPct = totalPortfolio > 0 ? ((radarShares * pick.priceAtScan) / totalPortfolio) * 100 : 0;
+      } else if (effectiveMode === 'manual' && manualShares) {
+        radarShares = Math.floor(manualShares);
+        radarPositionPct = totalPortfolio > 0 ? ((radarShares * pick.priceAtScan) / totalPortfolio) * 100 : 0;
+      } else {
+        const winRate = kellyWinRate || portfolio?.kellyWinRate || 0.6;
+        const maxPct = ((kellyMaxPct || portfolio?.kellyMaxPct || 2) / 100);
+        const kellyFraction = calculateKellyFraction(winRate, atrEstimatePct, atrEstimatePct * 0.5);
+        radarPositionPct = Math.min(kellyFraction, maxPct) * 100;
+        const positionSize = totalPortfolio * (radarPositionPct / 100);
+        radarShares = Math.floor(positionSize / pick.priceAtScan);
+      }
+
+      if (radarShares <= 0) {
+        errors.push({ id, ticker: pick.ticker, error: 'Position too small' });
+        continue;
+      }
+
+      const radarEntry = await prisma.portfolioEntry.create({
+        data: {
+          portfolioId: portfolioId || null,
+          radarPickId: pick.id,
+          ticker: pick.ticker,
+          name: pick.name,
+          entryPrice: pick.priceAtScan,
+          entryDate: new Date(),
+          shares: radarShares,
+          positionSize: radarShares * pick.priceAtScan,
+          positionPct: radarPositionPct,
+          stopLoss: pick.priceAtScan * 0.95,  // 5% stop-loss default for Radar
+          status: 'active',
+        },
+      });
+      entries.push(radarEntry);
     }
 
     return NextResponse.json({

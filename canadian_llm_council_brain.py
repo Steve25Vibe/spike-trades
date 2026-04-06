@@ -4330,7 +4330,7 @@ class RadarScanner:
     NEUTRAL_RSI_LOW = 40         # RSI below this is not neutral
     NEUTRAL_RSI_HIGH = 60        # RSI above this is not neutral
     MIN_ADX_FOR_TREND = 15       # ADX above this shows trend
-    GRADE_RECENCY_DAYS = 7       # Grade changes within this window
+    GRADE_RECENCY_DAYS = 3       # Grade changes within this window (~2 trading days)
     EARNINGS_LOOKAHEAD_DAYS = 10 # Upcoming earnings within this window
 
     RADAR_SYSTEM_PROMPT = """You are an expert pre-market institutional flow analyst for Canadian equities (TSX/TSXV).
@@ -4343,6 +4343,12 @@ SCORING RUBRIC (100 points total — STRICT maximums, never exceed):
 - Technical Breakout Setup (0-25 MAX): RSI recovery from oversold, MACD crossover, Bollinger squeeze, ADX trend strength
 - Volume & Accumulation Signals (0-10 MAX): Multi-day relative volume trend, OBV direction, volume-price divergence
 - Sector & Macro Alignment (0-10 MAX): Sector rotation momentum, macro regime fit, peer relative strength
+
+CATALYST SCORING RULE (CRITICAL):
+catalyst_strength MUST be 0 if there is NO specific, dated event within the last 2 trading days.
+Valid catalysts: analyst upgrade/downgrade with date, earnings surprise, M&A announcement, contract win, regulatory decision.
+NOT catalysts (score these in sector_alignment ONLY): sector trends, macro regime, commodity prices, general market sentiment.
+If a grade is older than 2 trading days, it is context only — do NOT score it as a catalyst.
 
 CRITICAL: Each component score MUST NOT exceed its maximum. smart_money_score MUST equal the exact sum of all 5 components.
 
@@ -4394,6 +4400,9 @@ Required JSON format:
   ]
 }}"""
 
+    # Module-level macro regime cache (stable within a day)
+    _macro_cache: dict[str, MacroContext] = {}
+
     def __init__(self, fmp_api_key: str, anthropic_api_key: str, finnhub_api_key: str | None = None):
         self.fmp_api_key = fmp_api_key
         self.anthropic_api_key = anthropic_api_key
@@ -4401,7 +4410,7 @@ Required JSON format:
         self.fetcher = LiveDataFetcher(fmp_api_key, finnhub_api_key)
         self.endpoint_health: dict[str, dict] = {}
 
-    async def run(self, top_n: int = 15) -> dict:
+    async def run(self, top_n: int = 10) -> dict:
         """Run pre-market Radar scan. Returns RadarResult as dict."""
         import hashlib
         run_id = hashlib.md5(datetime.now().isoformat().encode()).hexdigest()[:12]
@@ -4437,9 +4446,17 @@ Required JSON format:
                     quote_map[t]["name"] = prof.get("companyName", quote_map[t].get("name", ""))
             logger.info(f"[Radar] Enriched {len(profiles)} tickers with bulk cache profile data")
 
-            macro = await self.fetcher.fetch_macro_context()
-            regime_filter = MacroRegimeFilter()
-            macro = regime_filter.apply_regime(macro)
+            # Stabilize macro regime — cache once per day to avoid flip-flopping on re-runs
+            today_key = date.today().isoformat()
+            if today_key in RadarScanner._macro_cache:
+                macro = RadarScanner._macro_cache[today_key]
+                logger.info(f"[Radar] Using cached macro regime: {macro.regime}")
+            else:
+                macro = await self.fetcher.fetch_macro_context()
+                regime_filter = MacroRegimeFilter()
+                macro = regime_filter.apply_regime(macro)
+                RadarScanner._macro_cache = {today_key: macro}  # Only keep today's
+                logger.info(f"[Radar] Fresh macro regime: {macro.regime}")
 
             # Parallel enrichment
             grades_map, earnings_map, news_map, sector_perf = await self._fetch_enrichment(tickers)
@@ -4720,19 +4737,67 @@ Required JSON format:
             if i + batch_size < len(ticker_blocks):
                 await asyncio.sleep(3)  # Rate limit respect
 
-        # Sort by smart_money_score descending, take top_n
+        # Sort by smart_money_score descending
         all_picks_raw.sort(key=lambda p: p.get("smart_money_score", 0), reverse=True)
-        top_picks_raw = all_picks_raw[:top_n]
 
-        # Convert to Pydantic models (clamp AI scores to allowed ranges)
+        # Clamp scores to rubric bounds
         RADAR_BOUNDS = {"catalyst_strength": 30, "news_sentiment": 25, "technical_setup": 25,
                         "volume_signals": 10, "sector_alignment": 10}
-        picks = []
-        for idx, raw in enumerate(top_picks_raw):
+        MIN_SMART_MONEY_SCORE = 45  # Quality threshold
+        MAX_PICKS = 10
+        MAX_PER_SECTOR = 3  # Sector concentration cap
+
+        scored_picks = []
+        for raw in all_picks_raw:
             try:
-                # Clamp component scores to rubric maximums
                 clamped = {k: min(float(raw.get(k, 0)), mx) for k, mx in RADAR_BOUNDS.items()}
                 clamped_total = sum(clamped.values())
+                if clamped_total < MIN_SMART_MONEY_SCORE:
+                    continue  # Quality threshold
+                scored_picks.append({**raw, "_clamped": clamped, "_total": clamped_total})
+            except Exception:
+                continue
+
+        # Volume anomaly gate: non-catalyst picks need RelVol > 1.5x
+        filtered_picks = []
+        for raw in scored_picks:
+            ticker = raw.get("ticker", "")
+            has_catalyst = raw["_clamped"].get("catalyst_strength", 0) > 0
+            tech = tech_map.get(ticker)
+            rel_vol = tech.relative_volume if tech else 0
+            if not has_catalyst and rel_vol < 1.5:
+                logger.info(f"[Radar] Dropping {ticker}: no catalyst and RelVol={rel_vol:.1f} < 1.5x")
+                continue
+            raw["_has_catalyst"] = has_catalyst
+            filtered_picks.append(raw)
+
+        # Catalyst majority: sort catalyst picks first, then technical-only
+        catalyst_picks = [p for p in filtered_picks if p.get("_has_catalyst")]
+        tech_only_picks = [p for p in filtered_picks if not p.get("_has_catalyst")]
+        ordered = catalyst_picks + tech_only_picks[:3]  # Max 3 non-catalyst picks
+
+        # Sector concentration cap: max 3 per sector
+        sector_counts: dict[str, int] = {}
+        sector_capped = []
+        for raw in ordered:
+            ticker = raw.get("ticker", "")
+            sector = quote_map.get(ticker, {}).get("sector", "Unknown")
+            count = sector_counts.get(sector, 0)
+            if count >= MAX_PER_SECTOR:
+                logger.info(f"[Radar] Sector cap: dropping {ticker} ({sector}, already {count} picks)")
+                continue
+            sector_counts[sector] = count + 1
+            sector_capped.append(raw)
+
+        # Take top MAX_PICKS
+        final_picks = sector_capped[:MAX_PICKS]
+
+        # Convert to Pydantic models
+        picks = []
+        for idx, raw in enumerate(final_picks):
+            try:
+                clamped = raw["_clamped"]
+                clamped_total = raw["_total"]
                 pick = RadarPick(
                     rank=idx + 1,
                     ticker=raw["ticker"],
@@ -4754,6 +4819,7 @@ Required JSON format:
             except Exception as e:
                 logger.warning(f"[Radar] Failed to parse pick {raw.get('ticker', '?')}: {e}")
 
+        logger.info(f"[Radar] Post-processing: {len(all_picks_raw)} raw → {len(scored_picks)} quality → {len(filtered_picks)} vol-filtered → {len(picks)} final")
         return picks, total_tokens
 
 

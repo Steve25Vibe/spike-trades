@@ -3,14 +3,25 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import ResponsiveLayout from '@/components/layout/ResponsiveLayout';
-import RadarCard from '@/components/radar/RadarCard';
+import RadarCard, { type RadarPickData } from '@/components/radar/RadarCard';
 import RadarIcon from '@/components/radar/RadarIcon';
+import LockInModal from '@/components/portfolio/LockInModal';
+import PortfolioChoiceModal from '@/components/portfolio/PortfolioChoiceModal';
+import { usePortfolios } from '@/components/portfolio/usePortfolios';
+import type { SizingMode } from '@/components/portfolio/PortfolioSettings';
 
 function RadarContent() {
   const searchParams = useSearchParams();
   const dateParam = searchParams.get('date');
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+
+  // Portfolio lock-in state
+  const { portfolios, activeId: activePortfolioId, refresh: refreshPortfolios } = usePortfolios();
+  const [pendingSinglePick, setPendingSinglePick] = useState<RadarPickData | null>(null);
+  const [lockInPick, setLockInPick] = useState<RadarPickData | null>(null);
+  const [chosenPortfolioId, setChosenPortfolioId] = useState<string>('');
+  const [lockResults, setLockResults] = useState<{ locked: number; skipped: any[] } | null>(null);
 
   useEffect(() => {
     const url = dateParam ? `/api/radar?date=${dateParam}` : '/api/radar';
@@ -20,6 +31,41 @@ function RadarContent() {
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [dateParam]);
+
+  // Step 1: user clicks Lock In → show portfolio choice modal
+  const handleLockIn = (pickId: string) => {
+    const pick = data?.picks.find((p: any) => p.id === pickId);
+    if (pick) setPendingSinglePick(pick);
+  };
+
+  // Step 2a: user chose a portfolio → show lock-in modal
+  const handlePortfolioChosen = (portfolioId: string) => {
+    setChosenPortfolioId(portfolioId);
+    if (pendingSinglePick) {
+      setLockInPick(pendingSinglePick);
+      setPendingSinglePick(null);
+    }
+    refreshPortfolios();
+  };
+
+  const handleCancelChoice = () => {
+    setPendingSinglePick(null);
+  };
+
+  const handleConfirmLockIn = async (params: { spikeId: string; portfolioId: string; shares?: number; positionSize?: number; portfolioSize?: number; mode: SizingMode }) => {
+    const res = await fetch('/api/portfolio', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...params, radarPickId: params.spikeId, spikeId: undefined }),
+    });
+    const json = await res.json();
+    if (json.success) {
+      setLockInPick(null);
+      setLockResults({ locked: 1, skipped: [] });
+      setTimeout(() => setLockResults(null), 3000);
+      refreshPortfolios();
+    }
+  };
 
   if (loading) {
     return (
@@ -59,7 +105,14 @@ function RadarContent() {
   return (
     <ResponsiveLayout>
       <div className="max-w-7xl mx-auto">
-        {/* Radar header — no market indicators (pre-market, market is closed) */}
+        {/* Lock-in confirmation toast */}
+        {lockResults && (
+          <div className="fixed top-4 right-4 z-50 bg-green-900/90 text-green-300 px-6 py-3 rounded-lg shadow-lg">
+            Locked in {lockResults.locked} pick{lockResults.locked !== 1 ? 's' : ''}
+          </div>
+        )}
+
+        {/* Radar header */}
         <div className="glass-card p-4 mb-6">
           <div className="flex items-center gap-3">
             <RadarIcon size={28} />
@@ -91,7 +144,7 @@ function RadarContent() {
         {/* RadarCard grid */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
           {picks.map((pick: any) => (
-            <RadarCard key={pick.id} pick={pick} />
+            <RadarCard key={pick.id} pick={pick} onLockIn={handleLockIn} />
           ))}
         </div>
 
@@ -113,6 +166,37 @@ function RadarContent() {
           </p>
         </div>
       </div>
+
+      {/* Portfolio Choice Modal */}
+      {pendingSinglePick && (
+        <PortfolioChoiceModal
+          spikeCount={1}
+          portfolios={portfolios}
+          onSelect={handlePortfolioChosen}
+          onCreate={handlePortfolioChosen}
+          onCancel={handleCancelChoice}
+        />
+      )}
+
+      {/* Lock-In Confirmation Modal */}
+      {lockInPick && (
+        <LockInModal
+          spike={{
+            id: lockInPick.id,
+            ticker: lockInPick.ticker,
+            name: lockInPick.name,
+            price: lockInPick.priceAtScan,
+            predicted3Day: lockInPick.priceAtScan * 1.03,
+            predicted5Day: lockInPick.priceAtScan * 1.05,
+            predicted8Day: lockInPick.priceAtScan * 1.08,
+            atr: lockInPick.priceAtScan * 0.02,
+          }}
+          activePortfolioId={chosenPortfolioId || activePortfolioId}
+          portfolios={portfolios}
+          onConfirm={handleConfirmLockIn}
+          onCancel={() => setLockInPick(null)}
+        />
+      )}
     </ResponsiveLayout>
   );
 }

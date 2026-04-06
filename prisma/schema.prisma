@@ -246,6 +246,8 @@ model PortfolioEntry {
   spike              Spike? @relation(fields: [spikeId], references: [id])
   openingBellPickId  String?
   openingBellPick    OpeningBellPick? @relation(fields: [openingBellPickId], references: [id])
+  radarPickId        String?
+  radarPick          RadarPick? @relation(fields: [radarPickId], references: [id])
   ticker          String
   name            String
 
@@ -284,6 +286,7 @@ model PortfolioEntry {
 
   @@index([portfolioId])
   @@index([openingBellPickId])
+  @@index([radarPickId])
   @@index([status])
   @@index([ticker])
   @@index([entryDate])
@@ -395,6 +398,7 @@ model RadarPick {
   actualDayHigh       Float?    // Highest price during the day
   actualDayClose      Float?    // Closing price
   openMoveCorrect     Boolean?  // Did ticker move in predicted direction at open?
+  portfolioEntries    PortfolioEntry[]
 
   @@index([reportId])
   @@index([ticker])

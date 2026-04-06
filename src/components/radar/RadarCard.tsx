@@ -1,9 +1,10 @@
 'use client';
 
+import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import RadarIcon from './RadarIcon';
 
-interface RadarPickData {
+export interface RadarPickData {
   id: string;
   rank: number;
   ticker: string;
@@ -36,8 +37,21 @@ function ScoreBar({ label, value, max }: { label: string; value: number; max: nu
   );
 }
 
-export default function RadarCard({ pick }: { pick: RadarPickData }) {
+interface Props {
+  pick: RadarPickData;
+  onLockIn?: (pickId: string) => void;
+}
+
+export default function RadarCard({ pick, onLockIn }: Props) {
+  const [locking, setLocking] = useState(false);
   const rankClass = pick.rank === 1 ? 'rank-1' : pick.rank === 2 ? 'rank-2' : pick.rank === 3 ? 'rank-3' : 'rank-default';
+
+  const handleLockIn = async () => {
+    if (!onLockIn) return;
+    setLocking(true);
+    await onLockIn(pick.id);
+    setLocking(false);
+  };
 
   return (
     <div className="glass-card p-5 relative group transition-all">
@@ -132,6 +146,20 @@ export default function RadarCard({ pick }: { pick: RadarPickData }) {
         <div className="mt-3 pt-3 border-t border-spike-border">
           <div className="text-[10px] uppercase text-radar-green/50 mb-1">Why This Stock?</div>
           <p className="text-xs text-spike-text-dim leading-relaxed">{pick.rationale}</p>
+        </div>
+      )}
+
+      {/* Lock In button */}
+      {onLockIn && (
+        <div className="flex justify-end mt-3 pt-3 border-t border-spike-border">
+          <button
+            onClick={handleLockIn}
+            disabled={locking}
+            className="btn-lock-in disabled:opacity-50"
+            title="Add this stock to your portfolio"
+          >
+            {locking ? 'Locking...' : 'Lock In'}
+          </button>
         </div>
       )}
     </div>
