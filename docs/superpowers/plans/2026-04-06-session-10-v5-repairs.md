@@ -1,5 +1,15 @@
 # Session 10 — v5.0 Post-Launch Repairs & Quality Improvements
 
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Repair contaminated production data and implement quality improvements across all three pipelines (Radar, Opening Bell, Today's Spikes) plus FMP infrastructure.
+
+**Architecture:** Phase 1 repairs existing bad data in PostgreSQL and council SQLite. Phase 2 builds a shared FMP bulk cache that Phases 3-5 depend on. Phases 3-5 improve each pipeline independently.
+
+**Tech Stack:** Python (council brain, scanners, api_server), TypeScript/Next.js (app), PostgreSQL, SQLite, FMP stable API (CSV bulk endpoints)
+
+---
+
 ## Context
 
 Session 9 was the first v5.0 production run (2026-04-06). All three pipelines ran successfully but exposed significant data quality, FMP API, and scoring issues. This session addresses all findings from the production audit.
@@ -268,11 +278,62 @@ Add `isEtf=false` check using the bulk profile cache. This prevents ETFs from en
 
 Phases 3-5 depend on Phase 2 (bulk cache). Phase 1 is independent and should be done first.
 
-## Verification After All Phases
+## Task Tracking
 
-- Trigger Radar manually, verify 3-10 picks, all with real catalysts, no sector > 3, no ETFs
-- Trigger Opening Bell manually, verify 3-10 picks, all actively trading stocks, no ghosts
-- Verify Today's Spikes archive is clean, all 10 picks per date, no ETFs
-- Test Spike It on a picked ticker, verify 1-min intraday data
-- Check Radar Portfolio integration works
-- Verify score badge consistency across all three card components
+### Phase 1: Data Repair
+- [ ] 1.1 Delete today's Opening Bell report + ghost picks
+- [ ] 1.2 Trim today's Radar to top 10, re-rank, update override file
+- [ ] 1.3 Delete 14 ETF + 1 ghost from Spikes archive, delete 6 PortfolioEntry records
+- [ ] 1.4 Trim Mar 19-25 reports from 20 to top 10
+- [ ] 1.5 Purge council SQLite learning DB
+- [ ] 1.6 Verify all repairs — counts, no orphans, no ETFs
+- [ ] 1.7 Commit: "fix: data repair — remove ghost tickers, ETFs, and excess picks from all archives"
+
+### Phase 2: FMP Infrastructure
+- [ ] 2.1 Create `fmp_bulk_cache.py` — CSV download, parse, TTL, whitelist methods
+- [ ] 2.2 Add field name normalization to bulk cache output
+- [ ] 2.3 Verify intraday chart fix still working (Session 9 deploy)
+- [ ] 2.4 Fix `/sector-performance-snapshot` date param in all call sites
+- [ ] 2.5 Replace `/earnings-surprises` with bulk alternative or remove
+- [ ] 2.6 Replace Finnhub news calls with FMP `/news/stock`
+- [ ] 2.7 Integrate bulk cache into council brain, Opening Bell scanner, and api_server
+- [ ] 2.8 Deploy and verify — all pipelines use bulk cache, no per-ticker profile calls
+- [ ] 2.9 Commit: "feat: FMP bulk profile cache and field normalization"
+
+### Phase 3: Opening Bell Data Quality
+- [ ] 3.1 Validate against profile-bulk whitelist in fetch_tsx_universe
+- [ ] 3.2 Volume gate — min 50K avgVolume in compute_rankings
+- [ ] 3.3 Remove avgVolume=1 fallback in map_to_prisma
+- [ ] 3.4 Multi-signal requirement — change% + supporting signal
+- [ ] 3.5 News catalyst requirement — FMP /news/stock check
+- [ ] 3.6 Quality threshold 3-10 picks instead of fixed 10
+- [ ] 3.7 Score badge UI — circle to rounded square
+- [ ] 3.8 Deploy and verify — trigger Opening Bell, confirm real tradeable picks
+- [ ] 3.9 Commit: "feat: Opening Bell 5-layer data quality fix + UI consistency"
+
+### Phase 4: Radar Quality
+- [ ] 4.1 Prompt: catalystStrength must be 0 without dated event
+- [ ] 4.2 Grade recency — last 2 trading days only
+- [ ] 4.3 Catalyst majority — min 7/10 with real catalyst
+- [ ] 4.4 Sector concentration cap — max 3 per sector
+- [ ] 4.5 Volume anomaly — RelVol > 1.5x for non-catalyst picks
+- [ ] 4.6 Stabilize macro regime — cache once per day
+- [ ] 4.7 Quality threshold 3-10 picks instead of fixed 15
+- [ ] 4.8 Portfolio integration for Radar picks
+- [ ] 4.9 Deploy and verify — trigger Radar, confirm catalyst-driven picks, sector diversity
+- [ ] 4.10 Commit: "feat: Radar quality improvements — catalyst requirements, sector cap, portfolio"
+
+### Phase 5: Today's Spikes
+- [ ] 5.1 Add ETF filter using bulk profile cache
+- [ ] 5.2 Tighten pre-filter to ~80-90 candidates
+- [ ] 5.3 Deploy and verify — confirm no ETFs in pipeline, stages complete within timeout
+- [ ] 5.4 Commit: "feat: Spikes ETF filter and pre-filter tightening"
+
+### Final Verification
+- [ ] All DailyReport dates have ≤10 picks
+- [ ] No ETF tickers in any Spike, RadarPick, or OpeningBellPick table
+- [ ] Radar Portfolio integration works
+- [ ] Opening Bell score badge matches Radar/Spikes styling
+- [ ] Trigger test Radar — verify 3-10 picks, real catalysts, sector cap
+- [ ] Trigger test Opening Bell — verify real tradeable TSX stocks
+- [ ] Spike It test — verify 1-min intraday bars

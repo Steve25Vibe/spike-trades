@@ -1,5 +1,7 @@
 # Session 10 — v5.0 Post-Launch Repairs & Quality Improvements
 
+**REQUIRED:** Use `/superpowers:executing-plans` to implement this session. Read the full plan at `docs/superpowers/plans/2026-04-06-session-10-v5-repairs.md` and execute all 5 phases in order, marking each step complete as you go.
+
 ## Background
 
 Session 9 was the first v5.0 production run (2026-04-06). Monitoring and audit revealed 26 issues across data quality, FMP API compatibility, scoring logic, and UI consistency. Several hotfixes were deployed during Session 9:
