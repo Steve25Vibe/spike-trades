@@ -47,6 +47,8 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+import fmp_bulk_cache
+
 # ═══════════════════════════════════════════════════════════════════════════
 # LOGGING
 # ═══════════════════════════════════════════════════════════════════════════
@@ -4426,14 +4428,14 @@ Required JSON format:
             tickers = [t for t, _ in liquid]
             quote_map = {t: q for t, q in liquid}
 
-            # Enrich with profile data (sector, companyName) — same as main council
-            profiles = await self.fetcher.fetch_profiles_bulk(tickers)
+            # Enrich with profile data from bulk cache (sector, companyName)
+            profiles = await fmp_bulk_cache.get_profiles(tickers, self.fmp_api_key)
             for t in tickers:
                 prof = profiles.get(t, {})
                 if prof:
                     quote_map[t]["sector"] = prof.get("sector", "Unknown")
                     quote_map[t]["name"] = prof.get("companyName", quote_map[t].get("name", ""))
-            logger.info(f"[Radar] Enriched {len(profiles)} tickers with profile data (sector)")
+            logger.info(f"[Radar] Enriched {len(profiles)} tickers with bulk cache profile data")
 
             macro = await self.fetcher.fetch_macro_context()
             regime_filter = MacroRegimeFilter()
@@ -4862,8 +4864,8 @@ class CanadianStockCouncilBrain:
                 f"(from {len(quotes)} quoted)"
             )
 
-            # Fetch profiles only for price-filtered tickers (much fewer API calls)
-            profiles = await self.fetcher.fetch_profiles_bulk(price_filtered)
+            # Fetch profiles from bulk cache (much fewer API calls than per-ticker)
+            profiles = await fmp_bulk_cache.get_profiles(price_filtered, self.fmp_key)
 
             # Full liquidity filter: ADV >= $5M using avgVolume from profile
             liquid_tickers = []

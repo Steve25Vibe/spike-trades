@@ -20,6 +20,8 @@ from zoneinfo import ZoneInfo
 
 import aiohttp
 
+import fmp_bulk_cache
+
 logger = logging.getLogger("opening_bell")
 
 FMP_BASE = "https://financialmodelingprep.com/stable"
@@ -330,26 +332,24 @@ Always respond with valid JSON only. No markdown, no explanation outside the JSO
 
                 logger.info(f"Opening Bell: {len(movers)} top movers identified")
 
-                # Step 2b: Enrich movers with profile data, filter ghost tickers
+                # Step 2b: Enrich movers with bulk profile cache, filter ghost tickers + ETFs
+                tsx_whitelist = await fmp_bulk_cache.get_tsx_whitelist(self.fmp_key)
+                mover_symbols = [m["symbol"] for m in movers]
+                profiles = await fmp_bulk_cache.get_profiles(mover_symbols, self.fmp_key)
                 enriched_movers = []
                 for m in movers:
-                    prof = await self._fmp_get(session, "/profile", {"symbol": m["symbol"]})
-                    if prof and isinstance(prof, list):
-                        p = prof[0]
-                        # Skip ghost tickers and ETFs
-                        if not p.get("isActivelyTrading", False):
-                            continue
-                        if p.get("isEtf", False):
-                            continue
-                        avg_vol = p.get("averageVolume", 0) or 0
-                        vol = m.get("volume", 0) or 0
-                        m["avgVolume"] = avg_vol
-                        m["relative_volume"] = round(vol / avg_vol, 1) if avg_vol > 0 else 0.0
-                        m["sector"] = p.get("sector", "")
-                        enriched_movers.append(m)
-                    await asyncio.sleep(0.05)
+                    sym = m["symbol"]
+                    if sym not in tsx_whitelist:
+                        continue
+                    p = profiles.get(sym, {})
+                    avg_vol = p.get("averageVolume", 0) or 0
+                    vol = m.get("volume", 0) or 0
+                    m["avgVolume"] = avg_vol
+                    m["relative_volume"] = round(vol / avg_vol, 1) if avg_vol > 0 else 0.0
+                    m["sector"] = p.get("sector", "")
+                    enriched_movers.append(m)
                 movers = enriched_movers
-                logger.info(f"Opening Bell: {len(movers)} movers after profile enrichment (filtered ghost tickers + ETFs)")
+                logger.info(f"Opening Bell: {len(movers)} movers after bulk profile enrichment (filtered ghost tickers + ETFs)")
 
                 # Step 3: Enrich — fetch sector perf + grades in parallel
                 mover_tickers = [m["symbol"] for m in movers]

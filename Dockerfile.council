@@ -11,6 +11,7 @@ COPY canadian_llm_council_brain.py .
 COPY canadian_portfolio_interface.py .
 COPY api_server.py .
 COPY opening_bell_scanner.py .
+COPY fmp_bulk_cache.py .
 
 EXPOSE 8100
 
