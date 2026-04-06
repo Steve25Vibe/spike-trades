@@ -4913,7 +4913,7 @@ class CanadianStockCouncilBrain:
             logger.info(f"Step 3: Got {len(quotes)} quotes")
 
             # Pre-filter: price > $1 and volume > 0 (cheap filter, no API calls)
-            MIN_ADV_DOLLARS = 8_000_000  # Tightened from $5M to reduce candidate count
+            MIN_ADV_DOLLARS = 5_000_000
             MIN_PRICE = 1.0
             price_filtered = []
             for ticker, q in quotes.items():
