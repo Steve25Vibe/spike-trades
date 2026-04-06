@@ -43,7 +43,7 @@ function RadarContent() {
             <h3 className="text-lg font-bold text-spike-text mb-2">No Radar Data</h3>
             <p className="text-spike-text-dim text-sm">No Radar report found</p>
             <p className="text-spike-text-muted text-xs mt-4">
-              The pre-market scan runs at 8:15 AM AST on trading days.
+              The pre-market scan runs at 10:05 AM AST on trading days.
             </p>
           </div>
         </div>

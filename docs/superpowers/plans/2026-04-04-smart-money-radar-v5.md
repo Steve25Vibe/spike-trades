@@ -54,7 +54,7 @@ This plan is divided into 6 phases, each designed as a standalone session with i
 | `opening_bell_scanner.py` | Accept `radar_tickers` parameter, add Radar context to Sonnet prompt |
 | `api_server.py` | New Radar endpoints, Spike It 1-min bars upgrade, OB Radar pass-through |
 | `prisma/schema.prisma` | Add RadarReport, RadarPick models; add User.emailRadar |
-| `scripts/start-cron.ts` | Add 8:15 AM Radar cron job |
+| `scripts/start-cron.ts` | Add 10:05 AM Radar cron job |
 | `src/middleware.ts` | No change needed — `/api/cron/radar` already covered by `/api/cron` prefix |
 | `src/lib/opening-bell-analyzer.ts` | Read `radar_opening_bell_overrides.json`, pass to Python |
 | `src/app/api/spikes/route.ts` | Cross-reference RadarPick → isRadarPick flag |
@@ -756,7 +756,7 @@ git push
 class RadarScanner:
     """Pre-market Smart Money Flow Radar scanner.
 
-    Runs at 8:15 AM AST, detects overnight signals that predict
+    Runs at 10:05 AM AST, detects overnight signals that predict
     institutional buying pressure at open. Flags tickers with a
     Smart Money Conviction Score (0-100).
 
@@ -2276,7 +2276,7 @@ For the Radar tab content, fetch from `/api/reports/radar?page=${page}&pageSize=
 ```tsx
 {activeTab === 'radar' && radarReports.length === 0 && (
   <div className="text-center text-gray-500 py-12">
-    No Radar reports yet. The pre-market scan runs at 8:15 AM AST on trading days.
+    No Radar reports yet. The pre-market scan runs at 10:05 AM AST on trading days.
   </div>
 )}
 ```
@@ -2605,7 +2605,7 @@ function RadarContent() {
     return (
       <div className="flex flex-col items-center justify-center min-h-[50vh] text-gray-500">
         <p className="text-lg">No Radar report yet.</p>
-        <p className="text-sm mt-1">The pre-market scan runs at 8:15 AM AST on trading days.</p>
+        <p className="text-sm mt-1">The pre-market scan runs at 10:05 AM AST on trading days.</p>
       </div>
     );
   }
@@ -2725,7 +2725,7 @@ In `settings/page.tsx`, find the email preference toggles. Add after `emailOpeni
 <div className="flex items-center justify-between py-3 border-b border-gray-800">
   <div>
     <div className="text-sm font-medium text-gray-200">Radar Alerts</div>
-    <div className="text-xs text-gray-500">Pre-market institutional signal alerts at 8:15 AM AST</div>
+    <div className="text-xs text-gray-500">Pre-market institutional signal alerts at 10:05 AM AST</div>
   </div>
   <button
     onClick={() => handleToggle('emailRadar')}
@@ -2757,14 +2757,14 @@ git push
 **Files:**
 - Modify: `scripts/start-cron.ts`
 
-- [ ] **Step 1: Add the 8:15 AM Radar cron job**
+- [ ] **Step 1: Add the 10:05 AM Radar cron job**
 
 In `start-cron.ts`, after the initial console.log statements and before the Opening Bell job, add:
 
 ```typescript
 // Pre-market Radar — weekdays at 8:15am AST
 cron.schedule(
-  '15 8 * * 1-5',
+  '5 10 * * 1-5',
   async () => {
     console.log(`[Cron] Triggering Radar scan at ${new Date().toISOString()}`);
     try {
@@ -2781,14 +2781,14 @@ cron.schedule(
   { timezone: TIMEZONE }
 );
 
-console.log(`[Cron] Radar: 15 8 * * 1-5 (${TIMEZONE})`);
+console.log(`[Cron] Radar: 5 10 * * 1-5 (${TIMEZONE})`);
 ```
 
 - [ ] **Step 2: Commit**
 
 ```bash
 git add scripts/start-cron.ts
-git commit -m "feat: add Radar cron job at 8:15 AM AST weekdays"
+git commit -m "feat: add Radar cron job at 10:05 AM AST weekdays"
 git push
 ```
 
@@ -2915,7 +2915,7 @@ git add -A
 git commit -m "chore: bump version to 5.0 — Smart Money Flow Radar release
 
 Features:
-- Pre-market Radar scanner (8:15 AM AST) with Smart Money Conviction Score
+- Pre-market Radar scanner (10:05 AM AST) with Smart Money Conviction Score
 - FMP Ultimate endpoint integration (1-min bars, earnings surprises, transcripts)
 - Spike It upgrade to real intraday data
 - Opening Bell upgrade to 1-min bars

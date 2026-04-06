@@ -9,7 +9,7 @@
 
 ### Overview
 
-Version 5.0 introduces the **Smart Money Flow Radar**, a pre-market scanner that runs at 8:15 AM AST on trading days to detect institutional-grade signals before the opening bell. The Radar scores every liquid TSX/TSXV ticker using a multi-signal conviction framework — combining technical momentum, catalyst events, and volume anomalies — then feeds its top picks forward into the Opening Bell and Today's Spikes pipelines via an override bridge. Alongside the headline feature, v5.0 upgrades the entire data pipeline to FMP Ultimate (1-minute intraday bars, bulk earnings calendar), migrates Spike It and Council Stage 4 to the SuperGrok Heavy Multi-Agent model, hardens security across all API routes, and delivers a full suite of UI additions including a dedicated Radar page, animated radar icons, email alerts, accuracy tracking, and admin integration.
+Version 5.0 introduces the **Smart Money Flow Radar**, a pre-market scanner that runs at 10:05 AM AST on trading days to detect institutional-grade signals before the opening bell. The Radar scores every liquid TSX/TSXV ticker using a multi-signal conviction framework — combining technical momentum, catalyst events, and volume anomalies — then feeds its top picks forward into the Opening Bell and Today's Spikes pipelines via an override bridge. Alongside the headline feature, v5.0 upgrades the entire data pipeline to FMP Ultimate (1-minute intraday bars, bulk earnings calendar), migrates Spike It and Council Stage 4 to the SuperGrok Heavy Multi-Agent model, hardens security across all API routes, and delivers a full suite of UI additions including a dedicated Radar page, animated radar icons, email alerts, accuracy tracking, and admin integration.
 
 ---
 
@@ -24,7 +24,7 @@ Version 5.0 introduces the **Smart Money Flow Radar**, a pre-market scanner that
 #### Smart Money Flow Radar — Next.js Integration
 - **Radar analyzer** — TypeScript bridge that triggers the Python Radar scanner, polls for completion, saves results to Prisma (RadarReport + RadarPick records), and writes an override file for downstream pipelines. (`src/lib/radar-analyzer.ts`) *Commit 73a84cf*
 - **Radar API routes** — Three new Next.js API routes: `/api/cron/radar` (cron trigger), `/api/radar` (data endpoint for the Radar page), and `/api/reports/radar` (paginated historical reports). (`src/app/api/cron/radar/route.ts`, `src/app/api/radar/route.ts`, `src/app/api/reports/radar/route.ts`) *Commit 03b96e0*
-- **Radar cron job** — Scheduled at 8:15 AM AST on weekdays via `scripts/start-cron.ts`. Runs before Opening Bell (9:15 AM) and Today's Spikes (10:35 AM) so its picks propagate through the full pipeline. *Commit a69eec6*
+- **Radar cron job** — Scheduled at 10:05 AM AST on weekdays via `scripts/start-cron.ts`. Runs before Opening Bell (9:15 AM) and Today's Spikes (10:35 AM) so its picks propagate through the full pipeline. *Commit a69eec6*
 - **`?force=true` param for Radar cron** — Allows triggering Radar on weekends and holidays for testing without waiting for a trading day. (`src/app/api/cron/radar/route.ts`) *Commit f8051fb*
 - **Prisma schema: RadarReport and RadarPick models** — New database tables for storing Radar scan results, including report-level metadata and per-pick details (ticker, score breakdown, direction, catalyst summary). Added `User.emailRadar` field for email opt-in. (`prisma/schema.prisma`) *Commit 2936e9c*
 - **Radar accuracy tracking fields** — Added `actualOpenPrice`, `actualOpenChangePct`, `actualDayHigh`, `actualClose`, `openMoveCorrect`, and `pipelineFlags` to `RadarPick` for measuring prediction accuracy after market close. (`prisma/schema.prisma`) *Commit 6d1c126*
@@ -151,7 +151,7 @@ Version 5.0 introduces the **Smart Money Flow Radar**, a pre-market scanner that
 
 ### Data Pipeline Changes
 
-- **Three-stage pipeline** — v5.0 establishes a clear three-stage daily pipeline: Radar (8:15 AM AST) → Opening Bell (9:15 AM AST) → Today's Spikes (10:35 AM AST). Radar feeds priority tickers forward via an override file.
+- **Three-stage pipeline** — v5.0 establishes a clear three-stage daily pipeline: Radar (10:05 AM AST) → Opening Bell (9:15 AM AST) → Today's Spikes (10:35 AM AST). Radar feeds priority tickers forward via an override file.
 - **1-min intraday bars** — All three scanners now prefer 1-min bars over 5-min, with automatic fallback chains. Provides more granular intraday data for analysis.
 - **Bulk earnings calendar** — Single bulk API call replaces 352 individual per-ticker calls that were all returning 404. Finnhub backup ensures coverage.
 - **Source-tagged learning records** — Every pick flowing through the learning engine is tagged with its pipeline origin, enabling per-stage accuracy measurement.
@@ -220,7 +220,7 @@ All 58 commits from v4.0 to v5.0, in chronological order:
 | 33 | 70d0601 | feat: add Radar page and RadarCard component |
 | 34 | 5f8122e | feat: add Radar nav item to sidebar |
 | 35 | 646095c | feat: add emailRadar toggle to settings page |
-| 36 | a69eec6 | feat: add Radar cron job at 8:15 AM AST weekdays |
+| 36 | a69eec6 | feat: add Radar cron job at 10:05 AM AST weekdays |
 | 37 | a01e619 | feat: add Radar email template and wire into analyzer |
 | 38 | efe5a21 | chore: bump version to 5.0 |
 | 39 | b468e9b | fix: switch Spike It + Council Stage 4 to SuperGrok Heavy Multi-Agent |

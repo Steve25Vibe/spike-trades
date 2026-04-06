@@ -332,7 +332,7 @@ function ReportsContent() {
 
           {radarReports.length === 0 && !loading && (
             <div className="glass-card p-12 text-center text-spike-text-dim">
-              No Radar reports yet. The pre-market scan runs at 8:15 AM AST on trading days.
+              No Radar reports yet. The pre-market scan runs at 10:05 AM AST on trading days.
             </div>
           )}
         </div>

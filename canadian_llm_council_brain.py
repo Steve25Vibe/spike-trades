@@ -4291,7 +4291,7 @@ class CompoundingRoadmapEngine:
 class RadarScanner:
     """Pre-market Smart Money Flow Radar scanner.
 
-    Runs at 8:15 AM AST, detects overnight signals that predict
+    Runs at 10:05 AM AST, detects overnight signals that predict
     institutional buying pressure at open. Flags tickers with a
     Smart Money Conviction Score (0-100).
 

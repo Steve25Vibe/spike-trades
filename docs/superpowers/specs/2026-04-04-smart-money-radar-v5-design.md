@@ -9,10 +9,10 @@
 
 ## 1. Executive Summary
 
-Version 5.0 adds a pre-market **Smart Money Flow Radar** scanner and upgrades the entire data pipeline to leverage FMP Ultimate plan endpoints. The Radar runs at 8:15 AM AST, detects overnight signals that predict institutional buying pressure at open, and feeds flagged tickers downstream through Opening Bell and Today's Spikes. Additionally, all existing scanners gain 1-minute intraday bars, earnings transcripts, and earnings surprises data.
+Version 5.0 adds a pre-market **Smart Money Flow Radar** scanner and upgrades the entire data pipeline to leverage FMP Ultimate plan endpoints. The Radar runs at 10:05 AM AST, detects overnight signals that predict institutional buying pressure at open, and feeds flagged tickers downstream through Opening Bell and Today's Spikes. Additionally, all existing scanners gain 1-minute intraday bars, earnings transcripts, and earnings surprises data.
 
 **Key deliverables:**
-1. Radar scanner (8:15 AM AST, Sonnet 4.6, custom rubric)
+1. Radar scanner (10:05 AM AST, Sonnet 4.6, custom rubric)
 2. FMP Ultimate endpoint integration (1-min bars, earnings surprises, earnings transcripts)
 3. Spike It upgrade from synthetic to real intraday data
 4. Opening Bell upgrade to 1-min bars
@@ -26,7 +26,7 @@ Version 5.0 adds a pre-market **Smart Money Flow Radar** scanner and upgrades th
 ### 2.1 Scanner Pipeline (Chronological)
 
 ```
-8:15 AM AST  — RADAR (NEW)
+10:05 AM AST  — RADAR (NEW)
                 ↓ radar_opening_bell_overrides.json
 10:35 AM AST — OPENING BELL (modified: reads Radar flags, 1-min bars)
                 ↓ opening_bell_council_overrides.json (existing mechanism)
@@ -195,7 +195,7 @@ If any endpoint returns empty for Canadian stocks, the code gracefully degrades 
 
 FMP Ultimate: 3,000 calls/min (up from 750 on current plan).
 
-Radar at 8:15 AM adds ~400-600 API calls (universe + quotes + enrichment for ~300 tickers). With 3,000 calls/min this completes in under 1 minute of data fetching, leaving ample headroom for the LLM call.
+Radar at 10:05 AM adds ~400-600 API calls (universe + quotes + enrichment for ~300 tickers). With 3,000 calls/min this completes in under 1 minute of data fetching, leaving ample headroom for the LLM call.
 
 No batching changes needed for existing scanners. The 4x rate increase naturally reduces retry frequency and overall pipeline latency.
 
@@ -270,7 +270,7 @@ model User {
 
 ```typescript
 // scripts/start-cron.ts
-cron.schedule('15 8 * * 1-5', () => {
+cron.schedule('5 10 * * 1-5', () => {
   // POST /api/cron/radar with Bearer token
   // Timeout: 360000 ms (6 minutes)
 }, { timezone: 'America/Halifax' });
@@ -304,7 +304,7 @@ cron.schedule('15 8 * * 1-5', () => {
 | `src/app/api/spikes/route.ts` | Cross-reference RadarPick table → set `isRadarPick` flag |
 | `src/app/api/opening-bell/route.ts` | Cross-reference RadarPick table → set `isRadarPick` flag |
 | `src/app/api/accuracy/check/route.ts` | Backfill RadarPick.passedOpeningBell and passedSpikes |
-| `scripts/start-cron.ts` | Add 8:15 AM Radar job |
+| `scripts/start-cron.ts` | Add 10:05 AM Radar job |
 
 ### 6.5 New Files
 
@@ -362,7 +362,7 @@ cron.schedule('15 8 * * 1-5', () => {
 
 **`settings/page.tsx`:**
 - New toggle: "Radar Alerts" → emailRadar preference
-- Description: "Receive pre-market institutional signal alerts at 8:15 AM AST"
+- Description: "Receive pre-market institutional signal alerts at 10:05 AM AST"
 
 ### 7.3 Animated Radar Icon
 
@@ -387,7 +387,7 @@ SVG-based animated green radar screen. CSS animation (not emoji). Specifications
 
 ### 8.1 New Radar Email
 
-- Trigger: 8:15 AM AST, after Radar scan completes
+- Trigger: 10:05 AM AST, after Radar scan completes
 - Recipients: Users with `emailRadar: true`
 - Template: Green-themed HTML email
 - Content: Top flagged tickers, Smart Money Score, top catalyst per ticker, link to /radar page
@@ -512,7 +512,7 @@ Recommended phase order for the implementation plan:
 - Radar email template
 - Radar icons in Spikes and OB emails
 - Accuracy backfill for Radar picks
-- Cron scheduler: add 8:15 AM job
+- Cron scheduler: add 10:05 AM job
 - Version bump to 5.0
 
 ---
