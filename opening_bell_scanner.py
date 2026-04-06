@@ -25,8 +25,8 @@ logger = logging.getLogger("opening_bell")
 FMP_BASE = "https://financialmodelingprep.com/stable"
 
 # Filters
-MIN_ADV_DOLLARS = 2_000_000  # $2M average daily volume (relaxed from Council's $5M)
-MIN_PRICE = 1.0              # >$1 share price
+MIN_MARKET_CAP = 200_000_000  # $200M market cap (proxy for liquidity since avgVolume unavailable)
+MIN_PRICE = 1.0               # >$1 share price
 
 
 class OpeningBellScanner:
@@ -75,20 +75,15 @@ class OpeningBellScanner:
 
     async def fetch_tsx_universe(self, session: aiohttp.ClientSession) -> list[dict]:
         """Fetch batch quotes for TSX/TSXV liquid universe."""
-        # Use same stock list the Council uses
+        # Fetch stock list and filter to TSX by .TO suffix (stable API lacks exchange field)
         all_tickers = await self._fmp_get(session, "/stock-list")
         if not all_tickers:
             return []
 
-        # Filter to TSX/TSXV, apply ADV + price filters
-        tsx_symbols = []
-        for s in all_tickers:
-            exch = (s.get("exchangeShortName") or s.get("exchange") or "").upper()
-            if exch not in ("TSX", "TSXV", "NEO"):
-                continue
-            tsx_symbols.append(s.get("symbol", ""))
-
-        tsx_symbols = [s for s in tsx_symbols if s]
+        tsx_symbols = sorted(set(
+            s["symbol"] for s in all_tickers
+            if isinstance(s, dict) and s.get("symbol", "").endswith(".TO")
+        ))
 
         # Batch quote in groups of 50
         all_quotes = []
@@ -102,14 +97,14 @@ class OpeningBellScanner:
             if i + batch_size < len(tsx_symbols):
                 await asyncio.sleep(0.2)
 
-        # Apply liquidity filters
+        # Apply liquidity filters (marketCap proxy since avgVolume not in batch-quote)
         filtered = []
         for q in all_quotes:
             price = q.get("price", 0) or 0
-            avg_vol = q.get("avgVolume", 0) or 0
+            mkt_cap = q.get("marketCap", 0) or 0
             if price < MIN_PRICE:
                 continue
-            if avg_vol * price < MIN_ADV_DOLLARS:
+            if mkt_cap < MIN_MARKET_CAP:
                 continue
             filtered.append(q)
 
@@ -150,39 +145,28 @@ class OpeningBellScanner:
     # ── Ranking Computation ───────────────────────────────────────────
 
     def compute_rankings(self, quotes: list[dict], top_n: int = 40) -> list[dict]:
-        """Rank quotes by composite momentum score (change% + relative volume).
+        """Rank quotes by change% (positive movers only).
 
         Filters out:
         - Negative movers (change% <= 0)
-        - Dead volume (relative volume < 0.5)
 
-        Returns top_n movers sorted by composite score descending.
+        Returns top_n movers sorted by change% descending.
+        Note: avgVolume is not available in batch-quote, so relative volume
+        is computed later from profile data for the top candidates.
         """
         scored = []
         for q in quotes:
-            change_pct = q.get("changesPercentage", 0) or 0
+            change_pct = q.get("changePercentage", 0) or 0
             volume = q.get("volume", 0) or 0
-            avg_volume = q.get("avgVolume", 0) or 1  # Avoid division by zero
 
             # Filter negative movers
             if change_pct <= 0:
                 continue
 
-            relative_volume = volume / avg_volume if avg_volume > 0 else 0
-
-            # Filter dead volume
-            if relative_volume < 0.5:
-                continue
-
-            # Composite score: weighted combo of change% and relative volume
-            # Change% is 0-100 scale, relative volume is typically 0-20x
-            # Normalize relative volume to similar scale
-            composite = (change_pct * 0.4) + (min(relative_volume, 20) * 0.6)
-
             scored.append({
                 **q,
-                "relative_volume": round(relative_volume, 1),
-                "composite_score": round(composite, 2),
+                "relative_volume": 0.0,  # Populated later from profile data
+                "composite_score": round(change_pct, 2),
             })
 
         scored.sort(key=lambda x: x["composite_score"], reverse=True)
@@ -205,7 +189,7 @@ class OpeningBellScanner:
                 g = grades[sym][0]
                 grade_info = f" | Analyst: {g.get('gradingCompany', '?')} → {g.get('newGrade', '?')} ({g.get('action', '?')})"
             mover_lines.append(
-                f"  {sym}: ${m.get('price', 0):.2f} ({m.get('changesPercentage', 0):+.1f}%) "
+                f"  {sym}: ${m.get('price', 0):.2f} ({m.get('changePercentage', 0):+.1f}%) "
                 f"RelVol={m.get('relative_volume', 0):.1f}x "
                 f"AvgVol={m.get('avgVolume', 0):,.0f}{grade_info}"
             )
@@ -288,7 +272,7 @@ Always respond with valid JSON only. No markdown, no explanation outside the JSO
         for pick in picks:
             ticker = pick["ticker"]
             q = quote_map.get(ticker, {})
-            avg_vol = q.get("avgVolume", 1) or 1
+            avg_vol = q.get("avgVolume") or q.get("averageVolume") or 1
             vol = q.get("volume", 0) or 0
             sector = q.get("sector", "") or ""
 
@@ -300,7 +284,7 @@ Always respond with valid JSON only. No markdown, no explanation outside the JSO
                 "exchange": q.get("exchange", "TSX"),
                 "priceAtScan": q.get("price", 0),
                 "previousClose": q.get("previousClose", 0),
-                "changePercent": q.get("changesPercentage", 0),
+                "changePercent": q.get("changePercentage", 0),
                 "relativeVolume": round(vol / avg_vol, 1) if avg_vol > 0 else 0,
                 "sectorMomentum": sector_map.get(sector, 0),
                 "momentumScore": pick["momentum_score"],
@@ -346,6 +330,19 @@ Always respond with valid JSON only. No markdown, no explanation outside the JSO
 
                 logger.info(f"Opening Bell: {len(movers)} top movers identified")
 
+                # Step 2b: Enrich movers with averageVolume + sector from profiles
+                for m in movers:
+                    prof = await self._fmp_get(session, "/profile", {"symbol": m["symbol"]})
+                    if prof and isinstance(prof, list):
+                        p = prof[0]
+                        avg_vol = p.get("averageVolume", 0) or 0
+                        vol = m.get("volume", 0) or 0
+                        m["avgVolume"] = avg_vol
+                        m["relative_volume"] = round(vol / avg_vol, 1) if avg_vol > 0 else 0.0
+                        m["sector"] = p.get("sector", "")
+                    await asyncio.sleep(0.05)
+                logger.info(f"Opening Bell: enriched {len(movers)} movers with profile data")
+
                 # Step 3: Enrich — fetch sector perf + grades in parallel
                 mover_tickers = [m["symbol"] for m in movers]
                 sectors_task = self.fetch_sector_performance(session)
@@ -375,8 +372,12 @@ Always respond with valid JSON only. No markdown, no explanation outside the JSO
                 if not picks:
                     return {"success": False, "error": "Sonnet returned no valid picks", "duration_ms": int((time.time() - start) * 1000), "token_usage": token_usage}
 
-                # Step 6: Map to Prisma format
+                # Step 6: Map to Prisma format (use movers which have profile-enriched avgVolume)
                 quote_map = {q["symbol"]: q for q in quotes}
+                # Overlay mover data (has avgVolume from profile enrichment)
+                for m in movers:
+                    if m["symbol"] in quote_map:
+                        quote_map[m["symbol"]].update(m)
                 sector_map = {s.get("sector", ""): s.get("averageChange", 0) for s in sectors}
                 prisma_picks = self.map_to_prisma(picks, quote_map, sector_map)
 
