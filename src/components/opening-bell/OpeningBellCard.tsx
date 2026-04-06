@@ -47,9 +47,9 @@ export default function OpeningBellCard({ pick, selected, onSelect, onLockIn, se
   const rankClass = pick.rank === 1 ? 'rank-1' : pick.rank === 2 ? 'rank-2' : pick.rank === 3 ? 'rank-3' : '';
 
   const scoreColor =
-    pick.momentumScore >= 80 ? 'text-spike-green border-spike-green/40 bg-spike-green/10' :
-    pick.momentumScore >= 60 ? 'text-spike-amber border-spike-amber/40 bg-spike-amber/10' :
-    'text-spike-red border-spike-red/40 bg-spike-red/10';
+    pick.momentumScore >= 80 ? 'bg-spike-green/15 text-spike-green border border-spike-green/30' :
+    pick.momentumScore >= 60 ? 'bg-spike-amber/15 text-spike-amber border border-spike-amber/30' :
+    'bg-spike-red/15 text-spike-red border border-spike-red/30';
 
   const convictionColor =
     pick.conviction === 'high' ? 'text-spike-green' :
@@ -97,10 +97,12 @@ export default function OpeningBellCard({ pick, selected, onSelect, onLockIn, se
             <p className="text-xs text-spike-text-muted">{pick.name}</p>
           </div>
         </div>
-        {/* Score circle */}
-        <div className={`w-16 h-16 rounded-full border-2 flex flex-col items-center justify-center ${scoreColor}`}>
-          <span className="text-2xl font-extrabold font-mono">{Math.round(pick.momentumScore)}</span>
-          <span className="text-[9px] uppercase tracking-wide opacity-70">Score</span>
+        {/* Score badge (matches RadarCard/SpikeCard) */}
+        <div className="flex flex-col items-center">
+          <div className={`w-16 h-16 rounded-xl flex items-center justify-center font-bold text-xl mono ${scoreColor}`}>
+            {Math.round(pick.momentumScore)}
+          </div>
+          <p className="text-[10px] text-spike-text-muted mt-1 uppercase tracking-wider">Score</p>
         </div>
       </div>
 

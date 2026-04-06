@@ -29,6 +29,8 @@ FMP_BASE = "https://financialmodelingprep.com/stable"
 # Filters
 MIN_MARKET_CAP = 200_000_000  # $200M market cap (proxy for liquidity since avgVolume unavailable)
 MIN_PRICE = 1.0               # >$1 share price
+MIN_AVG_VOLUME = 50_000       # Layer 2: min avgVolume for quality picks
+MIN_MOMENTUM_SCORE = 50       # Quality threshold: minimum score to include a pick
 
 
 class OpeningBellScanner:
@@ -128,6 +130,23 @@ class OpeningBellScanner:
             await asyncio.sleep(0.1)
         return grades_map
 
+    async def fetch_news_bulk(self, session: aiohttp.ClientSession, tickers: list[str]) -> dict[str, list[dict]]:
+        """Fetch recent news for multiple tickers from FMP /news/stock."""
+        news_map: dict[str, list[dict]] = {}
+        # Batch: FMP /news/stock supports tickers param for bulk
+        batch_size = 10
+        for i in range(0, len(tickers), batch_size):
+            batch = tickers[i:i + batch_size]
+            tickers_str = ",".join(batch)
+            data = await self._fmp_get(session, "/news/stock", {"tickers": tickers_str, "limit": "50"})
+            if data and isinstance(data, list):
+                for article in data:
+                    sym = article.get("symbol", "")
+                    if sym in batch:
+                        news_map.setdefault(sym, []).append(article)
+            await asyncio.sleep(0.2)
+        return news_map
+
     async def fetch_intraday_bars(self, session: aiohttp.ClientSession, ticker: str) -> list[dict]:
         """Fetch intraday bars: 1-min (preferred) → 5-min (fallback) → empty."""
         today = datetime.now(ZoneInfo("America/Halifax")).strftime("%Y-%m-%d")
@@ -203,7 +222,7 @@ class OpeningBellScanner:
 {movers_text}
 
 Analyze these TSX/TSXV stocks that are showing unusual momentum at market open.
-Select the TOP 10 most promising for rapid intraday gains.
+Select between 3-10 picks (quality over quantity). Only include stocks you have genuine conviction in.
 
 For each pick, provide:
 1. rank (1-10)
@@ -269,12 +288,18 @@ Always respond with valid JSON only. No markdown, no explanation outside the JSO
     # ── Result Mapping ────────────────────────────────────────────────
 
     def map_to_prisma(self, picks: list[dict], quote_map: dict[str, dict], sector_map: dict[str, float]) -> list[dict]:
-        """Map scanner picks to Prisma-compatible format for database insertion."""
+        """Map scanner picks to Prisma-compatible format for database insertion.
+
+        Layer 3: Rejects tickers with no avgVolume (no fallback to 1).
+        """
         mapped = []
         for pick in picks:
             ticker = pick["ticker"]
             q = quote_map.get(ticker, {})
-            avg_vol = q.get("avgVolume") or q.get("averageVolume") or 1
+            avg_vol = q.get("avgVolume") or q.get("averageVolume") or 0
+            if avg_vol <= 0:
+                logger.warning(f"Opening Bell: rejecting {ticker} in map_to_prisma — no avgVolume data")
+                continue
             vol = q.get("volume", 0) or 0
             sector = q.get("sector", "") or ""
 
@@ -287,7 +312,7 @@ Always respond with valid JSON only. No markdown, no explanation outside the JSO
                 "priceAtScan": q.get("price", 0),
                 "previousClose": q.get("previousClose", 0),
                 "changePercent": q.get("changePercentage", 0),
-                "relativeVolume": round(vol / avg_vol, 1) if avg_vol > 0 else 0,
+                "relativeVolume": round(vol / avg_vol, 1),
                 "sectorMomentum": sector_map.get(sector, 0),
                 "momentumScore": pick["momentum_score"],
                 "intradayTarget": pick["intraday_target"],
@@ -332,7 +357,7 @@ Always respond with valid JSON only. No markdown, no explanation outside the JSO
 
                 logger.info(f"Opening Bell: {len(movers)} top movers identified")
 
-                # Step 2b: Enrich movers with bulk profile cache, filter ghost tickers + ETFs
+                # Step 2b: Layer 1 — Validate against bulk profile whitelist (ETF + ghost filter)
                 tsx_whitelist = await fmp_bulk_cache.get_tsx_whitelist(self.fmp_key)
                 mover_symbols = [m["symbol"] for m in movers]
                 profiles = await fmp_bulk_cache.get_profiles(mover_symbols, self.fmp_key)
@@ -343,21 +368,39 @@ Always respond with valid JSON only. No markdown, no explanation outside the JSO
                         continue
                     p = profiles.get(sym, {})
                     avg_vol = p.get("averageVolume", 0) or 0
+                    # Layer 2 — Volume gate: reject if avgVolume < 50K
+                    if avg_vol < MIN_AVG_VOLUME:
+                        continue
                     vol = m.get("volume", 0) or 0
                     m["avgVolume"] = avg_vol
+                    # Layer 3 — No fallback: reject if avgVolume missing/zero
                     m["relative_volume"] = round(vol / avg_vol, 1) if avg_vol > 0 else 0.0
                     m["sector"] = p.get("sector", "")
                     enriched_movers.append(m)
                 movers = enriched_movers
-                logger.info(f"Opening Bell: {len(movers)} movers after bulk profile enrichment (filtered ghost tickers + ETFs)")
+                logger.info(f"Opening Bell: {len(movers)} movers after 3-layer quality filter (whitelist + volume gate + profile)")
 
-                # Step 3: Enrich — fetch sector perf + grades in parallel
+                # Step 3: Enrich — fetch sector perf + grades + news in parallel
                 mover_tickers = [m["symbol"] for m in movers]
                 sectors_task = self.fetch_sector_performance(session)
                 grades_task = self.fetch_grades(session, mover_tickers)
-                sectors, grades = await asyncio.gather(sectors_task, grades_task)
+                news_task = self.fetch_news_bulk(session, mover_tickers)
+                sectors, grades, news_map = await asyncio.gather(sectors_task, grades_task, news_task)
 
-                logger.info(f"Opening Bell: {len(sectors)} sectors, grades for {len(grades)} tickers")
+                logger.info(f"Opening Bell: {len(sectors)} sectors, grades for {len(grades)} tickers, news for {len(news_map)} tickers")
+
+                # Layer 4 — Multi-signal requirement: change% + at least one supporting signal
+                multi_signal_movers = []
+                for m in movers:
+                    sym = m["symbol"]
+                    rel_vol = m.get("relative_volume", 0)
+                    has_grade = sym in grades and len(grades[sym]) > 0
+                    has_news = sym in news_map and len(news_map[sym]) > 0
+                    has_vol_signal = rel_vol >= 1.5
+                    if has_vol_signal or has_grade or has_news:
+                        multi_signal_movers.append(m)
+                logger.info(f"Opening Bell: {len(multi_signal_movers)} movers pass multi-signal requirement (from {len(movers)})")
+                movers = multi_signal_movers
 
                 # Step 4: Call Sonnet
                 user_prompt = self.build_sonnet_prompt(movers, sectors, grades)
@@ -375,10 +418,11 @@ Always respond with valid JSON only. No markdown, no explanation outside the JSO
 
                 logger.info(f"Opening Bell: Sonnet returned {len(response_text)} chars, tokens: {token_usage}")
 
-                # Step 5: Parse response
+                # Step 5: Parse response + quality threshold (min score 50, 3-10 picks)
                 picks = self.parse_sonnet_response(response_text)
-                if not picks:
-                    return {"success": False, "error": "Sonnet returned no valid picks", "duration_ms": int((time.time() - start) * 1000), "token_usage": token_usage}
+                picks = [p for p in picks if p.get("momentum_score", 0) >= MIN_MOMENTUM_SCORE]
+                if len(picks) < 3:
+                    return {"success": False, "error": f"Only {len(picks)} picks above quality threshold (need 3+)", "duration_ms": int((time.time() - start) * 1000), "token_usage": token_usage}
 
                 # Step 6: Map to Prisma format (use movers which have profile-enriched avgVolume)
                 quote_map = {q["symbol"]: q for q in quotes}
