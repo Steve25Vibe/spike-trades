@@ -54,7 +54,7 @@ cron.schedule(
       const res = await httpRequest(`${APP_URL}/api/cron/radar`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${CRON_SECRET}`, 'Content-Type': 'application/json' },
-        timeout: 360_000, // 6 minutes
+        timeout: 600_000, // 10 minutes — scan can take 7+ min with 60 AI-scored candidates
       });
       console.log(`[Cron] Radar result: ${res.status} — ${res.body.substring(0, 200)}`);
     } catch (err) {
