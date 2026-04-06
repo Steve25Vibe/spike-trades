@@ -1384,10 +1384,18 @@ def _validate_stage_results(
         logger.error(f"{stage_label}: Failed to parse response")
         return [], stage_tokens
 
+    SCORE_BOUNDS = {"technical_momentum": 30, "sentiment_catalysts": 25,
+                    "options_volatility": 20, "risk_reward": 15, "conviction": 10}
     validated = []
     for r in parsed["results"]:
         try:
-            score = ScoreBreakdown(**r["score"])
+            # Clamp component scores to rubric maximums before validation
+            raw_score = r.get("score", {})
+            for k, mx in SCORE_BOUNDS.items():
+                if k in raw_score:
+                    raw_score[k] = min(float(raw_score[k]), mx)
+            raw_score["total"] = sum(raw_score.get(k, 0) for k in SCORE_BOUNDS)
+            score = ScoreBreakdown(**raw_score)
             r["score"] = score.model_dump()
             if extra_validate:
                 extra_validate(r)
@@ -2409,10 +2417,16 @@ def _build_consensus(
         else:
             tier = ConvictionTier.LOW
 
-        # Parse stage scores into ScoreBreakdown objects
+        # Parse stage scores into ScoreBreakdown objects (clamp to bounds)
         stage_scores = {}
+        _bounds = {"technical_momentum": 30, "sentiment_catalysts": 25,
+                   "options_volatility": 20, "risk_reward": 15, "conviction": 10}
         for stage_key, score_dict in data["scores"].items():
             try:
+                for k, mx in _bounds.items():
+                    if k in score_dict:
+                        score_dict[k] = min(float(score_dict[k]), mx)
+                score_dict["total"] = sum(score_dict.get(k, 0) for k in _bounds)
                 stage_scores[stage_key] = ScoreBreakdown(**score_dict)
             except Exception:
                 pass
@@ -4312,12 +4326,14 @@ class RadarScanner:
 
 Your job: analyze overnight signals and identify stocks likely to see institutional buying pressure at market open.
 
-SCORING RUBRIC (100 points total):
-- Overnight Catalyst Strength (0-30): Analyst upgrades/downgrades, earnings surprise magnitude, price target revisions
-- News & Sentiment Momentum (0-25): Overnight news volume spike, headline sentiment, catalyst type (M&A, contract, regulatory)
-- Technical Breakout Setup (0-25): RSI recovery from oversold, MACD crossover, Bollinger squeeze, ADX trend strength
-- Volume & Accumulation Signals (0-10): Multi-day relative volume trend, OBV direction, volume-price divergence
-- Sector & Macro Alignment (0-10): Sector rotation momentum, macro regime fit, peer relative strength
+SCORING RUBRIC (100 points total — STRICT maximums, never exceed):
+- Overnight Catalyst Strength (0-30 MAX): Analyst upgrades/downgrades, earnings surprise magnitude, price target revisions
+- News & Sentiment Momentum (0-25 MAX): Overnight news volume spike, headline sentiment, catalyst type (M&A, contract, regulatory)
+- Technical Breakout Setup (0-25 MAX): RSI recovery from oversold, MACD crossover, Bollinger squeeze, ADX trend strength
+- Volume & Accumulation Signals (0-10 MAX): Multi-day relative volume trend, OBV direction, volume-price divergence
+- Sector & Macro Alignment (0-10 MAX): Sector rotation momentum, macro regime fit, peer relative strength
+
+CRITICAL: Each component score MUST NOT exceed its maximum. smart_money_score MUST equal the exact sum of all 5 components.
 
 CHAIN-OF-VERIFICATION MANDATE:
 1. For each ticker, state the specific overnight signal that triggered your attention.
@@ -4697,10 +4713,15 @@ Required JSON format:
         all_picks_raw.sort(key=lambda p: p.get("smart_money_score", 0), reverse=True)
         top_picks_raw = all_picks_raw[:top_n]
 
-        # Convert to Pydantic models
+        # Convert to Pydantic models (clamp AI scores to allowed ranges)
+        RADAR_BOUNDS = {"catalyst_strength": 30, "news_sentiment": 25, "technical_setup": 25,
+                        "volume_signals": 10, "sector_alignment": 10}
         picks = []
         for idx, raw in enumerate(top_picks_raw):
             try:
+                # Clamp component scores to rubric maximums
+                clamped = {k: min(float(raw.get(k, 0)), mx) for k, mx in RADAR_BOUNDS.items()}
+                clamped_total = sum(clamped.values())
                 pick = RadarPick(
                     rank=idx + 1,
                     ticker=raw["ticker"],
@@ -4708,14 +4729,10 @@ Required JSON format:
                     sector=quote_map.get(raw["ticker"], {}).get("sector", "Unknown"),
                     exchange=quote_map.get(raw["ticker"], {}).get("exchange", "TSX"),
                     price=quote_map.get(raw["ticker"], {}).get("price", 0),
-                    smart_money_score=int(raw.get("smart_money_score", 0)),
+                    smart_money_score=int(clamped_total),
                     score_breakdown=RadarScoreBreakdown(
-                        catalyst_strength=float(raw.get("catalyst_strength", 0)),
-                        news_sentiment=float(raw.get("news_sentiment", 0)),
-                        technical_setup=float(raw.get("technical_setup", 0)),
-                        volume_signals=float(raw.get("volume_signals", 0)),
-                        sector_alignment=float(raw.get("sector_alignment", 0)),
-                        total=float(raw.get("smart_money_score", 0)),
+                        **clamped,
+                        total=clamped_total,
                     ),
                     top_catalyst=raw.get("top_catalyst", ""),
                     rationale=raw.get("rationale", ""),
