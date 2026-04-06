@@ -4913,7 +4913,7 @@ class CanadianStockCouncilBrain:
             logger.info(f"Step 3: Got {len(quotes)} quotes")
 
             # Pre-filter: price > $1 and volume > 0 (cheap filter, no API calls)
-            MIN_ADV_DOLLARS = 5_000_000
+            MIN_ADV_DOLLARS = 8_000_000  # Tightened from $5M to reduce candidate count
             MIN_PRICE = 1.0
             price_filtered = []
             for ticker, q in quotes.items():
@@ -4933,7 +4933,15 @@ class CanadianStockCouncilBrain:
             # Fetch profiles from bulk cache (much fewer API calls than per-ticker)
             profiles = await fmp_bulk_cache.get_profiles(price_filtered, self.fmp_key)
 
-            # Full liquidity filter: ADV >= $5M using avgVolume from profile
+            # ETF + ghost ticker filter using bulk cache whitelist
+            tsx_whitelist = await fmp_bulk_cache.get_tsx_whitelist(self.fmp_key)
+            whitelisted = [t for t in price_filtered if t in tsx_whitelist]
+            etf_removed = len(price_filtered) - len(whitelisted)
+            if etf_removed > 0:
+                logger.info(f"Step 3: Removed {etf_removed} ETFs/ghost tickers via bulk cache whitelist")
+            price_filtered = whitelisted
+
+            # Full liquidity filter: ADV >= $8M using avgVolume from profile
             liquid_tickers = []
             for ticker in price_filtered:
                 q = quotes.get(ticker)
@@ -4953,7 +4961,7 @@ class CanadianStockCouncilBrain:
 
             logger.info(
                 f"Step 3: {len(liquid_tickers)} tickers pass liquidity filter "
-                f"(from {len(price_filtered)} price-filtered)"
+                f"(from {len(price_filtered)} price-filtered, ADV >= ${MIN_ADV_DOLLARS/1e6:.0f}M)"
             )
 
             if not liquid_tickers:
