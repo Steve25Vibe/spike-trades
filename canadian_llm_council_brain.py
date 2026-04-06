@@ -2218,6 +2218,7 @@ def _build_consensus(
     regime_filter: MacroRegimeFilter,
     earnings_map: dict[str, EarningsEvent] | None = None,
     learning_engine: Optional["LearningEngine"] = None,
+    historical_analyzer: Optional["HistoricalPerformanceAnalyzer"] = None,
 ) -> list[FinalHotPick]:
     """Build consensus Top 10 from all 4 stage results.
 
@@ -2380,6 +2381,14 @@ def _build_consensus(
                     iv_check = 1.03
                 consensus_score *= iv_check
         adjustments["iv_check"] = iv_check
+
+        # (G) Historical edge multiplier — apply before ranking so sort reflects final score
+        edge_mult = 1.0
+        if historical_analyzer:
+            edge_mult = historical_analyzer.get_historical_edge_multiplier(ticker)
+            if edge_mult != 1.0:
+                consensus_score *= edge_mult
+        adjustments["edge_multiplier"] = edge_mult
 
         data["learning_adjustments"] = adjustments
         scored_tickers.append((ticker, consensus_score, len(stages), data))
@@ -5364,6 +5373,7 @@ class CanadianStockCouncilBrain:
                 payloads_map, regime, self.regime_filter,
                 earnings_map=earnings_map,
                 learning_engine=self.learning_engine,
+                historical_analyzer=self.historical_analyzer,
             )
             if tracker:
                 tracker.complete_stage("consensus", picks=len(top_picks))
@@ -5375,13 +5385,11 @@ class CanadianStockCouncilBrain:
             except Exception as e:
                 logger.warning(f"Calibration failed (non-fatal): {e}")
 
-            # ── Step 11: Apply historical edge multipliers ──
+            # ── Step 11: Historical edge multipliers (now applied in _build_consensus before ranking) ──
             logger.info("Step 11: Applying historical edge multipliers")
             for pick in top_picks:
                 multiplier = self.historical_analyzer.get_historical_edge_multiplier(pick.ticker)
                 pick.historical_edge_multiplier = multiplier
-                if multiplier != 1.0:
-                    pick.consensus_score = round(pick.consensus_score * multiplier, 2)
 
             # ── Step 12: Risk portfolio sizing ──
             logger.info("Step 12: Computing risk allocations")
