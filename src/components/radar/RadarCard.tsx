@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
-import RadarIcon from './RadarIcon';
 
 export interface RadarPickData {
   id: string;
@@ -39,10 +38,13 @@ function ScoreBar({ label, value, max }: { label: string; value: number; max: nu
 
 interface Props {
   pick: RadarPickData;
+  selected?: boolean;
+  onSelect?: (pickId: string, selected: boolean) => void;
   onLockIn?: (pickId: string) => void;
+  selectionMode?: boolean;
 }
 
-export default function RadarCard({ pick, onLockIn }: Props) {
+export default function RadarCard({ pick, selected, onSelect, onLockIn, selectionMode }: Props) {
   const [locking, setLocking] = useState(false);
   const rankClass = pick.rank === 1 ? 'rank-1' : pick.rank === 2 ? 'rank-2' : pick.rank === 3 ? 'rank-3' : 'rank-default';
 
@@ -53,20 +55,52 @@ export default function RadarCard({ pick, onLockIn }: Props) {
     setLocking(false);
   };
 
+  const handleCheckbox = () => {
+    onSelect?.(pick.id, !selected);
+  };
+
   return (
-    <div className="glass-card p-5 relative group transition-all">
+    <div className={cn(
+      'glass-card p-5 relative group transition-all',
+      selected && 'ring-2 ring-radar-green/50 border-radar-green/30',
+      selectionMode && 'cursor-pointer'
+    )}>
       {/* Top glow for top 3 */}
       {pick.rank <= 3 && (
         <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-radar-green to-transparent rounded-t-2xl" />
       )}
 
+      {/* Selection checkbox — visible on hover or always in selection mode */}
+      <div className={cn(
+        'absolute top-4 right-4 z-10 transition-opacity',
+        selectionMode ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+      )}>
+        <button
+          onClick={handleCheckbox}
+          className={cn(
+            'w-7 h-7 rounded-lg border-2 flex items-center justify-center transition-all',
+            selected
+              ? 'bg-radar-green border-radar-green text-spike-bg'
+              : 'border-spike-border hover:border-radar-green/50 bg-spike-bg/50'
+          )}
+          title={selected ? 'Remove from selection' : 'Add to selection'}
+        >
+          {selected && (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          )}
+        </button>
+      </div>
+
+      {/* Header row: rank + info + score — matches SpikeCard flex layout */}
       <div className="flex items-start gap-4">
         {/* Rank badge */}
         <div className={cn('rank-badge flex-shrink-0', rankClass)}>
           {pick.rank}
         </div>
 
-        {/* Main info */}
+        {/* Main info — no RadarIcon here (redundant on Radar page) */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
             <a
@@ -86,10 +120,6 @@ export default function RadarCard({ pick, onLockIn }: Props) {
                 {pick.sector}
               </span>
             )}
-            <RadarIcon
-              size={24}
-              title={`Smart Money Score: ${pick.smartMoneyScore}`}
-            />
           </div>
           <p className="text-sm text-spike-text-dim line-clamp-2">{pick.name}</p>
 
@@ -99,8 +129,8 @@ export default function RadarCard({ pick, onLockIn }: Props) {
           </div>
         </div>
 
-        {/* Score */}
-        <div className="flex-shrink-0 text-center">
+        {/* Score — with mr-8 for checkbox space */}
+        <div className="flex-shrink-0 text-center mr-8">
           <div className={cn(
             'w-16 h-16 rounded-xl flex items-center justify-center font-bold text-xl mono',
             pick.smartMoneyScore >= 80 ? 'bg-spike-green/15 text-spike-green border border-spike-green/30' :
@@ -113,7 +143,7 @@ export default function RadarCard({ pick, onLockIn }: Props) {
         </div>
       </div>
 
-      {/* Top Catalyst */}
+      {/* Radar specialized: Top Catalyst */}
       {pick.topCatalyst && (
         <div className="mt-4 p-3 bg-radar-green/5 border border-radar-green/20 rounded-lg">
           <div className="text-[10px] uppercase text-radar-green/60 mb-1">Top Catalyst</div>
@@ -121,7 +151,7 @@ export default function RadarCard({ pick, onLockIn }: Props) {
         </div>
       )}
 
-      {/* Score breakdown bars */}
+      {/* Radar specialized: Score breakdown bars */}
       <div className="space-y-1.5 mt-4">
         <ScoreBar label="Catalyst" value={pick.catalystStrength} max={30} />
         <ScoreBar label="News" value={pick.newsSentiment} max={25} />
@@ -130,38 +160,41 @@ export default function RadarCard({ pick, onLockIn }: Props) {
         <ScoreBar label="Sector" value={pick.sectorAlignment} max={10} />
       </div>
 
-      {/* Pipeline status */}
-      <div className="flex items-center gap-2 text-[10px] mt-3">
-        <span className={pick.passedOpeningBell ? 'text-spike-amber' : 'text-spike-text-muted'}>
-          {pick.passedOpeningBell ? '\u2713 Opening Bell' : '\u25CB Awaiting OB'}
-        </span>
-        <span className="text-spike-text-muted">&rarr;</span>
-        <span className={pick.passedSpikes ? 'text-spike-cyan' : 'text-spike-text-muted'}>
-          {pick.passedSpikes ? '\u2713 Today\'s Spikes' : '\u25CB Awaiting Spikes'}
-        </span>
-      </div>
-
-      {/* Rationale */}
+      {/* Narrative — styled box with info icon, matching SpikeCard */}
       {pick.rationale && (
-        <div className="mt-3 pt-3 border-t border-spike-border">
-          <div className="text-[10px] uppercase text-radar-green/50 mb-1">Why This Stock?</div>
-          <p className="text-xs text-spike-text-dim leading-relaxed">{pick.rationale}</p>
+        <div className="mt-3 p-3 bg-spike-bg/40 rounded-lg border border-spike-border/30">
+          <div className="flex items-center gap-2 mb-1.5">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00FF88" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+            <span className="text-[10px] text-radar-green uppercase tracking-wider font-semibold">Why This Stock?</span>
+          </div>
+          <p className="text-sm text-spike-text-dim leading-relaxed">{pick.rationale}</p>
         </div>
       )}
 
-      {/* Lock In button */}
-      {onLockIn && (
-        <div className="flex justify-end mt-3 pt-3 border-t border-spike-border">
-          <button
-            onClick={handleLockIn}
-            disabled={locking}
-            className="btn-lock-in disabled:opacity-50"
-            title="Add this stock to your portfolio"
-          >
-            {locking ? 'Locking...' : 'Lock In'}
-          </button>
+      {/* Footer — matches SpikeCard structure */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mt-4 pt-3 border-t border-spike-border/30 gap-3">
+        <div className="flex gap-4 text-xs text-spike-text-muted mono">
+          <span>Score: {pick.smartMoneyScore}</span>
+          <span>Cat: {pick.catalystStrength}/{30}</span>
         </div>
-      )}
+
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {!selectionMode && onLockIn && (
+            <button
+              onClick={handleLockIn}
+              disabled={locking}
+              className="btn-lock-in disabled:opacity-50"
+              title="Add this stock to your portfolio"
+            >
+              {locking ? 'Locking...' : '⚡ Lock In'}
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
