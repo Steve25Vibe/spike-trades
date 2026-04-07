@@ -19,45 +19,81 @@ Session 9 was the first v5.0 production run (2026-04-06). All three pipelines ra
 - **Deploy path:** `/opt/spike-trades`
 - **FMP API Key:** Available in `.env` as `FMP_API_KEY`
 
+## ⚠️⚠️⚠️ PHASE 1 IS DEPRECATED — DO NOT RUN ANY SQL IN THIS PHASE ⚠️⚠️⚠️
+
+**Updated 2026-04-07 (Session 13 + post-mortem):** Every SQL block in Phase 1 below is destructive and unscoped against current production data. Running any of these statements today will delete legitimate user-facing data, including reports the user has received emails for and is actively reviewing.
+
+**Confirmed casualties from Phase 1 execution on Apr 6:**
+- Section 1.1 deleted the entire Apr 6 Opening Bell report and all 10 picks (the user has the email PDF; the data is gone from Postgres). Restoration in progress.
+- Section 1.5 deleted the entire `accuracy_records` SQLite table (~510 rows of Today's Spikes training data). Restored Apr 7 from Prisma Spike.actual3Day/5Day/8Day fields via `scripts/recover_accuracy_records.py` (recovered 198/270 resolved samples).
+
+**Sections 1.2, 1.3, 1.4 are similarly destructive and unscoped.** They use `CURRENT_DATE` or unbounded ticker lists with no WHERE-clause guards. Do not run them.
+
+**If you need to clean future bad data:**
+- Always scope DELETEs by explicit `id IN (...)` or `WHERE created_at BETWEEN ...`
+- Run a `SELECT COUNT(*)` of the same WHERE clause first
+- Wrap in `BEGIN; ... ROLLBACK;` first to dry-run
+- Get explicit user approval before any production DELETE
+
+This file is preserved as a post-mortem reference, not as runnable instructions.
+
+---
+
 ## Phase 1: Data Repair (Do First — Users See Bad Data Now)
 
 ### 1.1 Delete Today's Opening Bell (Ghost Tickers)
+
+> ⚠️ **DEPRECATED — DO NOT RUN (Session 13, 2026-04-07)**
+> The SQL below uses `CURRENT_DATE` with no further scoping and has cascade-delete on
+> the report → picks relationship. Running this on a date when a legitimate Opening
+> Bell run has already completed (which it will every weekday at 10:35 AM AST) will
+> destroy that day's report and all its picks. **This is exactly what happened to the
+> Apr 6 Opening Bell report (#1 NGD.TO +3.3%, 10 picks total).**
+
 All 10 picks are phantom tickers not purchasable on TSX. Delete the entire report.
 
 ```sql
+-- ⚠️ DEPRECATED — DO NOT RUN. Caused Apr 6 OB data loss.
 -- Delete picks first (FK constraint), then report
-DELETE FROM "OpeningBellPick" WHERE "reportId" IN (
-  SELECT id FROM "OpeningBellReport" WHERE date = CURRENT_DATE
-);
-DELETE FROM "OpeningBellReport" WHERE date = CURRENT_DATE;
+-- DELETE FROM "OpeningBellPick" WHERE "reportId" IN (
+--   SELECT id FROM "OpeningBellReport" WHERE date = CURRENT_DATE
+-- );
+-- DELETE FROM "OpeningBellReport" WHERE date = CURRENT_DATE;
 ```
 
 Verify: `SELECT COUNT(*) FROM "OpeningBellPick"` should return 0. `SELECT COUNT(*) FROM "OpeningBellReport"` should return 0.
 
 ### 1.2 Trim Today's Radar to Top 10
+
+> ⚠️ **DEPRECATED — DO NOT RUN (Session 13, 2026-04-07)**
+> Same `CURRENT_DATE` scoping bug as 1.1. Running this on any future date silently
+> trims that day's legitimate Radar report. The v5 over-generation bug it was
+> meant to address has been fixed at the generation layer.
+
 15 picks exist, should be 10. Delete ranks 11-15 (by smartMoneyScore), update report.
 
 ```sql
+-- ⚠️ DEPRECATED — DO NOT RUN. Unscoped CURRENT_DATE delete.
 -- Delete the bottom 5 by score
-DELETE FROM "RadarPick" WHERE id IN (
-  SELECT id FROM "RadarPick"
-  WHERE "reportId" IN (SELECT id FROM "RadarReport" WHERE date::date = CURRENT_DATE)
-  ORDER BY "smartMoneyScore" ASC
-  LIMIT 5
-);
-
+-- DELETE FROM "RadarPick" WHERE id IN (
+--   SELECT id FROM "RadarPick"
+--   WHERE "reportId" IN (SELECT id FROM "RadarReport" WHERE date::date = CURRENT_DATE)
+--   ORDER BY "smartMoneyScore" ASC
+--   LIMIT 5
+-- );
+--
 -- Re-rank remaining 10 by smartMoneyScore descending
-WITH ranked AS (
-  SELECT id, ROW_NUMBER() OVER (ORDER BY "smartMoneyScore" DESC) as new_rank
-  FROM "RadarPick"
-  WHERE "reportId" IN (SELECT id FROM "RadarReport" WHERE date::date = CURRENT_DATE)
-)
-UPDATE "RadarPick" p SET rank = r.new_rank
-FROM ranked r WHERE p.id = r.id;
-
+-- WITH ranked AS (
+--   SELECT id, ROW_NUMBER() OVER (ORDER BY "smartMoneyScore" DESC) as new_rank
+--   FROM "RadarPick"
+--   WHERE "reportId" IN (SELECT id FROM "RadarReport" WHERE date::date = CURRENT_DATE)
+-- )
+-- UPDATE "RadarPick" p SET rank = r.new_rank
+-- FROM ranked r WHERE p.id = r.id;
+--
 -- Update report count
-UPDATE "RadarReport" SET "tickersFlagged" = 10
-WHERE date::date = CURRENT_DATE;
+-- UPDATE "RadarReport" SET "tickersFlagged" = 10
+-- WHERE date::date = CURRENT_DATE;
 ```
 
 Verify: `SELECT rank, ticker, "smartMoneyScore" FROM "RadarPick" ORDER BY rank` — should show 10 rows, rank 1-10, scores descending.
@@ -70,25 +106,36 @@ EOF'
 ```
 
 ### 1.3 Clean ETF + Ghost Picks from Spikes Archive
+
+> ⚠️ **DEPRECATED — DO NOT RUN (Session 13, 2026-04-07)**
+> This unscoped DELETE removes ETF picks across **all dates** in the Spike table.
+> The ETF generation bug has been fixed at source by Phase 5.2 (ETF Filter for
+> Spikes), so newer reports do not contain these tickers. Running this retroactively
+> rewrites historical reports, breaking accuracy backfill (predictions vs actuals
+> are anchored to specific tickers on specific dates) and producing the inconsistent
+> short-count rows seen in Session 13's Daily Accuracy Trend (e.g., 2026-03-25
+> showing 6 picks instead of 10).
+
 14 ETFs + 1 ghost (BITF.TO) across 8 dates. Also 6 PortfolioEntry records reference ETF spikes.
 
 Bad tickers: `HND.TO, HNU.TO, HOD.TO, HOU.TO, NRGU.TO, VDY.TO, VGRO.TO, VIU.TO, XEG.TO, XGD.TO, XIU.TO, ZEB.TO, ZSP.TO, BITF.TO`
 
 ```sql
+-- ⚠️ DEPRECATED — DO NOT RUN. Unscoped historical rewrite.
 -- Step 1: Delete portfolio entries referencing bad spikes
-DELETE FROM "PortfolioEntry" WHERE "spikeId" IN (
-  SELECT id FROM "Spike" WHERE ticker IN (
-    'HND.TO','HNU.TO','HOD.TO','HOU.TO','NRGU.TO','VDY.TO','VGRO.TO',
-    'VIU.TO','XEG.TO','XGD.TO','XIU.TO','ZEB.TO','ZSP.TO','BITF.TO'
-  )
-);
-
+-- DELETE FROM "PortfolioEntry" WHERE "spikeId" IN (
+--   SELECT id FROM "Spike" WHERE ticker IN (
+--     'HND.TO','HNU.TO','HOD.TO','HOU.TO','NRGU.TO','VDY.TO','VGRO.TO',
+--     'VIU.TO','XEG.TO','XGD.TO','XIU.TO','ZEB.TO','ZSP.TO','BITF.TO'
+--   )
+-- );
+--
 -- Step 2: Delete bad spike picks
-DELETE FROM "Spike" WHERE ticker IN (
-  'HND.TO','HNU.TO','HOD.TO','HOU.TO','NRGU.TO','VDY.TO','VGRO.TO',
-  'VIU.TO','XEG.TO','XGD.TO','XIU.TO','ZEB.TO','ZSP.TO','BITF.TO'
-);
-
+-- DELETE FROM "Spike" WHERE ticker IN (
+--   'HND.TO','HNU.TO','HOD.TO','HOU.TO','NRGU.TO','VDY.TO','VGRO.TO',
+--   'VIU.TO','XEG.TO','XGD.TO','XIU.TO','ZEB.TO','ZSP.TO','BITF.TO'
+-- );
+--
 -- Step 3: Re-rank all affected reports
 -- For each report, re-rank remaining picks by spikeScore descending
 ```
@@ -96,56 +143,74 @@ DELETE FROM "Spike" WHERE ticker IN (
 After deleting, re-rank each affected date's picks sequentially by spikeScore.
 
 ### 1.4 Trim Mar 24 and Mar 25 from 20 to Top 10
+
+> ⚠️ **DEPRECATED — DO NOT RUN (Session 13, 2026-04-07)**
+> Combined with the 1.3 ETF cleanup, this is what produced the asymmetric historical
+> short-counts (Mar 25 = 6 picks, Mar 30 = 7 picks, etc.) discovered in Session 13.
+> The pre-v5 over-generation bug is fixed at source. Historical short-counts are
+> now permanent and accepted (per user decision in Session 13). Do not retroactively
+> trim more dates.
+
 These two dates had 20 picks (pre-v5 bug). Keep top 10 by spikeScore, delete the rest.
 
 ```sql
+-- ⚠️ DEPRECATED — DO NOT RUN. Historical rewrite, source bug already fixed.
 -- For each date, delete picks ranked below top 10 by spikeScore
-DELETE FROM "Spike" WHERE id IN (
-  SELECT id FROM (
-    SELECT id, ROW_NUMBER() OVER (PARTITION BY "reportId" ORDER BY "spikeScore" DESC) as rn
-    FROM "Spike"
-    WHERE "reportId" IN (
-      SELECT id FROM "DailyReport" WHERE date IN ('2026-03-24', '2026-03-25')
-    )
-  ) sub WHERE rn > 10
-);
+-- DELETE FROM "Spike" WHERE id IN (
+--   SELECT id FROM (
+--     SELECT id, ROW_NUMBER() OVER (PARTITION BY "reportId" ORDER BY "spikeScore" DESC) as rn
+--     FROM "Spike"
+--     WHERE "reportId" IN (
+--       SELECT id FROM "DailyReport" WHERE date IN ('2026-03-24', '2026-03-25')
+--     )
+--   ) sub WHERE rn > 10
+-- );
 ```
 
 Also check Mar 19, 20, 23 which had 20 picks each — same treatment.
 
 ### 1.5 Purge Council SQLite Learning DB
+
+> ⚠️ **DEPRECATED — DO NOT RUN (Session 13, 2026-04-07)**
+> This entire script is destructive. The unconditional `DELETE FROM accuracy_records`
+> at the bottom wiped 510+ rows of training data and broke every learning gate
+> until restored. The ETF cleanup against `pick_history` and `stage_scores` also
+> contaminated the historical training set in ways that took Session 13 to untangle.
+> The ETF generation bug is fixed at source — there is no need to clean historically.
+
 The council's internal SQLite has contaminated learning data from ETF/ghost picks.
 
 ```python
-import sqlite3
-conn = sqlite3.connect('/app/data/spike_trades_council.db')
-cur = conn.cursor()
-
-bad = ('HND.TO','HNU.TO','HOD.TO','HOU.TO','NRGU.TO','VDY.TO','VGRO.TO',
-       'VIU.TO','XEG.TO','XGD.TO','XIU.TO','ZEB.TO','ZSP.TO','BITF.TO')
-
-# Delete bad records
-cur.execute(f"DELETE FROM pick_history WHERE ticker IN ({','.join('?' * len(bad))})", bad)
-cur.execute(f"DELETE FROM stage_scores WHERE ticker IN ({','.join('?' * len(bad))})", bad)
-
-# Reset calibration tables (will rebuild from clean data on next run)
-cur.execute("DELETE FROM calibration_base_rates")
-cur.execute("DELETE FROM calibration_council")
-
-# ⚠️ DEPRECATED — DO NOT RUN (Session 13, 2026-04-07)
-# The line below was unconditional and destroyed the entire accuracy_records
-# table (>510 rows). This wiped all Today's Spikes learning training data,
-# which caused every learning gate (conviction, stage weights, prompt context,
-# factor feedback, pre-filter) to revert to hardcoded defaults and broke the
-# Admin Analytics 3/5/8-day hit rate tables. Session 13 recovered the data
-# from the Prisma Spike table's actual3Day/5Day/8Day columns. Never run a bare
-# DELETE on accuracy_records again — if you need to prune, use a WHERE clause
-# keyed on pick_id or run_date.
+# ⚠️ DEPRECATED — DO NOT RUN. Wipes training data, breaks learning gates.
+# import sqlite3
+# conn = sqlite3.connect('/app/data/spike_trades_council.db')
+# cur = conn.cursor()
 #
-# cur.execute("DELETE FROM accuracy_records")  # ← DO NOT UNCOMMENT
+# bad = ('HND.TO','HNU.TO','HOD.TO','HOU.TO','NRGU.TO','VDY.TO','VGRO.TO',
+#        'VIU.TO','XEG.TO','XGD.TO','XIU.TO','ZEB.TO','ZSP.TO','BITF.TO')
+#
+# # Delete bad records
+# cur.execute(f"DELETE FROM pick_history WHERE ticker IN ({','.join('?' * len(bad))})", bad)
+# cur.execute(f"DELETE FROM stage_scores WHERE ticker IN ({','.join('?' * len(bad))})", bad)
 
-conn.commit()
-conn.close()
+# # Reset calibration tables (will rebuild from clean data on next run)
+# cur.execute("DELETE FROM calibration_base_rates")
+# cur.execute("DELETE FROM calibration_council")
+#
+# # ⚠️ DEPRECATED — DO NOT RUN (Session 13, 2026-04-07)
+# # The line below was unconditional and destroyed the entire accuracy_records
+# # table (>510 rows). This wiped all Today's Spikes learning training data,
+# # which caused every learning gate (conviction, stage weights, prompt context,
+# # factor feedback, pre-filter) to revert to hardcoded defaults and broke the
+# # Admin Analytics 3/5/8-day hit rate tables. Session 13 recovered the data
+# # from the Prisma Spike table's actual3Day/5Day/8Day columns. Never run a bare
+# # DELETE on accuracy_records again — if you need to prune, use a WHERE clause
+# # keyed on pick_id or run_date.
+# #
+# # cur.execute("DELETE FROM accuracy_records")  # ← DO NOT UNCOMMENT
+#
+# conn.commit()
+# conn.close()
 ```
 
 Verify: `SELECT COUNT(*) FROM pick_history WHERE ticker IN (...)` should return 0.
