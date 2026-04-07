@@ -1,5 +1,5 @@
 // ============================================
-// Fallback Data Sources: Polygon, Finnhub, yfinance
+// Fallback Data Sources: Polygon, yfinance
 // Automatic failover when FMP is unavailable
 // ============================================
 
@@ -76,59 +76,8 @@ export async function polygonHistorical(
   }
 }
 
-// ---- Finnhub ----
-const FINNHUB_BASE = 'https://finnhub.io/api/v1';
-const FINNHUB_KEY = process.env.FINNHUB_API_KEY;
-
-export interface FinnhubSentiment {
-  buzz: number;
-  sentiment: number; // -1 to 1
-  articlesInLastWeek: number;
-  positiveCount: number;
-  negativeCount: number;
-}
-
-export async function finnhubSentiment(symbol: string): Promise<FinnhubSentiment | null> {
-  if (!FINNHUB_KEY) return null;
-  try {
-    const res = await fetch(
-      `${FINNHUB_BASE}/news-sentiment?symbol=${symbol}&token=${FINNHUB_KEY}`,
-      { cache: 'no-store' }
-    );
-    if (!res.ok) return null;
-    const data = await res.json();
-    return {
-      buzz: data.buzz?.buzz || 0,
-      sentiment: data.sentiment?.score || 0,
-      articlesInLastWeek: data.buzz?.articlesInLastWeek || 0,
-      positiveCount: data.sentiment?.bullishPercent || 0,
-      negativeCount: data.sentiment?.bearishPercent || 0,
-    };
-  } catch {
-    return null;
-  }
-}
-
-export async function finnhubShortInterest(symbol: string): Promise<number | null> {
-  if (!FINNHUB_KEY) return null;
-  try {
-    const res = await fetch(
-      `${FINNHUB_BASE}/stock/short-interest?symbol=${symbol}&token=${FINNHUB_KEY}`,
-      { cache: 'no-store' }
-    );
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (data.data && data.data.length > 0) {
-      return data.data[0].shortInterest || null;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
 // ---- Data Source Orchestrator ----
-export type DataSource = 'fmp' | 'polygon' | 'finnhub' | 'yfinance';
+export type DataSource = 'fmp' | 'polygon' | 'yfinance';
 
 interface FetchResult<T> {
   data: T | null;

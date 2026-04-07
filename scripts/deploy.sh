@@ -74,7 +74,7 @@ if [ ! -f ".env" ]; then
     echo "    ANTHROPIC_API_KEY    — Claude Sonnet 4.6 + Opus 4.6"
     echo "    GOOGLE_API_KEY       — Gemini 3.1 Pro"
     echo "    XAI_API_KEY          — SuperGrok Heavy"
-    echo "    FINNHUB_API_KEY      — News + sentiment"
+    echo "    EODHD_API_KEY        — News + sentiment (EODHD)"
     echo "    RESEND_API_KEY       — Email alerts"
     echo "    SESSION_SECRET       — Run: openssl rand -hex 32"
     echo "    DB_PASSWORD          — Run: openssl rand -hex 16"

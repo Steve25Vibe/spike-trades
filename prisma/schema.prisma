@@ -332,7 +332,7 @@ model MarketRegime {
 
 model ApiLog {
   id              String   @id @default(cuid())
-  source          String   // fmp, polygon, finnhub, yfinance
+  source          String   // fmp, polygon, eodhd, yfinance
   endpoint        String
   status          Int      // HTTP status
   responseTimeMs  Int

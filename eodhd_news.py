@@ -71,7 +71,7 @@ async def fetch_news_batch(
 
 
 def get_sentiment_score(articles: list[dict]) -> float:
-    """Return average sentiment polarity across articles. Replaces Finnhub sentiment."""
+    """Return average sentiment polarity across articles."""
     if not articles:
         return 0.0
     polarities = []
