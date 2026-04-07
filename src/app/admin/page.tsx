@@ -94,6 +94,14 @@ interface CouncilStatus {
   openingBellHealth?: { endpoints?: Record<string, Record<string, number>> } | null;
   radarStatus?: { running?: boolean; picks_count?: number; last_run_time?: number; last_error?: string; status?: string } | null;
   radarHealth?: { endpoints?: Record<string, Record<string, number>> } | null;
+  radarAccuracy?: {
+    total: number;
+    correct: number;
+    hitRate: number | null;
+    avgOpenMove: number | null;
+    passedOpeningBell: number;
+    passedSpikes: number;
+  } | null;
 }
 
 function formatDuration(seconds: number): string {
@@ -654,6 +662,54 @@ export default function AdminPage() {
                 </div>
               );
             })()}
+
+            {/* 2b. Radar Accuracy (moved from public Accuracy Engine in Session 13) */}
+            {council?.radarAccuracy && council.radarAccuracy.total > 0 && (
+              <div className="glass-card p-5 border border-green-400/20">
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="w-3 h-3 rounded-full bg-green-400" />
+                  <span className="text-xs font-bold text-green-400 uppercase tracking-wider">
+                    Radar Accuracy — Pre-Market Signal
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                  <div>
+                    <p className={cn(
+                      'text-2xl font-bold mono',
+                      (council.radarAccuracy.hitRate ?? 0) >= 55 ? 'text-spike-green'
+                        : (council.radarAccuracy.hitRate ?? 0) >= 50 ? 'text-spike-amber'
+                        : 'text-spike-red'
+                    )}>
+                      {council.radarAccuracy.hitRate != null ? `${council.radarAccuracy.hitRate.toFixed(1)}%` : '—'}
+                    </p>
+                    <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mt-1">Open Direction Hit Rate</p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold mono text-spike-text">
+                      {council.radarAccuracy.correct}/{council.radarAccuracy.total}
+                    </p>
+                    <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mt-1">Correct / Total</p>
+                  </div>
+                  <div>
+                    <p className={cn(
+                      'text-2xl font-bold mono',
+                      (council.radarAccuracy.avgOpenMove ?? 0) >= 0 ? 'text-spike-green' : 'text-spike-red'
+                    )}>
+                      {council.radarAccuracy.avgOpenMove != null
+                        ? `${(council.radarAccuracy.avgOpenMove >= 0 ? '+' : '')}${council.radarAccuracy.avgOpenMove.toFixed(2)}%`
+                        : '—'}
+                    </p>
+                    <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mt-1">Avg Open Move</p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold mono text-spike-text">
+                      {council.radarAccuracy.passedSpikes}/{council.radarAccuracy.total}
+                    </p>
+                    <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mt-1">Made Final Spikes</p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* 3. Opening Bell (second in pipeline sequence) */}
             {(() => {
