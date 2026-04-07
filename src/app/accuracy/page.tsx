@@ -52,7 +52,6 @@ export default function AccuracyPage() {
   const [scorecards, setScorecards] = useState<Scorecard[]>([]);
   const [recentPicks, setRecentPicks] = useState<RecentPick[]>([]);
   const [indexValues, setIndexValues] = useState<IndexValues>({ day3: 100, day5: 100, day8: 100 });
-  const [radar, setRadar] = useState<{ total: number; correct: number; hitRate: number | null; avgOpenMove: number | null; passedOpeningBell: number; passedSpikes: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 10;
@@ -71,7 +70,6 @@ export default function AccuracyPage() {
         setScorecards(json.data.scorecards || []);
         setRecentPicks(json.data.recentPicks || []);
         setIndexValues(json.data.indexValues || { day3: 100, day5: 100, day8: 100 });
-        if (json.data.radar) setRadar(json.data.radar);
       }
     } catch { /* handle */ }
     finally { setLoading(false); }
@@ -177,50 +175,6 @@ export default function AccuracyPage() {
             );
           })}
         </div>
-
-        {/* ============================================================ */}
-        {/* Radar Accuracy Scorecard */}
-        {/* ============================================================ */}
-        {radar && radar.total > 0 && (
-          <div className="glass-card p-5 mb-6 border border-green-400/20">
-            <div className="flex items-center gap-2 mb-4">
-              <span className="w-3 h-3 rounded-full bg-green-400" />
-              <span className="text-sm font-bold text-green-400 uppercase tracking-wider">Radar — Pre-Market Signal Accuracy</span>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-              <div>
-                <p className={cn(
-                  'text-2xl font-bold mono',
-                  (radar.hitRate || 0) >= 55 ? 'text-spike-green' : (radar.hitRate || 0) >= 50 ? 'text-spike-amber' : 'text-spike-red'
-                )}>
-                  {radar.hitRate?.toFixed(1)}%
-                </p>
-                <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mt-1">Open Direction Hit Rate</p>
-              </div>
-              <div>
-                <p className="text-2xl font-bold mono text-spike-text">
-                  {radar.correct}/{radar.total}
-                </p>
-                <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mt-1">Correct / Total</p>
-              </div>
-              <div>
-                <p className={cn(
-                  'text-2xl font-bold mono',
-                  (radar.avgOpenMove || 0) >= 0 ? 'text-spike-green' : 'text-spike-red'
-                )}>
-                  {(radar.avgOpenMove || 0) >= 0 ? '+' : ''}{radar.avgOpenMove?.toFixed(2)}%
-                </p>
-                <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mt-1">Avg Open Move</p>
-              </div>
-              <div>
-                <p className="text-2xl font-bold mono text-spike-text">
-                  {radar.passedSpikes}/{radar.total}
-                </p>
-                <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mt-1">Made Final Spikes</p>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* ============================================================ */}
         {/* Pick Results Table — Winners first, paginated */}
