@@ -348,7 +348,7 @@ function RadarContent() {
           portfolios={portfolios}
           activePortfolioId={chosenPortfolioId}
           onConfirm={handleConfirmBulkLockIn}
-          onCancel={() => { setBulkLockInPicks(null); setChosenPortfolioId(null); }}
+          onCancel={() => { setBulkLockInPicks(null); setChosenPortfolioId(''); }}
         />
       )}
 
