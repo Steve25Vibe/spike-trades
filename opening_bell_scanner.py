@@ -132,8 +132,15 @@ class OpeningBellScanner:
         return grades_map
 
     async def fetch_news_bulk(self, session: aiohttp.ClientSession, tickers: list[str]) -> dict[str, list[dict]]:
-        """Fetch recent news for multiple tickers from EODHD."""
-        return await eodhd_news.fetch_news_batch(tickers, limit=5, api_key=os.environ.get("EODHD_API_KEY", ""))
+        """Fetch recent news for multiple tickers from EODHD.
+        Tracks calls under 'eodhd/news' in self._endpoint_health so the admin
+        Data Source Health dashboard shows them alongside FMP endpoints."""
+        return await eodhd_news.fetch_news_batch(
+            tickers,
+            limit=5,
+            api_key=os.environ.get("EODHD_API_KEY", ""),
+            endpoint_health=self._endpoint_health,
+        )
 
     async def fetch_intraday_bars(self, session: aiohttp.ClientSession, ticker: str) -> list[dict]:
         """Fetch intraday bars: 1-min (preferred) → 5-min (fallback) → empty."""

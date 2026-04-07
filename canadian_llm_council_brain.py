@@ -892,8 +892,8 @@ class LiveDataFetcher:
 
         technicals = self.compute_technicals(bars) if len(bars) >= 50 else None
 
-        # Fetch news + sentiment from EODHD
-        news_data = await eodhd_news.fetch_news(ticker, limit=5)
+        # Fetch news + sentiment from EODHD (tracked in endpoint_health for admin dashboard)
+        news_data = await eodhd_news.fetch_news(ticker, limit=5, endpoint_health=self.endpoint_health)
         sentiment = eodhd_news.get_sentiment_score(news_data) if news_data else 0.0
         news_items = news_data
 
@@ -4433,7 +4433,7 @@ Required JSON format:
 
         async def _news(t):
             async with sem:
-                data = await eodhd_news.fetch_news(t, limit=10)
+                data = await eodhd_news.fetch_news(t, limit=10, endpoint_health=self.fetcher.endpoint_health)
                 if data:
                     news_map[t] = data
 
