@@ -47,6 +47,8 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+import eodhd_news
+
 import fmp_bulk_cache
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -92,14 +94,6 @@ class MacroContext(BaseModel):
     regime: str = Field(default="NEUTRAL", description="Detected macro regime")
     as_of: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-
-class NewsItem(BaseModel):
-    """A single news article."""
-    headline: str
-    source: str = ""
-    url: str = ""
-    published_at: Optional[datetime] = None
-    sentiment_score: Optional[float] = Field(None, ge=-1, le=1)
 
 
 class EarningsEvent(BaseModel):
@@ -899,7 +893,6 @@ class LiveDataFetcher:
         technicals = self.compute_technicals(bars) if len(bars) >= 50 else None
 
         # Fetch news + sentiment from EODHD
-        import eodhd_news
         news_data = await eodhd_news.fetch_news(ticker, limit=5)
         sentiment = eodhd_news.get_sentiment_score(news_data) if news_data else 0.0
         news_items = news_data
@@ -4440,7 +4433,6 @@ Required JSON format:
 
         async def _news(t):
             async with sem:
-                import eodhd_news
                 data = await eodhd_news.fetch_news(t, limit=10)
                 if data:
                     news_map[t] = data

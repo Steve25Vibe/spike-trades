@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 
 import aiohttp
 
+import eodhd_news
 import fmp_bulk_cache
 
 logger = logging.getLogger("opening_bell")
@@ -132,7 +133,6 @@ class OpeningBellScanner:
 
     async def fetch_news_bulk(self, session: aiohttp.ClientSession, tickers: list[str]) -> dict[str, list[dict]]:
         """Fetch recent news for multiple tickers from EODHD."""
-        import eodhd_news
         return await eodhd_news.fetch_news_batch(tickers, limit=5, api_key=os.environ.get("EODHD_API_KEY", ""))
 
     async def fetch_intraday_bars(self, session: aiohttp.ClientSession, ticker: str) -> list[dict]:

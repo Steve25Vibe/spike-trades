@@ -32,6 +32,8 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
+
+import eodhd_news
 import aiohttp
 import ssl
 import certifi
@@ -699,7 +701,6 @@ async def _fetch_spike_it_data(ticker: str) -> dict[str, Any] | None:
     quote_task = _fmp_get_spike("/batch-quote", {"symbols": ticker})
     bars_1m_task = _fmp_get_spike("/historical-chart/1min", {"symbol": ticker, "from": today_str, "to": today_str})
     hist_task = _fmp_get_spike("/historical-price-eod/full", {"symbol": ticker, "limit": "15"})
-    import eodhd_news
     news_task = eodhd_news.fetch_news(ticker, limit=5)
     macro_task = _fmp_get_spike("/batch-quote", {"symbols": "USO,GLD,CADUSD=X,XIU.TO"})
 
@@ -839,13 +840,13 @@ async def _fetch_spike_it_data(ticker: str) -> dict[str, Any] | None:
         for item in macro_data:
             sym = item.get("symbol", "")
             if sym == "USO":
-                macro["oil"] = {"price": item.get("price"), "changePct": item.get("changesPercentage")}
+                macro["oil"] = {"price": item.get("price"), "changePct": item.get("changePercentage")}
             elif sym == "GLD":
-                macro["gold"] = {"price": item.get("price"), "changePct": item.get("changesPercentage")}
+                macro["gold"] = {"price": item.get("price"), "changePct": item.get("changePercentage")}
             elif "CAD" in sym:
                 macro["cadUsd"] = item.get("price")
             elif sym == "XIU.TO":
-                macro["tsx"] = {"price": item.get("price"), "changePct": item.get("changesPercentage")}
+                macro["tsx"] = {"price": item.get("price"), "changePct": item.get("changePercentage")}
     else:
         data_limitations.append("Macro context unavailable")
 
@@ -974,7 +975,7 @@ def _build_spike_it_user_prompt(data: dict, entry_price: float) -> str:
     """Build the user prompt for Grok from assembled FMP data."""
     quote = data["quote"]
     current_price = data["current_price"]
-    change_pct = quote.get("changesPercentage", 0)
+    change_pct = quote.get("changePercentage", 0)
     prev_close = quote.get("previousClose", 0)
     pnl = current_price - entry_price
     pnl_pct = (pnl / entry_price * 100) if entry_price > 0 else 0
