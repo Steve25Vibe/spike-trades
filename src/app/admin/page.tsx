@@ -1205,11 +1205,14 @@ export default function AdminPage() {
                   </div>
                 </div>
 
-                {/* Stage Performance Table */}
+                {/* Stage Funnel & Calibration — all 4 stages */}
                 <div className="glass-card p-6">
-                  <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-4">LLM Stage Performance</h3>
+                  <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-1">Stage Funnel &amp; Calibration</h3>
+                  <p className="text-xs text-spike-text-muted mb-4">
+                    How each LLM scored the candidate universe and how many of its picks made the consensus top 10. All four stages contribute to the final consensus score via weighted average.
+                  </p>
                   <div className="overflow-x-auto">
-                  <table className="w-full text-sm min-w-[800px]">
+                  <table className="w-full text-sm min-w-[600px]">
                     <thead>
                       <tr className="text-spike-text-muted text-xs uppercase border-b border-spike-border">
                         <th className="text-left py-3 px-2">Stage</th>
@@ -1218,10 +1221,6 @@ export default function AdminPage() {
                         <th className="text-center py-3 px-2">Avg Score</th>
                         <th className="text-center py-3 px-2">Score Range</th>
                         <th className="text-center py-3 px-2">In Top 10</th>
-                        <th className="text-center py-3 px-2">3d Hit Rate</th>
-                        <th className="text-center py-3 px-2">5d Hit Rate</th>
-                        <th className="text-center py-3 px-2">8d Hit Rate</th>
-                        <th className="text-center py-3 px-2">Bias</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1235,42 +1234,97 @@ export default function AdminPage() {
                             {s.min_score != null ? `${(s.min_score as number).toFixed(0)}–${(s.max_score as number).toFixed(0)}` : '—'}
                           </td>
                           <td className="py-3 px-2 text-center text-spike-text mono">{s.picks_in_top20 as number}</td>
-                          <td className={cn('py-3 px-2 text-center mono', hitRateColor(s.hit_rate_3d as number | null))}>
-                            <div>{s.hit_rate_3d != null ? `${((s.hit_rate_3d as number) * 100).toFixed(1)}%` : '—'}</div>
-                            <div className="flex items-center justify-center gap-1 mt-0.5">
-                              <span className="text-[8px] text-spike-text-muted">n={(s.sample_count_3d as number | null) ?? '—'}</span>
-                              {(s.sample_count_3d as number | null) != null && (s.sample_count_3d as number) < 10 && (
-                                <span className="px-1 rounded text-[7px] font-bold uppercase bg-spike-amber/10 text-spike-amber border border-spike-amber/30">Low</span>
-                              )}
-                            </div>
-                          </td>
-                          <td className={cn('py-3 px-2 text-center mono', hitRateColor(s.hit_rate_5d as number | null))}>
-                            <div>{s.hit_rate_5d != null ? `${((s.hit_rate_5d as number) * 100).toFixed(1)}%` : '—'}</div>
-                            <div className="flex items-center justify-center gap-1 mt-0.5">
-                              <span className="text-[8px] text-spike-text-muted">n={(s.sample_count_5d as number | null) ?? '—'}</span>
-                              {(s.sample_count_5d as number | null) != null && (s.sample_count_5d as number) < 10 && (
-                                <span className="px-1 rounded text-[7px] font-bold uppercase bg-spike-amber/10 text-spike-amber border border-spike-amber/30">Low</span>
-                              )}
-                            </div>
-                          </td>
-                          <td className={cn('py-3 px-2 text-center mono', hitRateColor(s.hit_rate_8d as number | null))}>
-                            <div>{s.hit_rate_8d != null ? `${((s.hit_rate_8d as number) * 100).toFixed(1)}%` : '—'}</div>
-                            <div className="flex items-center justify-center gap-1 mt-0.5">
-                              <span className="text-[8px] text-spike-text-muted">n={(s.sample_count_8d as number | null) ?? '—'}</span>
-                              {(s.sample_count_8d as number | null) != null && (s.sample_count_8d as number) < 10 && (
-                                <span className="px-1 rounded text-[7px] font-bold uppercase bg-spike-amber/10 text-spike-amber border border-spike-amber/30">Low</span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="py-3 px-2 text-center text-spike-text-dim mono">
-                            {s.bias != null ? `${(s.bias as number) > 0 ? '+' : ''}${(s.bias as number).toFixed(2)}%` : '—'}
-                          </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                   </div>
                 </div>
+
+                {/* Stage 4 Directional Accuracy — Grok only (the only stage that predicts direction) */}
+                {(() => {
+                  const stage4 = (analytics.stages as Record<string, unknown>[] | undefined)?.find(
+                    (s) => (s.stage as number) === 4
+                  );
+                  if (!stage4) return null;
+                  return (
+                    <div className="glass-card p-6 border border-spike-violet/20">
+                      <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-1">
+                        Stage 4 Directional Accuracy
+                      </h3>
+                      <p className="text-xs text-spike-text-muted mb-4">
+                        Stage 4 ({(stage4.model as string) || 'grok'}) is the only stage that produces directional forecasts (UP/DOWN) and magnitude predictions. Earlier stages emit quality scores only and so cannot have a hit rate.
+                      </p>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+                        {/* 3d Hit Rate */}
+                        <div className="text-center">
+                          <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">3-Day Hit Rate</p>
+                          <p className={cn('text-2xl font-bold mono', hitRateColor(stage4.hit_rate_3d as number | null))}>
+                            {stage4.hit_rate_3d != null ? `${((stage4.hit_rate_3d as number) * 100).toFixed(1)}%` : '—'}
+                          </p>
+                          <div className="flex items-center justify-center gap-1 mt-1">
+                            <span className="text-[9px] text-spike-text-muted mono">n={(stage4.sample_count_3d as number | null) ?? '—'}</span>
+                            {(stage4.sample_count_3d as number | null) != null && (stage4.sample_count_3d as number) < 10 && (
+                              <span className="px-1 rounded text-[8px] font-bold uppercase bg-spike-amber/10 text-spike-amber border border-spike-amber/30">Low</span>
+                            )}
+                          </div>
+                        </div>
+                        {/* 5d Hit Rate */}
+                        <div className="text-center">
+                          <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">5-Day Hit Rate</p>
+                          <p className={cn('text-2xl font-bold mono', hitRateColor(stage4.hit_rate_5d as number | null))}>
+                            {stage4.hit_rate_5d != null ? `${((stage4.hit_rate_5d as number) * 100).toFixed(1)}%` : '—'}
+                          </p>
+                          <div className="flex items-center justify-center gap-1 mt-1">
+                            <span className="text-[9px] text-spike-text-muted mono">n={(stage4.sample_count_5d as number | null) ?? '—'}</span>
+                            {(stage4.sample_count_5d as number | null) != null && (stage4.sample_count_5d as number) < 10 && (
+                              <span className="px-1 rounded text-[8px] font-bold uppercase bg-spike-amber/10 text-spike-amber border border-spike-amber/30">Low</span>
+                            )}
+                          </div>
+                        </div>
+                        {/* 8d Hit Rate */}
+                        <div className="text-center">
+                          <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">8-Day Hit Rate</p>
+                          <p className={cn('text-2xl font-bold mono', hitRateColor(stage4.hit_rate_8d as number | null))}>
+                            {stage4.hit_rate_8d != null ? `${((stage4.hit_rate_8d as number) * 100).toFixed(1)}%` : '—'}
+                          </p>
+                          <div className="flex items-center justify-center gap-1 mt-1">
+                            <span className="text-[9px] text-spike-text-muted mono">n={(stage4.sample_count_8d as number | null) ?? '—'}</span>
+                            {(stage4.sample_count_8d as number | null) != null && (stage4.sample_count_8d as number) < 10 && (
+                              <span className="px-1 rounded text-[8px] font-bold uppercase bg-spike-amber/10 text-spike-amber border border-spike-amber/30">Low</span>
+                            )}
+                          </div>
+                        </div>
+                        {/* Avg Predicted Move */}
+                        <div className="text-center">
+                          <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">Avg Predicted (3d)</p>
+                          <p className="text-2xl font-bold mono text-spike-text">
+                            {stage4.avg_predicted_move != null
+                              ? `${(stage4.avg_predicted_move as number) >= 0 ? '+' : ''}${(stage4.avg_predicted_move as number).toFixed(2)}%`
+                              : '—'}
+                          </p>
+                          <p className="text-[9px] text-spike-text-muted mt-1">avg forecast magnitude</p>
+                        </div>
+                        {/* Bias */}
+                        <div className="text-center">
+                          <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">Bias</p>
+                          <p className={cn(
+                            'text-2xl font-bold mono',
+                            stage4.bias == null ? 'text-spike-text-dim'
+                              : Math.abs(stage4.bias as number) <= 1 ? 'text-spike-green'
+                              : Math.abs(stage4.bias as number) <= 2 ? 'text-spike-amber'
+                              : 'text-spike-red'
+                          )}>
+                            {stage4.bias != null
+                              ? `${(stage4.bias as number) >= 0 ? '+' : ''}${(stage4.bias as number).toFixed(2)}%`
+                              : '—'}
+                          </p>
+                          <p className="text-[9px] text-spike-text-muted mt-1">predicted − actual</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Score vs Outcome */}
                 <div className="glass-card p-6">
@@ -1399,7 +1453,7 @@ export default function AdminPage() {
                               />
                             </div>
                             <p className="text-[10px] text-spike-text-muted mono">
-                              {m.progress}/{m.gate} resolved picks
+                              {m.progress}/{m.gate} resolved samples
                             </p>
                           </>
                         ) : (
