@@ -91,8 +91,14 @@ export async function runOpeningBellAnalysis(): Promise<{ success: boolean; pick
       throw new Error(`Failed to fetch results: ${resultRes.status}`);
     }
     const result: OpeningBellResult = await resultRes.json();
-    if (!result.success || !result.picks?.length) {
-      throw new Error(result.error || 'No picks returned');
+    if (!result.success) {
+      throw new Error(result.error || 'Opening Bell scanner returned failure');
+    }
+    // Tolerate zero picks: a quiet pre-market is valid output, not an error.
+    // Match the working pattern in runRadarAnalysis (radar-analyzer.ts).
+    const picks = result.picks || [];
+    if (picks.length === 0) {
+      console.log('[Opening Bell] No picks flagged — quiet pre-market. Saving report with 0 picks.');
     }
 
     // Step 4: Store in database
@@ -116,51 +122,60 @@ export async function runOpeningBellAnalysis(): Promise<{ success: boolean; pick
       },
     });
 
-    // Delete old picks for this report (if re-run)
+    // Delete old picks for this report (if re-run). Safe even on first run.
     await prisma.openingBellPick.deleteMany({ where: { reportId: report.id } });
 
-    // Insert new picks (batched)
-    await prisma.openingBellPick.createMany({
-      data: result.picks.map((pick) => ({
-        reportId: report.id,
-        rank: pick.rank,
-        ticker: pick.ticker,
-        name: pick.name,
-        sector: pick.sector || null,
-        exchange: pick.exchange,
-        priceAtScan: pick.priceAtScan,
-        previousClose: pick.previousClose,
-        changePercent: pick.changePercent,
-        relativeVolume: pick.relativeVolume,
-        sectorMomentum: pick.sectorMomentum || null,
-        momentumScore: pick.momentumScore,
-        intradayTarget: pick.intradayTarget,
-        keyLevel: pick.keyLevel,
-        conviction: pick.conviction,
-        rationale: pick.rationale || null,
-        tokenUsage: result.tokenUsage ?? undefined,
-      })),
-    });
+    // Insert new picks (batched). Skip entirely on zero-picks day to avoid
+    // any Prisma edge cases with empty createMany payloads.
+    if (picks.length > 0) {
+      await prisma.openingBellPick.createMany({
+        data: picks.map((pick) => ({
+          reportId: report.id,
+          rank: pick.rank,
+          ticker: pick.ticker,
+          name: pick.name,
+          sector: pick.sector || null,
+          exchange: pick.exchange,
+          priceAtScan: pick.priceAtScan,
+          previousClose: pick.previousClose,
+          changePercent: pick.changePercent,
+          relativeVolume: pick.relativeVolume,
+          sectorMomentum: pick.sectorMomentum || null,
+          momentumScore: pick.momentumScore,
+          intradayTarget: pick.intradayTarget,
+          keyLevel: pick.keyLevel,
+          conviction: pick.conviction,
+          rationale: pick.rationale || null,
+          tokenUsage: result.tokenUsage ?? undefined,
+        })),
+      });
+    }
 
-    console.log(`[Opening Bell] Saved ${result.picks.length} picks for ${todayStr}`);
+    console.log(`[Opening Bell] Saved ${picks.length} picks for ${todayStr}`);
 
-    // Step 5: Save top 10 tickers for Council pre-filter override
-    const overrideTickers = result.picks.map((p) => p.ticker);
+    // Step 5: Save top 10 tickers for Council pre-filter override.
+    // Empty array is meaningful — Council will see "no overrides today".
+    const overrideTickers = picks.map((p) => p.ticker);
     const overridePath = path.join('/tmp', 'opening_bell_council_overrides.json');
     fs.writeFileSync(
       overridePath,
       JSON.stringify({ date: todayStr, tickers: overrideTickers })
     );
 
-    // Step 6: Send email to opted-in users
-    try {
-      const { sendOpeningBellEmail } = await import('@/lib/email/opening-bell-email');
-      await sendOpeningBellEmail(result.picks, result.report?.sectorSnapshot);
-    } catch (emailErr) {
-      console.error('[Opening Bell] Email send failed (non-fatal):', emailErr);
+    // Step 6: Send email to opted-in users — only if there are picks to share.
+    // Sending an empty Opening Bell email would confuse subscribers.
+    if (picks.length > 0) {
+      try {
+        const { sendOpeningBellEmail } = await import('@/lib/email/opening-bell-email');
+        await sendOpeningBellEmail(picks, result.report?.sectorSnapshot);
+      } catch (emailErr) {
+        console.error('[Opening Bell] Email send failed (non-fatal):', emailErr);
+      }
+    } else {
+      console.log('[Opening Bell] Skipping email send — no picks to announce');
     }
 
-    return { success: true, picksCount: result.picks.length };
+    return { success: true, picksCount: picks.length };
 
   } catch (error) {
     console.error('[Opening Bell] Analysis failed:', error);
