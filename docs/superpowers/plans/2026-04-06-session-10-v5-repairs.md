@@ -131,7 +131,18 @@ cur.execute(f"DELETE FROM stage_scores WHERE ticker IN ({','.join('?' * len(bad)
 # Reset calibration tables (will rebuild from clean data on next run)
 cur.execute("DELETE FROM calibration_base_rates")
 cur.execute("DELETE FROM calibration_council")
-cur.execute("DELETE FROM accuracy_records")
+
+# ⚠️ DEPRECATED — DO NOT RUN (Session 13, 2026-04-07)
+# The line below was unconditional and destroyed the entire accuracy_records
+# table (>510 rows). This wiped all Today's Spikes learning training data,
+# which caused every learning gate (conviction, stage weights, prompt context,
+# factor feedback, pre-filter) to revert to hardcoded defaults and broke the
+# Admin Analytics 3/5/8-day hit rate tables. Session 13 recovered the data
+# from the Prisma Spike table's actual3Day/5Day/8Day columns. Never run a bare
+# DELETE on accuracy_records again — if you need to prune, use a WHERE clause
+# keyed on pick_id or run_date.
+#
+# cur.execute("DELETE FROM accuracy_records")  # ← DO NOT UNCOMMENT
 
 conn.commit()
 conn.close()
@@ -268,15 +279,89 @@ Add `isEtf=false` check using the bulk profile cache. This prevents ETFs from en
 
 ---
 
+## Phase 6: Post-Deployment Bug Fixes (Session 10 Debugging)
+
+Systematic debugging after Phases 1-5 deployment revealed critical bugs that must be fixed before the next trading day.
+
+### 6.1 Restructure fmp_bulk_cache.py — CSV for whitelist only, JSON for profiles
+
+**Problem:** The bulk cache replaced working per-ticker JSON `/stable/profile` calls with CSV bulk downloads. The JSON per-ticker endpoint works perfectly and returns clean JSON. CSV is only needed for the 2052-ticker whitelist (no JSON batch endpoint works for .TO).
+
+**Changes to `fmp_bulk_cache.py`:**
+- `get_tsx_whitelist()` — keep CSV bulk download (parts 0-3), only purpose is ETF/ghost filtering
+- `get_profile(ticker)` — change to call `/stable/profile?symbol={ticker}` JSON endpoint, cache per session
+- `get_profiles(tickers)` — call per-ticker JSON with concurrency semaphore (like existing `fetch_profiles_batch`)
+- Remove `_normalize_profile()` CSV string conversion — JSON returns proper types natively
+- Fix asyncio.Lock creation — create lazily inside first async call, not in sync `_get_lock()`
+- Add try/except around CSV parsing for whitelist download
+
+**Callers remain unchanged** — `get_profile()`, `get_profiles()`, `get_tsx_whitelist()` keep same signatures.
+
+### 6.2 Fix `changesPercentage` typo in Radar prompt
+
+**Problem:** `canadian_llm_council_brain.py:4672` uses `q.get('changesPercentage', 0)` but FMP `/batch-quote` returns `changePercentage` (no 's'). Verified via live API. Every ticker shows `Change: 0.00%` in the Sonnet prompt — Sonnet cannot assess price momentum.
+
+**Fix:** Change `changesPercentage` → `changePercentage` on line 4672. One character.
+
+### 6.3 Add symbol filter to `fetch_news()` to reject wrong-ticker articles
+
+**Problem:** FMP `/stable/news/stock` has a server-side bug — it ignores the `symbol` parameter and returns AAPL articles for every request (confirmed for MSFT, RY.TO, ZZZZZZ — all return AAPL). This is an FMP bug, not our code. But our `fetch_news()` method in `canadian_llm_council_brain.py` accepts all articles without filtering, so every .TO ticker gets AAPL news in its data.
+
+**Impact on Radar:** Every ticker gets "NEWS: 10 articles in 24h" with AAPL headlines → inflates news_sentiment, breaks catalyst detection (4.3/4.5).
+
+**Impact on Opening Bell:** `fetch_news_bulk()` already filters by symbol (line 145: `if sym in batch`), so it correctly gets empty results — safe failure but news provides zero value.
+
+**Impact on Spikes:** Same as Radar — AAPL articles stored as if they belong to .TO tickers.
+
+**Fix in `fetch_news()` (council brain):** After receiving articles, filter to only those where `article.symbol == ticker` (strip .TO suffix for comparison). This makes Radar and Spikes behave like Opening Bell — empty news until FMP fixes the endpoint.
+
+**Separate action:** File FMP support ticket about `/stable/news/stock` ignoring symbol parameter.
+
+### 6.4 Add empty-movers guard in Opening Bell pipeline
+
+**Problem:** `opening_bell_scanner.py` — after the 3-layer quality filter (line 371) and multi-signal filter (line 403), `movers` can be empty. No guard exists before the Sonnet call at line 406. Wastes API tokens on an empty prompt.
+
+**Fix:** Add early return after multi-signal filter:
+```python
+if not movers:
+    return {"success": False, "error": "No movers pass quality filters", "duration_ms": ...}
+```
+
+### 6.5 Fix Radar Lock In modal — remove fake 3/5/8-day targets
+
+**Problem:** Radar picks are pre-market overnight signals. They do not predict 3/5/8-day price targets. But `src/app/radar/page.tsx` reuses the Spikes `LockInModal` which requires `predicted3Day/5Day/8Day` percentage fields. The code passes `priceAtScan * 1.03` (a dollar value ~$94) as a percentage, so the modal computes `$92 * (1 + 94.76/100) = $179.18` as the "3-Day Target" — completely wrong.
+
+**Fix:** Create a `RadarLockInModal` component (or modify LockInModal to support a `mode` prop):
+- Shows ticker, price, smartMoneyScore, top catalyst
+- Position sizing (auto/fixed/manual) — same as existing
+- Stop-loss only (no 3/5/8 day targets) — default 5% below entry
+- Does NOT display "3-Day Target", "5-Day Target", "8-Day Target" rows
+- Sends `radarPickId` to portfolio API (not `spikeId`)
+
+**Also fix `src/app/api/portfolio/route.ts`:** Radar lock-in section should not set `target3Day` at all (leave null).
+
+### 6.6 Verify all fixes with regression checks
+
+After all fixes:
+1. Run Session 9 regression checks (clamping, chart paths, edge multiplier, timeout, field names)
+2. Python syntax validation for all 3 Python files
+3. TypeScript `tsc --noEmit`
+4. No debug artifacts
+5. `git diff --stat` shows only relevant files
+
+---
+
 ## Deployment Order
 
-1. **Phase 1 (Data Repair)** — run SQL + Python cleanup scripts on server
-2. **Phase 2 (FMP Infrastructure)** — bulk cache module, field normalization
-3. **Phase 3 (Opening Bell)** — 5-layer quality fix + UI
-4. **Phase 4 (Radar)** — 6 quality improvements + portfolio integration
-5. **Phase 5 (Spikes)** — pre-filter tightening + ETF filter
+1. **Phase 1 (Data Repair)** — run SQL + Python cleanup scripts on server ✅ DONE
+2. **Phase 2 (FMP Infrastructure)** — bulk cache module, field normalization ✅ DONE
+3. **Phase 3 (Opening Bell)** — 5-layer quality fix + UI ✅ DONE
+4. **Phase 4 (Radar)** — 6 quality improvements + portfolio integration ✅ DONE
+5. **Phase 5 (Spikes)** — pre-filter tightening + ETF filter ✅ DONE
+6. **Phase 6 (Bug Fixes)** — restructure bulk cache, fix Radar prompt, news filter, empty guard, Lock In modal
 
 Phases 3-5 depend on Phase 2 (bulk cache). Phase 1 is independent and should be done first.
+Phase 6 fixes bugs found during post-deployment debugging of Phases 2-5.
 
 ## Task Tracking
 
@@ -329,11 +414,23 @@ Phases 3-5 depend on Phase 2 (bulk cache). Phase 1 is independent and should be 
 - [ ] 5.3 Deploy and verify — confirm no ETFs in pipeline, stages complete within timeout
 - [ ] 5.4 Commit: "feat: Spikes ETF filter and pre-filter tightening"
 
+### Phase 6: Bug Fixes
+- [ ] 6.1 Restructure `fmp_bulk_cache.py` — CSV for whitelist only, JSON `/stable/profile` for per-ticker lookups
+- [ ] 6.2 Fix `changesPercentage` → `changePercentage` in Radar prompt (line 4672)
+- [ ] 6.3 Add symbol filter to `fetch_news()` — reject articles where symbol != requested ticker
+- [ ] 6.4 Add empty-movers guard in Opening Bell after multi-signal filter
+- [ ] 6.5 Create `RadarLockInModal` — no 3/5/8 day targets, stop-loss only, sends `radarPickId`
+- [ ] 6.6 Fix Radar portfolio API — don't set `target3Day`, leave null
+- [ ] 6.7 Run regression checks + TypeScript build + deploy
+- [ ] 6.8 Commit: "fix: bulk cache JSON profiles, Radar prompt field name, news symbol filter, Lock In modal"
+
 ### Final Verification
 - [ ] All DailyReport dates have ≤10 picks
 - [ ] No ETF tickers in any Spike, RadarPick, or OpeningBellPick table
-- [ ] Radar Portfolio integration works
+- [ ] Radar Portfolio integration works — Lock In shows score + stop-loss only, no fake targets
 - [ ] Opening Bell score badge matches Radar/Spikes styling
 - [ ] Trigger test Radar — verify 3-10 picks, real catalysts, sector cap
 - [ ] Trigger test Opening Bell — verify real tradeable TSX stocks
 - [ ] Spike It test — verify 1-min intraday bars
+- [ ] Verify `fetch_news()` returns empty for .TO tickers (FMP bug defensive filter working)
+- [ ] Verify Radar prompt shows correct change% (not 0.00% for every ticker)
