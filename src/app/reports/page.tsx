@@ -82,13 +82,10 @@ function ReportsContent() {
       const res = await fetch(endpoint);
       if (res.status === 401) { window.location.href = '/login'; return; }
       const json = await res.json();
-      if (activeTab === 'radar') {
-        if (json.reports) {
-          setRadarReports(json.reports);
-          setTotal(json.total);
-        }
-      } else if (json.success) {
-        if (activeTab === 'opening-bell') {
+      if (json.success) {
+        if (activeTab === 'radar') {
+          setRadarReports(json.data);
+        } else if (activeTab === 'opening-bell') {
           setOpeningBellReports(json.data);
         } else {
           setSpikeReports(json.data);
@@ -320,13 +317,23 @@ function ReportsContent() {
                 )}
               </div>
 
-              <Link
-                href={`/radar?date=${new Date(report.date).toISOString().split('T')[0]}`}
-                className="px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide text-green-400 border border-green-400/30 hover:bg-green-400/10 transition-colors"
-                title="Open this Radar report"
-              >
-                View
-              </Link>
+              <div className="flex items-center gap-3">
+                <Link
+                  href={`/radar?date=${new Date(report.date).toISOString().split('T')[0]}`}
+                  className="px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide text-green-400 border border-green-400/30 hover:bg-green-400/10 transition-colors"
+                  title="Open this Radar report"
+                >
+                  View
+                </Link>
+                <a
+                  href={`/api/reports/radar/${report.id}/xlsx`}
+                  className="px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide text-spike-green border border-spike-green/30 hover:bg-spike-green/10 transition-colors"
+                  title="Download this Radar report as an Excel file"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  XLSX
+                </a>
+              </div>
             </div>
           ))}
 
