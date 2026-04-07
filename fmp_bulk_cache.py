@@ -1,9 +1,10 @@
 """
 fmp_bulk_cache.py
-Shared FMP bulk profile cache for all pipelines (Radar, Opening Bell, Spikes).
+Shared FMP profile cache for all pipelines (Radar, Opening Bell, Spikes).
 
-Downloads /stable/profile-bulk CSV, parses .TO tickers, caches for 4 hours.
-Provides get_profile(ticker) and get_tsx_whitelist() for all pipelines.
+- Whitelist: CSV bulk download from /stable/profile-bulk (all .TO tickers)
+- Profiles: JSON per-ticker from /stable/profile?symbol=X (proper types)
+Both cached for 4 hours.
 """
 
 from __future__ import annotations
@@ -26,150 +27,164 @@ FMP_BASE = "https://financialmodelingprep.com/stable"
 CACHE_TTL_SECONDS = 4 * 60 * 60  # 4 hours
 BULK_PARTS = [0, 1, 2, 3]  # .TO tickers span parts 0-3
 
-# Module-level cache
-_cache: dict[str, dict] = {}
-_cache_timestamp: float = 0.0
-_tsx_whitelist: set[str] = set()
-_cache_lock: Optional[asyncio.Lock] = None
+# Module-level caches
+_whitelist_cache: set[str] = set()
+_all_tickers_cache: set[str] = set()
+_whitelist_timestamp: float = 0.0
+
+_profile_cache: dict[str, dict] = {}
+_profile_timestamps: dict[str, float] = {}
+
+_lock: Optional[asyncio.Lock] = None
 
 
 def _get_lock() -> asyncio.Lock:
-    global _cache_lock
-    if _cache_lock is None:
-        _cache_lock = asyncio.Lock()
-    return _cache_lock
+    global _lock
+    if _lock is None:
+        _lock = asyncio.Lock()
+    return _lock
 
 
-def _normalize_profile(row: dict) -> dict:
-    """Add field name aliases for downstream compatibility."""
-    # CSV fields → add aliases used by different parts of the codebase
-    row["changesPercentage"] = row.get("changePercentage", 0)
-    row["avgVolume"] = row.get("averageVolume", 0)
-    row["name"] = row.get("companyName", "")
-    # Convert string booleans from CSV
-    for field in ("isEtf", "isActivelyTrading", "isAdr", "isFund"):
-        val = row.get(field)
-        if isinstance(val, str):
-            row[field] = val.lower() == "true"
-    # Convert numeric fields
-    for field in ("price", "marketCap", "averageVolume", "volume",
-                  "changePercentage", "change", "beta"):
-        val = row.get(field)
-        if isinstance(val, str):
-            try:
-                row[field] = float(val) if val else 0
-            except (ValueError, TypeError):
-                row[field] = 0
-    # Re-alias after numeric conversion
-    row["changesPercentage"] = row.get("changePercentage", 0)
-    row["avgVolume"] = row.get("averageVolume", 0)
-    return row
-
-
-async def _download_part(session: aiohttp.ClientSession, api_key: str, part: int) -> list[dict]:
-    """Download one part of the profile-bulk CSV, return .TO ticker rows."""
-    url = f"{FMP_BASE}/profile-bulk"
-    params = {"part": str(part), "apikey": api_key}
-    rows = []
-    try:
-        async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=60)) as resp:
-            if resp.status != 200:
-                logger.warning(f"profile-bulk part={part} returned {resp.status}")
-                return []
-            text = await resp.text()
-            reader = csv.DictReader(io.StringIO(text))
-            for row in reader:
-                symbol = row.get("symbol", "")
-                if symbol.endswith(".TO"):
-                    rows.append(_normalize_profile(dict(row)))
-        logger.info(f"profile-bulk part={part}: {len(rows)} .TO tickers")
-    except Exception as e:
-        logger.error(f"profile-bulk part={part} failed: {e}")
-    return rows
-
-
-async def refresh_cache(api_key: str | None = None) -> int:
-    """Download all bulk profile parts and rebuild cache. Returns ticker count."""
-    global _cache, _cache_timestamp, _tsx_whitelist
-
-    api_key = api_key or os.environ.get("FMP_API_KEY", "")
-    if not api_key:
-        logger.error("No FMP_API_KEY available for bulk cache refresh")
-        return 0
-
+async def _download_whitelist(api_key: str) -> tuple[set[str], set[str]]:
+    """Download CSV bulk profiles, return (whitelist, all_tickers)."""
     ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+    whitelist = set()
+    all_tickers = set()
+
     async with aiohttp.ClientSession(
         connector=aiohttp.TCPConnector(ssl=ssl_ctx)
     ) as session:
-        # Download parts sequentially (rate limit: 1 call per 60s for bulk)
-        all_rows: list[dict] = []
         for part in BULK_PARTS:
-            rows = await _download_part(session, api_key, part)
-            all_rows.extend(rows)
+            try:
+                url = f"{FMP_BASE}/profile-bulk"
+                params = {"part": str(part), "apikey": api_key}
+                async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=60)) as resp:
+                    if resp.status != 200:
+                        logger.warning(f"profile-bulk part={part} returned {resp.status}")
+                        continue
+                    text = await resp.text()
+                    try:
+                        reader = csv.DictReader(io.StringIO(text))
+                        for row in reader:
+                            symbol = row.get("symbol", "")
+                            if not symbol.endswith(".TO"):
+                                continue
+                            all_tickers.add(symbol)
+                            is_active = str(row.get("isActivelyTrading", "")).lower() == "true"
+                            is_etf = str(row.get("isEtf", "")).lower() == "true"
+                            if is_active and not is_etf:
+                                whitelist.add(symbol)
+                    except Exception as e:
+                        logger.error(f"CSV parse error for part={part}: {e}")
+                logger.info(f"profile-bulk part={part}: {len(all_tickers)} .TO tickers so far")
+            except Exception as e:
+                logger.error(f"profile-bulk part={part} failed: {e}")
             if part < BULK_PARTS[-1]:
-                await asyncio.sleep(2)  # Brief pause between parts
+                await asyncio.sleep(2)
 
-    # Build cache keyed by symbol
-    new_cache = {}
-    for row in all_rows:
-        symbol = row["symbol"]
-        if symbol not in new_cache:  # First occurrence wins (dedup across parts)
-            new_cache[symbol] = row
-
-    # Build TSX whitelist (actively traded, non-ETF)
-    new_whitelist = set()
-    for symbol, profile in new_cache.items():
-        if profile.get("isActivelyTrading") and not profile.get("isEtf"):
-            new_whitelist.add(symbol)
-
-    _cache = new_cache
-    _tsx_whitelist = new_whitelist
-    _cache_timestamp = time.time()
-    logger.info(f"Bulk cache refreshed: {len(_cache)} .TO profiles, {len(_tsx_whitelist)} in whitelist")
-    return len(_cache)
+    return whitelist, all_tickers
 
 
-async def _ensure_cache(api_key: str | None = None) -> None:
-    """Refresh cache if stale or empty."""
-    if _cache and (time.time() - _cache_timestamp) < CACHE_TTL_SECONDS:
+async def _ensure_whitelist(api_key: str | None = None) -> None:
+    """Refresh whitelist if stale or empty."""
+    global _whitelist_cache, _all_tickers_cache, _whitelist_timestamp
+    if _whitelist_cache and (time.time() - _whitelist_timestamp) < CACHE_TTL_SECONDS:
         return
     async with _get_lock():
-        # Double-check after acquiring lock
-        if _cache and (time.time() - _cache_timestamp) < CACHE_TTL_SECONDS:
+        if _whitelist_cache and (time.time() - _whitelist_timestamp) < CACHE_TTL_SECONDS:
             return
-        await refresh_cache(api_key)
+        key = api_key or os.environ.get("FMP_API_KEY", "")
+        if not key:
+            logger.error("No FMP_API_KEY available for whitelist refresh")
+            return
+        whitelist, all_tickers = await _download_whitelist(key)
+        _whitelist_cache = whitelist
+        _all_tickers_cache = all_tickers
+        _whitelist_timestamp = time.time()
+        logger.info(f"Whitelist refreshed: {len(all_tickers)} total, {len(whitelist)} active non-ETF")
 
 
 async def get_profile(ticker: str, api_key: str | None = None) -> dict:
-    """Get profile data for a single ticker from cache."""
-    await _ensure_cache(api_key)
-    return _cache.get(ticker, {})
+    """Get profile for a single ticker via FMP JSON endpoint. Cached 4 hours."""
+    now = time.time()
+    ts = _profile_timestamps.get(ticker, 0)
+    if ticker in _profile_cache and (now - ts) < CACHE_TTL_SECONDS:
+        return _profile_cache[ticker]
+
+    key = api_key or os.environ.get("FMP_API_KEY", "")
+    if not key:
+        return {}
+
+    ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+    try:
+        async with aiohttp.ClientSession(
+            connector=aiohttp.TCPConnector(ssl=ssl_ctx)
+        ) as session:
+            url = f"{FMP_BASE}/profile"
+            params = {"symbol": ticker, "apikey": key}
+            async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status != 200:
+                    logger.warning(f"FMP profile for {ticker} returned {resp.status}")
+                    return _profile_cache.get(ticker, {})
+                data = await resp.json(content_type=None)
+    except Exception as e:
+        logger.warning(f"FMP profile fetch failed for {ticker}: {e}")
+        return _profile_cache.get(ticker, {})
+
+    if isinstance(data, list) and data:
+        profile = data[0]
+    elif isinstance(data, dict):
+        profile = data
+    else:
+        return {}
+
+    _profile_cache[ticker] = profile
+    _profile_timestamps[ticker] = now
+    return profile
 
 
 async def get_profiles(tickers: list[str], api_key: str | None = None) -> dict[str, dict]:
-    """Get profile data for multiple tickers from cache."""
-    await _ensure_cache(api_key)
-    return {t: _cache[t] for t in tickers if t in _cache}
+    """Get profiles for multiple tickers with concurrency control."""
+    sem = asyncio.Semaphore(10)
+    result: dict[str, dict] = {}
+
+    async def _fetch(t: str):
+        async with sem:
+            profile = await get_profile(t, api_key)
+            if profile:
+                result[t] = profile
+
+    await asyncio.gather(*[_fetch(t) for t in tickers])
+    return result
 
 
 async def get_tsx_whitelist(api_key: str | None = None) -> set[str]:
     """Get set of .TO tickers where isActivelyTrading=true and isEtf=false."""
-    await _ensure_cache(api_key)
-    return _tsx_whitelist.copy()
+    await _ensure_whitelist(api_key)
+    return _whitelist_cache.copy()
 
 
 async def is_valid_tsx_ticker(ticker: str, api_key: str | None = None) -> bool:
     """Check if ticker is in the TSX whitelist."""
-    await _ensure_cache(api_key)
-    return ticker in _tsx_whitelist
+    await _ensure_whitelist(api_key)
+    return ticker in _whitelist_cache
+
+
+async def refresh_cache(api_key: str | None = None) -> int:
+    """Refresh whitelist cache. Returns ticker count. Kept for backward compat."""
+    global _whitelist_timestamp
+    _whitelist_timestamp = 0  # Force refresh
+    await _ensure_whitelist(api_key)
+    return len(_whitelist_cache)
 
 
 def get_cache_info() -> dict:
     """Return cache metadata for debugging."""
-    age = time.time() - _cache_timestamp if _cache_timestamp else -1
+    age = time.time() - _whitelist_timestamp if _whitelist_timestamp else -1
     return {
-        "cached_tickers": len(_cache),
-        "whitelist_size": len(_tsx_whitelist),
+        "whitelist_size": len(_whitelist_cache),
+        "all_tickers": len(_all_tickers_cache),
+        "profile_cache_size": len(_profile_cache),
         "cache_age_seconds": round(age, 1),
-        "ttl_remaining_seconds": round(max(0, CACHE_TTL_SECONDS - age), 1) if _cache_timestamp else 0,
+        "ttl_remaining_seconds": round(max(0, CACHE_TTL_SECONDS - age), 1) if _whitelist_timestamp else 0,
     }

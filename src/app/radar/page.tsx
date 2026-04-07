@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import ResponsiveLayout from '@/components/layout/ResponsiveLayout';
 import RadarCard, { type RadarPickData } from '@/components/radar/RadarCard';
 import RadarIcon from '@/components/radar/RadarIcon';
-import LockInModal from '@/components/portfolio/LockInModal';
+import RadarLockInModal from '@/components/radar/RadarLockInModal';
 import PortfolioChoiceModal from '@/components/portfolio/PortfolioChoiceModal';
 import { usePortfolios } from '@/components/portfolio/usePortfolios';
 import type { SizingMode } from '@/components/portfolio/PortfolioSettings';
@@ -180,16 +180,14 @@ function RadarContent() {
 
       {/* Lock-In Confirmation Modal */}
       {lockInPick && (
-        <LockInModal
-          spike={{
+        <RadarLockInModal
+          pick={{
             id: lockInPick.id,
             ticker: lockInPick.ticker,
             name: lockInPick.name,
             price: lockInPick.priceAtScan,
-            predicted3Day: lockInPick.priceAtScan * 1.03,
-            predicted5Day: lockInPick.priceAtScan * 1.05,
-            predicted8Day: lockInPick.priceAtScan * 1.08,
-            atr: lockInPick.priceAtScan * 0.02,
+            smartMoneyScore: lockInPick.smartMoneyScore,
+            topCatalyst: lockInPick.topCatalyst,
           }}
           activePortfolioId={chosenPortfolioId || activePortfolioId}
           portfolios={portfolios}

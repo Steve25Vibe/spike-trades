@@ -387,7 +387,7 @@ export async function POST(request: NextRequest) {
           shares: radarShares,
           positionSize: radarShares * pick.priceAtScan,
           positionPct: radarPositionPct,
-          stopLoss: pick.priceAtScan * 0.95,  // 5% stop-loss default for Radar
+          stopLoss: null,
           status: 'active',
         },
       });

@@ -131,21 +131,9 @@ class OpeningBellScanner:
         return grades_map
 
     async def fetch_news_bulk(self, session: aiohttp.ClientSession, tickers: list[str]) -> dict[str, list[dict]]:
-        """Fetch recent news for multiple tickers from FMP /news/stock."""
-        news_map: dict[str, list[dict]] = {}
-        # Batch: FMP /news/stock supports tickers param for bulk
-        batch_size = 10
-        for i in range(0, len(tickers), batch_size):
-            batch = tickers[i:i + batch_size]
-            tickers_str = ",".join(batch)
-            data = await self._fmp_get(session, "/news/stock", {"tickers": tickers_str, "limit": "50"})
-            if data and isinstance(data, list):
-                for article in data:
-                    sym = article.get("symbol", "")
-                    if sym in batch:
-                        news_map.setdefault(sym, []).append(article)
-            await asyncio.sleep(0.2)
-        return news_map
+        """Fetch recent news for multiple tickers from EODHD."""
+        import eodhd_news
+        return await eodhd_news.fetch_news_batch(tickers, limit=5, api_key=os.environ.get("EODHD_API_KEY", ""))
 
     async def fetch_intraday_bars(self, session: aiohttp.ClientSession, ticker: str) -> list[dict]:
         """Fetch intraday bars: 1-min (preferred) → 5-min (fallback) → empty."""
@@ -401,6 +389,28 @@ Always respond with valid JSON only. No markdown, no explanation outside the JSO
                         multi_signal_movers.append(m)
                 logger.info(f"Opening Bell: {len(multi_signal_movers)} movers pass multi-signal requirement (from {len(movers)})")
                 movers = multi_signal_movers
+
+                if not movers:
+                    return {"success": False, "error": "No movers pass multi-signal quality filter", "duration_ms": int((time.time() - start) * 1000)}
+
+                # Layer 5 — News catalyst requirement: must have EODHD news or analyst grade
+                catalyst_movers = []
+                rejected_no_catalyst = 0
+                for m in movers:
+                    sym = m["symbol"]
+                    has_news = sym in news_map and len(news_map[sym]) > 0
+                    has_grade = sym in grades and len(grades[sym]) > 0
+                    if has_news or has_grade:
+                        catalyst_movers.append(m)
+                    else:
+                        rejected_no_catalyst += 1
+                if rejected_no_catalyst:
+                    logger.info(f"Opening Bell: {rejected_no_catalyst} tickers rejected by news catalyst filter")
+                movers = catalyst_movers
+                logger.info(f"Opening Bell: {len(movers)} movers pass news catalyst requirement")
+
+                if not movers:
+                    return {"success": False, "error": "No movers have verifiable news catalyst or analyst grade", "duration_ms": int((time.time() - start) * 1000)}
 
                 # Step 4: Call Sonnet
                 user_prompt = self.build_sonnet_prompt(movers, sectors, grades)

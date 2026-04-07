@@ -153,8 +153,8 @@ class StockDataPayload(BaseModel):
     adv_dollars: float = Field(..., ge=0, description="Avg daily dollar volume CAD")
     historical_bars: list[dict[str, Any]] = Field(default_factory=list, description="OHLCV bars")
     technicals: Optional[TechnicalIndicators] = None
-    news: list[NewsItem] = Field(default_factory=list)
-    finnhub_sentiment: Optional[float] = Field(None, ge=-1, le=1)
+    news: list[Any] = Field(default_factory=list)
+    news_sentiment: Optional[float] = Field(None, ge=-1, le=1)
     macro: Optional[MacroContext] = None
     earnings_event: Optional[EarningsEvent] = None
     insider_activity: Optional[InsiderActivity] = None
@@ -383,11 +383,10 @@ FMP_BASE = "https://financialmodelingprep.com/stable"
 
 
 class LiveDataFetcher:
-    """Async data client for FMP + Finnhub with strict freshness validation."""
+    """Async data client for FMP with strict freshness validation."""
 
-    def __init__(self, fmp_api_key: str, finnhub_api_key: str):
+    def __init__(self, fmp_api_key: str):
         self.fmp_key = fmp_api_key
-        self.finnhub_key = finnhub_api_key
         self._session: Optional[aiohttp.ClientSession] = None
         self._profile_cache: dict[str, dict] = {}
         # Endpoint health tracking: {path: {"ok": N, "404": N, "429": N, "error": N}}
@@ -444,19 +443,6 @@ class LiveDataFetcher:
         self._track_endpoint(path, "429")
         logger.error(f"FMP {path} failed after 5 retries (429)")
         return None
-
-    async def _finnhub_get(self, path: str, params: dict | None = None) -> Any:
-        """Make a GET request to Finnhub API."""
-        session = await self._get_session()
-        params = params or {}
-        params["token"] = self.finnhub_key
-        url = f"https://finnhub.io/api/v1{path}"
-        async with session.get(url, params=params) as resp:
-            if resp.status != 200:
-                text = await resp.text()
-                logger.error(f"Finnhub {path} returned {resp.status}: {text[:200]}")
-                return None
-            return await resp.json()
 
     # ── TSX Universe ──────────────────────────────────────────────────
 
@@ -644,21 +630,6 @@ class LiveDataFetcher:
         logger.warning(f"[LiveDataFetcher] {ticker}: no intraday bars available")
         return []
 
-    async def fetch_earnings_surprises(self, ticker: str) -> list[dict]:
-        """Fetch historical earnings surprise data (actual vs estimated EPS).
-
-        Returns:
-            List of dicts with 'date', 'actualEarningResult', 'estimatedEarning',
-            'revenue', 'revenueEstimated' keys. Empty list if unavailable.
-        """
-        data = await self._fmp_get(f"/earnings-surprises/{ticker}")
-
-        if data and isinstance(data, list):
-            logger.info(f"[LiveDataFetcher] {ticker}: got {len(data)} earnings surprises")
-            return data[:8]  # Last 8 quarters (2 years)
-
-        return []
-
     async def fetch_earnings_transcript(self, ticker: str, year: int, quarter: int) -> dict | None:
         """Fetch earnings call transcript. Returns None if unavailable.
 
@@ -809,56 +780,6 @@ class LiveDataFetcher:
 
     # ── News ──────────────────────────────────────────────────────────
 
-    async def fetch_news(self, ticker: str, limit: int = 5) -> list[NewsItem]:
-        """Fetch recent news for a ticker from FMP /stable/news/stock."""
-        data = await self._fmp_get(
-            "/news/stock",
-            params={"symbol": ticker, "limit": str(limit)}
-        )
-        if not data:
-            return []
-        items = []
-        for article in data:
-            if not isinstance(article, dict):
-                continue
-            pub = article.get("publishedDate")
-            pub_dt = None
-            if pub:
-                try:
-                    pub_dt = datetime.fromisoformat(pub.replace("Z", "+00:00"))
-                except (ValueError, TypeError):
-                    pass
-            items.append(NewsItem(
-                headline=article.get("title", ""),
-                source=article.get("site", ""),
-                url=article.get("url", ""),
-                published_at=pub_dt,
-            ))
-        return items
-
-    # ── Finnhub Sentiment ─────────────────────────────────────────────
-
-    async def fetch_finnhub_sentiment(self, ticker: str) -> Optional[float]:
-        """Derive sentiment from Finnhub company news volume/recency.
-        Returns float [-1, 1] or None. Uses /company-news since
-        /news-sentiment requires a premium Finnhub plan."""
-        base = ticker.replace(".TO", "").replace(".V", "")
-        to_date = date.today().isoformat()
-        from_date = (date.today() - timedelta(days=7)).isoformat()
-        data = await self._finnhub_get(
-            "/company-news",
-            params={"symbol": base, "from": from_date, "to": to_date}
-        )
-        if not data or not isinstance(data, list):
-            return None
-        if len(data) == 0:
-            return 0.0
-        # Simple heuristic: more recent news = more activity = slight positive bias
-        # Normalize news count to [-1, 1] range (10+ articles = strong signal)
-        count = len(data)
-        score = min(1.0, count / 10.0) * 0.5  # Cap at 0.5 for news volume alone
-        return round(score, 4)
-
     # ── Macro Context ─────────────────────────────────────────────────
 
     async def fetch_macro_context(self) -> MacroContext:
@@ -977,10 +898,11 @@ class LiveDataFetcher:
 
         technicals = self.compute_technicals(bars) if len(bars) >= 50 else None
 
-        # Fetch news + sentiment in parallel
-        news_task = self.fetch_news(ticker)
-        sentiment_task = self.fetch_finnhub_sentiment(ticker)
-        news_items, sentiment = await asyncio.gather(news_task, sentiment_task)
+        # Fetch news + sentiment from EODHD
+        import eodhd_news
+        news_data = await eodhd_news.fetch_news(ticker, limit=5)
+        sentiment = eodhd_news.get_sentiment_score(news_data) if news_data else 0.0
+        news_items = news_data
 
         try:
             payload = StockDataPayload(
@@ -997,7 +919,7 @@ class LiveDataFetcher:
                 historical_bars=bars[-20:],  # Last 20 bars for LLM context
                 technicals=technicals,
                 news=news_items,
-                finnhub_sentiment=sentiment,
+                news_sentiment=sentiment,
                 macro=macro,
                 iv_expected_move=(
                     self.compute_iv_expected_move(ticker, technicals.atr_14, price)
@@ -1062,14 +984,12 @@ async def fetch_insider_trades(
 async def fetch_analyst_consensus(
     fetcher: "LiveDataFetcher", ticker: str, current_price: float
 ) -> Optional[AnalystConsensus]:
-    """Fetch analyst grades + price target consensus.
-    Uses /grades (raw actions) since /grades-summary was removed from FMP stable API.
+    """Fetch analyst grades from FMP /grades.
+    Uses raw actions since /grades-summary was removed from FMP stable API.
     Computes buy/hold/sell summary from the most recent grade per analyst firm (last 12 months).
+    Note: /price-target-consensus returns empty [] for all .TO tickers, so only /grades is used.
     """
-    grades_data, target_data = await asyncio.gather(
-        fetcher._fmp_get("/grades", params={"symbol": ticker}),
-        fetcher._fmp_get("/price-target-consensus", params={"symbol": ticker}),
-    )
+    grades_data = await fetcher._fmp_get("/grades", params={"symbol": ticker})
     # Compute grades summary from raw /grades data
     sb, b, h, s, ss = 0, 0, 0, 0, 0
     if grades_data and isinstance(grades_data, list):
@@ -1097,17 +1017,12 @@ async def fetch_analyst_consensus(
                 ss += 1
     total_grades = sb + b + h + s + ss
     sentiment = ((sb * 2 + b * 1 + h * 0 + s * -1 + ss * -2) / max(total_grades, 1)) / 2.0
-    t = target_data[0] if target_data and isinstance(target_data, list) else {}
-    target_consensus = t.get("targetConsensus")
-    upside_pct = None
-    if target_consensus and current_price > 0:
-        upside_pct = round((target_consensus - current_price) / current_price * 100, 2)
-    if total_grades == 0 and upside_pct is None:
+    if total_grades == 0:
         return None
     return AnalystConsensus(
         strong_buy=sb, buy=b, hold=h, sell=s, strong_sell=ss,
         sentiment_score=round(sentiment, 4),
-        target_upside_pct=upside_pct,
+        target_upside_pct=None,
     )
 
 
@@ -1119,7 +1034,7 @@ async def fetch_enhanced_signals_batch(
     """Fetch analyst data for tickers, rate-limited. (Insider trades disabled — FMP endpoint removed.)"""
     insider_map: dict[str, InsiderActivity] = {}
     analyst_map: dict[str, AnalystConsensus] = {}
-    sem = asyncio.Semaphore(2)  # 2 concurrent to avoid FMP 429s on /grades + /price-target-consensus
+    sem = asyncio.Semaphore(2)  # 2 concurrent to avoid FMP 429s on /grades
 
     async def _fetch_one(ticker: str):
         async with sem:
@@ -1350,7 +1265,8 @@ def _slim_payload(d: dict) -> dict:
         d["news"] = d["news"][:5]  # Only 5 most recent articles
     for item in d.get("news", []):
         if isinstance(item, dict):
-            item.pop("url", None)
+            item.pop("content", None)
+            item.pop("link", None)
     return d
 
 
@@ -4403,11 +4319,10 @@ Required JSON format:
     # Module-level macro regime cache (stable within a day)
     _macro_cache: dict[str, MacroContext] = {}
 
-    def __init__(self, fmp_api_key: str, anthropic_api_key: str, finnhub_api_key: str | None = None):
+    def __init__(self, fmp_api_key: str, anthropic_api_key: str):
         self.fmp_api_key = fmp_api_key
         self.anthropic_api_key = anthropic_api_key
-        self.finnhub_api_key = finnhub_api_key
-        self.fetcher = LiveDataFetcher(fmp_api_key, finnhub_api_key)
+        self.fetcher = LiveDataFetcher(fmp_api_key)
         self.endpoint_health: dict[str, dict] = {}
 
     async def run(self, top_n: int = 10) -> dict:
@@ -4507,7 +4422,7 @@ Required JSON format:
         Returns (grades_map, earnings_map, news_map, sector_perf).
         earnings_map uses bulk /earnings-calendar (1 call) instead of
         per-ticker /earnings-surprises (which returns 404 for .TO tickers).
-        Falls back to Finnhub /calendar/earnings if FMP returns nothing.
+        Uses FMP /earnings-calendar exclusively.
         """
         sem = asyncio.Semaphore(12)
         grades_map: dict[str, list] = {}
@@ -4525,40 +4440,13 @@ Required JSON format:
 
         async def _news(t):
             async with sem:
-                data = await self.fetcher.fetch_news(t, limit=10)
+                import eodhd_news
+                data = await eodhd_news.fetch_news(t, limit=10)
                 if data:
-                    news_map[t] = [n.model_dump() if hasattr(n, "model_dump") else n for n in data]
+                    news_map[t] = data
 
         # Bulk earnings calendar (1 API call vs 352 per-ticker calls)
         earnings_map = await fetch_earnings_calendar(self.fetcher, days_ahead=self.EARNINGS_LOOKAHEAD_DAYS)
-
-        # Finnhub backup if FMP returned nothing
-        if not earnings_map and self.fetcher.finnhub_key:
-            try:
-                from_d = date.today().isoformat()
-                to_d = (date.today() + timedelta(days=self.EARNINGS_LOOKAHEAD_DAYS)).isoformat()
-                data = await self.fetcher._finnhub_get(
-                    "/calendar/earnings", {"from": from_d, "to": to_d}
-                )
-                if data and "earningsCalendar" in data:
-                    today = date.today()
-                    for item in data["earningsCalendar"]:
-                        symbol = item.get("symbol", "")
-                        if not symbol.endswith(".TO") and not symbol.endswith(".V"):
-                            continue
-                        try:
-                            earn_date = date.fromisoformat(item["date"])
-                            earnings_map[symbol] = EarningsEvent(
-                                earnings_date=item["date"],
-                                eps_estimated=item.get("epsEstimate"),
-                                revenue_estimated=item.get("revenueEstimate"),
-                                days_until=max((earn_date - today).days, 0),
-                            )
-                        except (KeyError, ValueError):
-                            continue
-                    logger.info(f"Finnhub earnings backup: {len(earnings_map)} TSX tickers")
-            except Exception as e:
-                logger.warning(f"Finnhub earnings backup failed: {e}")
 
         # Filter to only tickers in our liquid set
         ticker_set = set(tickers)
@@ -4669,7 +4557,7 @@ Required JSON format:
             q = quote_map.get(t, {})
             tech = tech_map.get(t)
             block = f"**{t}** — {q.get('name', 'Unknown')} | Sector: {q.get('sector', 'Unknown')}\n"
-            block += f"  Price: ${q.get('price', 0):.2f} | Change: {q.get('changesPercentage', 0):.2f}% | Volume: {q.get('volume', 0):,}\n"
+            block += f"  Price: ${q.get('price', 0):.2f} | Change: {q.get('changePercentage', 0):.2f}% | Volume: {q.get('volume', 0):,}\n"
 
             if tech:
                 block += f"  RSI: {tech.rsi_14:.1f} | MACD: {tech.macd_histogram:.3f} | ADX: {tech.adx_14:.1f} | RelVol: {tech.relative_volume:.2f}\n"
@@ -4687,8 +4575,12 @@ Required JSON format:
             if t in news_map:
                 block += f"  NEWS: {len(news_map[t])} articles in 24h\n"
                 for n in news_map[t][:2]:
-                    headline = n.get("headline", n.get("title", ""))[:80]
-                    block += f"    - {headline}\n"
+                    headline = n.get("title", "")[:80]
+                    tags = ", ".join(n.get("tags", [])[:3])
+                    block += f"    - {headline}"
+                    if tags:
+                        block += f" [{tags}]"
+                    block += "\n"
 
             ticker_blocks.append(block)
 
@@ -4835,14 +4727,12 @@ class CanadianStockCouncilBrain:
         anthropic_api_key: str | None = None,
         xai_api_key: str | None = None,
         fmp_api_key: str | None = None,
-        finnhub_api_key: str | None = None,
     ):
         self.fmp_key = fmp_api_key or os.environ.get("FMP_API_KEY", "")
-        self.finnhub_key = finnhub_api_key or os.environ.get("FINNHUB_API_KEY", "")
         self.anthropic_key = anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY", "")
         self.xai_key = xai_api_key or os.environ.get("XAI_API_KEY", "")
 
-        self.fetcher = LiveDataFetcher(self.fmp_key, self.finnhub_key)
+        self.fetcher = LiveDataFetcher(self.fmp_key)
         self.regime_filter = MacroRegimeFilter()
         self.historical_analyzer = HistoricalPerformanceAnalyzer()
         self.calibration_engine = HistoricalCalibrationEngine()

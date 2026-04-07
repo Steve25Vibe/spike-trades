@@ -159,7 +159,6 @@ def _get_brain() -> CanadianStockCouncilBrain:
         anthropic_api_key=os.environ["ANTHROPIC_API_KEY"],
         xai_api_key=os.environ.get("XAI_API_KEY", ""),
         fmp_api_key=os.environ["FMP_API_KEY"],
-        finnhub_api_key=os.environ.get("FINNHUB_API_KEY", ""),
     )
 
 
@@ -700,7 +699,8 @@ async def _fetch_spike_it_data(ticker: str) -> dict[str, Any] | None:
     quote_task = _fmp_get_spike("/batch-quote", {"symbols": ticker})
     bars_1m_task = _fmp_get_spike("/historical-chart/1min", {"symbol": ticker, "from": today_str, "to": today_str})
     hist_task = _fmp_get_spike("/historical-price-eod/full", {"symbol": ticker, "limit": "15"})
-    news_task = _fmp_get_spike("/news/stock", {"symbols": ticker, "limit": "5"})
+    import eodhd_news
+    news_task = eodhd_news.fetch_news(ticker, limit=5)
     macro_task = _fmp_get_spike("/batch-quote", {"symbols": "USO,GLD,CADUSD=X,XIU.TO"})
 
     quote_data, bars_1m_data, hist_data, news_data, macro_data = await asyncio.gather(
@@ -852,11 +852,13 @@ async def _fetch_spike_it_data(ticker: str) -> dict[str, Any] | None:
     clean_news = []
     if not isinstance(news_data, Exception) and news_data:
         for n in news_data[:5]:
+            sentiment = n.get("sentiment", {})
+            polarity = sentiment.get("polarity", 0) if isinstance(sentiment, dict) else 0
             clean_news.append({
                 "title": n.get("title", ""),
-                "publishedDate": n.get("publishedDate", ""),
-                "sentiment": n.get("sentiment", ""),
-                "text": (n.get("text", "") or "")[:200],
+                "publishedDate": n.get("date", ""),
+                "sentiment": polarity,
+                "tags": n.get("tags", []),
             })
 
     return {
@@ -1275,7 +1277,6 @@ async def _execute_radar():
         scanner = RadarScanner(
             fmp_api_key=os.environ.get("FMP_API_KEY", ""),
             anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
-            finnhub_api_key=os.environ.get("FINNHUB_API_KEY"),
         )
         result = await asyncio.wait_for(scanner.run(), timeout=RADAR_TIMEOUT)
         _radar_last_result = result
