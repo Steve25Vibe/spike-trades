@@ -29,7 +29,7 @@ services:
     restart: unless-stopped
     environment:
       FMP_API_KEY: ${FMP_API_KEY}
-      FINNHUB_API_KEY: ${FINNHUB_API_KEY}
+      EODHD_API_KEY: ${EODHD_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       GCP_PROJECT_ID: ${GCP_PROJECT_ID}
       GCP_LOCATION: ${GCP_LOCATION:-global}
@@ -64,7 +64,7 @@ services:
       NEXT_PUBLIC_APP_URL: https://spiketrades.ca
       COUNCIL_API_URL: http://council:8100
       FMP_API_KEY: ${FMP_API_KEY}
-      FINNHUB_API_KEY: ${FINNHUB_API_KEY}
+      EODHD_API_KEY: ${EODHD_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       XAI_API_KEY: ${XAI_API_KEY}
       RESEND_API_KEY: ${RESEND_API_KEY}
