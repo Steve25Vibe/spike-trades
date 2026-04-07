@@ -1,11 +1,171 @@
-# Spike Trades v5.0 — Smart Money Flow Radar
-## Changelog: v4.0 → v5.0
+# Spike Trades v5.0 → v5.0a — Post-Launch Hardening
+## Changelog: v5.0 → v5.0a
 
-**Release Date:** 2026-04-04
-**Commits:** 58 (6914b90..7058239)
-**Tag Line:** Pre-market intelligence meets autonomous AI stock analysis
+**Release Date:** 2026-04-07
+**Commits:** 33 (c3eb05a..255fb79)
+**Tag Line:** Quality, consistency, and recovery — making v5.0 production-grade
 
 ---
+
+### Overview
+
+Version 5.0a is a hardening release covering Sessions 10 through 13 plus post-Session-13 admin UI polish. Where v5.0 introduced the Smart Money Flow Radar feature, v5.0a makes the entire pipeline trustworthy: Opening Bell ghost-ticker bug fixes, ETF filtering for Spikes, full Finnhub removal in favor of EODHD as the unified news provider, Card-design consistency between Radar / Opening Bell / Today's Spikes, portfolio integration for Radar, recovery of all five post-deploy bugs found by user verification (Radar archives, Radar accuracy display location, EODHD Data Source Health, Admin Analytics tables, Learning gate reset), a one-time recovery of `accuracy_records` from Prisma Spike actuals after a destructive Session 10 cleanup wiped 510+ rows, the wiring fix for `emailRadar` (which had been a half-implemented preference toggle since v5.0 launch), and final admin UI refinements that split the LLM Stage Performance card into a Funnel + Stage 4 Accuracy pair and corrected the misleading "resolved picks" gate label.
+
+---
+
+### Sessions Covered
+
+| Session | Theme | Commits |
+|---|---|---|
+| **Session 10** | Post-launch repair sweep | 13 commits |
+| **Session 11** | EODHD migration + Finnhub removal | 5 commits |
+| **Session 12** | Card consistency + Radar portfolio integration | 5 commits |
+| **Session 13** | Five post-deploy bug repairs + accuracy_records recovery | 7 commits |
+| **Post-13** | Admin UI polish + emailRadar fix + zero-picks robustness | 3 commits |
+
+---
+
+### Session 10 — Post-Launch Repair Sweep
+
+#### Critical Pipeline Fixes
+- **Radar cron timeout extended from 6 → 10 minutes** — The 6-minute timeout was killing scans before LLM batches finished. Increased to 10 minutes plus a 1-minute buffer. (`scripts/start-cron.ts`) *Commit 1adfff1*
+- **AI score clamping + Radar prompt hardening** — Stage 1-3 scores could exceed rubric bounds (0-100) when the LLM hallucinated values. Now clamped server-side. Radar prompt also tightened to enforce score ranges. (`canadian_llm_council_brain.py`) *Commit 1428254*
+- **Opening Bell FMP stable API field name mismatches** — Several Opening Bell scanner fields were reading from camelCase keys when the FMP stable API returns snake_case. Fixed all field accessors. (`opening_bell_scanner.py`) *Commit a03b61a*
+- **Intraday chart paths + Opening Bell ghost ticker filter** — Two fixes bundled. Spike It chart endpoint was returning 404 for some tickers due to URL path bug. Opening Bell was occasionally producing "ghost" picks (tickers that don't exist on TSX), now filtered out at the scanner level. (`api_server.py`, `opening_bell_scanner.py`) *Commit 6c806e9*
+- **Historical edge multiplier applied pre-ranking** — The multiplier (which adjusts for past calibration accuracy) was being applied AFTER the Top 10 cutoff, so it never affected ranking. Now applied before ranking, as designed. (`canadian_llm_council_brain.py`) *Commit fc80e9d*
+
+#### FMP Pipeline Infrastructure
+- **FMP bulk profile cache** — Replaced 350+ per-ticker `/profile` calls with a single bulk download cached for 4 hours. Reduces a typical Council scan's API calls by ~80%. (`fmp_bulk_cache.py`, `canadian_llm_council_brain.py`) *Commit eb94c6a*
+
+#### Opening Bell Quality Improvements
+- **Opening Bell 5-layer data quality fix + UI consistency** — Bundled improvements: stricter pre-filter, sector momentum context, enriched LLM prompt with Radar overrides, news catalyst filter, and UI polish to match the Radar/Spikes card style. (`opening_bell_scanner.py`, `src/components/opening-bell/OpeningBellCard.tsx`) *Commit 7e74667*
+
+#### Radar Quality Improvements
+- **Radar quality improvements + portfolio integration** — Tightened Radar pre-filter to require both technical AND catalyst signals (was either-or), added missing portfolio lock-in entry points, and improved the Radar narrative formatting. (`canadian_llm_council_brain.py`, `src/components/radar/`) *Commit 7bf39d2*
+
+#### Today's Spikes Pre-Filter
+- **ETF filter for Spikes** — Today's Spikes was occasionally surfacing leveraged/inverse ETFs (HND, HNU, HOD, HOU, NRGU, VDY, VGRO, etc.) which are not legitimate spike candidates. Added an explicit blocklist at the pre-filter layer. (`canadian_llm_council_brain.py`) *Commit 087c090*
+- **Spikes ADV threshold reverted to $5M** — A previous experiment raised the average daily volume threshold to filter out illiquid names; turned out to be too aggressive and was excluding legitimate mid-caps. Reverted to $5M. (`canadian_llm_council_brain.py`) *Commit c6852be*
+
+#### Process & Documentation
+- **Session 10 plan document** — Comprehensive multi-phase repair plan covering data hygiene, FMP infrastructure, Radar fixes, and Spikes filter improvements. Used as the implementation roadmap for the entire session. (`docs/superpowers/plans/2026-04-06-session-10-v5-repairs.md`) *Commit 46f720f*
+- **Executing-plans directive added** — Plan document updated with explicit handoff instructions to the executing-plans skill so subagents could resume mid-implementation. *Commit 9238164*
+- **Regression checks + systematic debugging gate** — Added a Phase 0 to the plan that requires regression checks before any data changes, plus an explicit gate requiring systematic debugging skill use for any failure. *Commit 7332b0c*
+
+---
+
+### Session 11 — EODHD Migration + Full Finnhub Removal
+
+#### EODHD News Integration
+- **Unified `eodhd_news.py` shared module** — Single async module providing `fetch_news`, `fetch_news_batch`, and `get_sentiment_score` for all three pipelines (Radar, Opening Bell, Today's Spikes). Replaces a fragmented set of FMP and Finnhub calls. (`eodhd_news.py`) *Commit 513cd41*
+- **Radar news rewired FMP → EODHD** — Radar scanner now pulls news from EODHD with article tags surfaced in the LLM prompt for richer catalyst detection. (`canadian_llm_council_brain.py`) *Commit 513cd41*
+- **Opening Bell news rewired FMP → EODHD** — Opening Bell scanner uses EODHD via `fetch_news_batch` with concurrency control. (`opening_bell_scanner.py`) *Commit 513cd41*
+- **Today's Spikes news + sentiment rewired FMP+Finnhub → EODHD** — Council brain's `StockDataPayload` now uses `news_sentiment` (from EODHD) instead of the old `finnhub_sentiment` field. (`canadian_llm_council_brain.py`) *Commit 513cd41*
+- **Spike It news rewired FMP → EODHD** — Manual ticker analysis endpoint also uses EODHD. (`api_server.py`) *Commit 513cd41*
+- **Opening Bell Layer 5 news catalyst filter** — Added a fifth quality layer to the Opening Bell scanner that requires recent positive-sentiment news for high-conviction picks. (`opening_bell_scanner.py`) *Commit 513cd41*
+
+#### Finnhub Removal
+- **All Finnhub Python code removed** — No more Finnhub API calls anywhere in the Python pipeline. Empty `finnhub_sentiment` field migrated to `news_sentiment`. (`canadian_llm_council_brain.py`, `opening_bell_scanner.py`, `api_server.py`) *Commit 513cd41*
+- **FMP `fetch_news()`, `fetch_earnings_surprises()`, `/price-target-consensus` removed** — Three FMP endpoints that were returning empty `[]` for all .TO tickers (wasting API calls) are removed entirely. (`canadian_llm_council_brain.py`) *Commit 513cd41*
+- **Finnhub frontend code removed** — Cleaned up `src/lib/fallback.ts` and other client-side references. *Commit 31bdec8*
+- **Dead `NewsItem` class + inline imports cleanup** — Removed leftover dead code from the Finnhub-era news handling. Inline imports moved top-level. (`canadian_llm_council_brain.py`, `opening_bell_scanner.py`) *Commit 2883145*
+- **`changesPercentage` → `changePercentage` typo fixed** — Both Radar prompt and Spike It had a typo that produced empty change percentage in the LLM context. (`canadian_llm_council_brain.py`, `api_server.py`) *Commit 2883145*
+
+#### Configuration & Schema
+- **`EODHD_API_KEY` added to docker-compose** — Environment variable wired through to all containers. `FINNHUB_API_KEY` removed. (`docker-compose.yml`, `.env.example`) *Commit 4ff2303*
+- **`fmp_bulk_cache.py` restructured** — CSV-only for the whitelist, JSON-per-ticker for profiles. Reduces memory pressure. (`fmp_bulk_cache.py`) *Commit 513cd41*
+- **`RadarLockInModal.tsx` created** — Dedicated lock-in modal for Radar picks (no fake 3/5/8-day targets — just smart money score and 5% stop loss, since Radar is a pre-scan signal not a directional prediction). (`src/components/radar/RadarLockInModal.tsx`) *Commit 513cd41*
+- **Empty-movers guard in Opening Bell** — Added defensive check for empty mover lists from FMP. (`opening_bell_scanner.py`) *Commit 513cd41*
+
+---
+
+### Session 12 — Card Consistency + Radar Portfolio Integration
+
+#### OpeningBellCard Layout Refactor
+- **Aligned to SpikeCard reference design** — Square `rank-badge` class with rank-1/2/3 styling, amber top glow bar for top 3, single `flex items-start gap-4` header row, price inside info block under company name, hover-visible checkbox, narrative in styled box with amber info SVG icon. Removed redundant bell icon (already on Opening Bell page). (`src/components/opening-bell/OpeningBellCard.tsx`) *Commit 2f916d5*
+- **`RadarIcon` shown only when `isRadarPick === true`** — Animated radar icon now only appears when the pick was reaffirmed by the upstream Radar scan, not on every Opening Bell card. *Commit 2f916d5*
+
+#### RadarCard Layout Refactor
+- **Aligned to SpikeCard reference design** — Same structural alignment as Opening Bell. Removed redundant pipeline status section ("✓ Opening Bell → ○ Awaiting Spikes") since Radar is the first pipeline stage and has nothing upstream to reference. Removed redundant `RadarIcon` next to ticker (already on the Radar page). Added `selected`, `onSelect`, `selectionMode` props for bulk operations. (`src/components/radar/RadarCard.tsx`) *Commit 5c371ba*
+
+#### Radar Page Portfolio Integration
+- **Selection mode + bulk lock-in + portfolio settings** — Radar page now has the full portfolio menu system matching Today's Spikes and Opening Bell: select picks, bulk lock-in modal, portfolio settings cog, confirmation toast. Replaced custom `glass-card` header with shared `MarketHeader` component (TSX/Oil/Gold/BTC/CAD indicators, same length as other pages). Removed `<div className="max-w-7xl mx-auto">` wrapper that was creating a gap between sidebar and content. (`src/app/radar/page.tsx`) *Commit 2d14240*
+- **`setChosenPortfolioId` type fix** — Cancel handler had a `useState<string>` vs `string | undefined` mismatch. (`src/app/radar/page.tsx`) *Commit 89742d7*
+- **Radar page layout aligned to Today's Spikes and Opening Bell** — Final structural pass to ensure all three pipeline pages have the same overall layout shape. (`src/app/radar/page.tsx`) *Commit eb61f50*
+
+---
+
+### Session 13 — Five Post-Deploy Bug Repairs + accuracy_records Recovery
+
+#### Bug 1: Radar Archives Fix
+- **Restored Radar tab listing in Archives** — `reports/page.tsx:86` was reading `json.reports` from a `/api/reports/radar` response that returns `json.data`. The Radar tab had been permanently empty since Session 11's deploy. Unified the success branch to use `json.data` for all three tabs (Spikes, Opening Bell, Radar). (`src/app/reports/page.tsx`) *Commit 2573c19*
+- **XLSX download button added to Radar archive cards** — Radar cards previously only had a "View" button. Added an "XLSX" button matching the Spikes/Opening Bell pattern. (`src/app/reports/page.tsx`) *Commit 2573c19*
+- **New Radar XLSX download API route** — `src/app/api/reports/radar/[id]/xlsx/route.ts` mirrors the Opening Bell xlsx route, generates a single-sheet workbook with rank, ticker, signal breakdown (Smart Money / Catalyst / News / Technical / Volume / Sector Alignment), catalyst + rationale text, pipeline pass-through flags, and actual open-day metrics. (`src/app/api/reports/radar/[id]/xlsx/route.ts`) *Commit 969b34b*
+
+#### Bug 2: Move Radar Accuracy from Public to Admin
+- **Radar Accuracy moved from public Accuracy Engine to Admin Council tab** — Radar is a pre-scan ranking tool, not a predictive forecast; measuring it as a win/loss binary is a category error. Display moved to Admin Council tab where it belongs. DB columns (`actualOpenPrice`, `actualOpenChangePct`, `openMoveCorrect`, `passedOpeningBell`, `passedSpikes` on `RadarPick`) remain populated by the 4:30 PM backfill cron. (`src/app/admin/page.tsx`, `src/app/api/admin/council/route.ts`) *Commit 5191379*
+- **Removed Radar block from public Accuracy Engine API + page** — Cleaned up the orphaned Radar query, response payload, state, and render block from `/api/accuracy/route.ts` and `/app/accuracy/page.tsx`. (`src/app/api/accuracy/route.ts`, `src/app/accuracy/page.tsx`) *Commit 751f0ce*
+
+#### Bug 3: EODHD Data Source Health Tracking
+- **EODHD news API calls now tracked in `endpoint_health`** — Added optional `endpoint_health` parameter to `eodhd_news.fetch_news` and `fetch_news_batch`. When provided, calls bump `ok/404/429/error` counters under key `eodhd/news` — same shape as the FMP fetcher's `_track_endpoint`, so the admin Data Source Health dashboard displays EODHD rows alongside FMP rows without any frontend changes. Wired through at three call sites: `LiveDataFetcher.build_payload` (council brain line 896), `RadarScanner._news` inner closure (council brain line 4436), and `OpeningBellScanner.fetch_news_bulk` (line 134). Also added `from __future__ import annotations` so PEP 604 union syntax works on Python 3.9+ in addition to 3.10+ in production containers. (`eodhd_news.py`, `canadian_llm_council_brain.py`, `opening_bell_scanner.py`) *Commit 7664bdf*
+
+#### Bug 4 + 5: Auto-Resolved by Recovery Script
+- **`scripts/recover_accuracy_records.py` — One-time recovery script** — Rebuilds `accuracy_records` from Prisma `Spike.actual3Day/5Day/8Day` columns after Session 10's destructive `DELETE FROM accuracy_records` wiped 510+ rows of training data. Zero FMP calls. Uses `INSERT OR IGNORE` so it's safe to re-run. Skips orphan `pick_history` rows that have no Prisma match (Option C from Session 13 brainstorming). Prints before/after counts and a live gate-simulation at the end. Restored the table from 0 → 270 rows with 198 resolved samples, flipping Learning gates 1, 2, 4, 5, 6 back to ACTIVE. (`scripts/recover_accuracy_records.py`) *Commit 25c44c6*
+- **Session 10 destructive DELETE deprecated** — Added a prominent `⚠️ DEPRECATED — DO NOT RUN` warning above the unconditional `DELETE FROM accuracy_records` line in the Session 10 plan. Preserved the audit trail while making it impossible to run unintentionally. (`docs/superpowers/plans/2026-04-06-session-10-v5-repairs.md`) *Commit 25c44c6*
+
+#### Admin UI Refinement (also Session 13)
+- **LLM Stage Performance split into two cards** — "Stage Funnel & Calibration" (all 4 stages — Picks Scored, Avg Score, Score Range, In Top 10) and "Stage 4 Directional Accuracy" (Grok-only — 3d/5d/8d Hit Rate, Avg Predicted Move, Bias). Replaces the prior single table where stages 1-3 had three blank "—" hit-rate columns that looked like missing data. Stages 1-3 produce quality scores but no directional forecasts, so they cannot have a hit rate by design — making this clear in the UI removes confusion. (`src/app/admin/page.tsx`) *Commit 76a7f2c*
+- **Learning gate label "resolved picks" → "resolved samples"** — The displayed count was `COUNT(*) FROM accuracy_records WHERE accurate IS NOT NULL` — the number of (pick × horizon) measurement records, not distinct picks. Each pick can produce up to 3 records (3d, 5d, 8d). At time of fix, 84 distinct picks had produced 198 resolved measurements. Only the label was wrong; gate thresholds (50, 100, 660) are correctly calibrated against the records count. (`src/app/admin/page.tsx`) *Commit 76a7f2c*
+
+---
+
+### Post-Session-13 — Final Polish
+
+#### emailRadar Wiring Fix
+- **`emailRadar` half-wired since v5.0 launch** — The `emailRadar` user preference toggle had been silently broken since the Radar feature shipped: GET `/api/user/preferences` did not include `emailRadar` in the select clause, PUT did not destructure or persist it, and the schema default was `false`. Result: every user had `emailRadar = false` and **zero Radar emails had ever been delivered in production**. The toggle on the settings page would visibly flip ON when clicked but reset to OFF as soon as the user navigated away. Three coordinated fixes: (1) GET endpoint now selects `emailRadar`, (2) PUT endpoint destructures and persists it, (3) schema default flipped from `false` to `true` so new users are auto-enrolled (matching the auto-enroll pattern used by every other email preference). (`src/app/api/user/preferences/route.ts`, `prisma/schema.prisma`) *Commit 3de45a9*
+- **All 5 existing users backfilled to `emailRadar = true`** — One-time SQL `UPDATE "User" SET "emailRadar" = true WHERE "emailRadar" = false` on production Postgres. Verified post-update: 5/5 users opted in. *Operational, not a commit*
+- **Schema applied via `npx prisma db push`** — Same pattern used elsewhere in the project for non-migration schema syncs. *Operational, not a commit*
+
+#### Session 10 Plan File Hardened
+- **All five destructive blocks in Phase 1 deprecated** — The original `accuracy_records` warning (Session 13) was extended to cover every destructive SQL block in Phase 1 of the Session 10 plan: section 1.1 (Opening Bell `DELETE WHERE date = CURRENT_DATE` — confirmed cause of Apr 6 OB data loss), section 1.2 (Radar trim by `CURRENT_DATE`), section 1.3 (Spike + PortfolioEntry ETF cleanup), section 1.4 (Spike Mar 24/25 trim), section 1.5 (SQLite `pick_history` / `stage_scores` / calibration / accuracy_records purge). Every line of executable SQL/Python in those sections is now commented out at the line level so copy-paste-and-run cannot accidentally trigger the destruction. Section banners explain the original bug, the fix at source, and what the post-mortem investigation found. A top-of-Phase-1 banner explicitly states the entire phase is deprecated and lists the confirmed casualties. (`docs/superpowers/plans/2026-04-06-session-10-v5-repairs.md`) *Commit af1c90a*
+
+#### Opening Bell Robustness
+- **Tolerate zero-picks pre-market (mirror Radar pattern)** — `runOpeningBellAnalysis()` would throw if the Python scanner returned zero picks, killing the entire run before the Prisma write. The Radar analyzer (the working reference) tolerates zero picks and saves a valid 0-pick report. Aligned OB with the Radar pattern: still throws if scanner explicitly reported `success=false`, but tolerates empty picks and continues to upsert the report row with metadata. Guarded `prisma.openingBellPick.createMany` to skip on zero-picks days (avoids any Prisma version edge cases with empty payloads). Skip the OB email send when picks is empty (sending an empty Opening Bell email would confuse subscribers). The `OpeningBellReport` row still gets upserted with metadata (date, tickersScanned, scanDurationMs, sectorSnapshot) even on quiet days. Discovered during pre-cron systematic verification on 2026-04-07 using diff-against-working-Radar — yesterday's Apr 6 OB run produced 10 picks so this would not have changed history, but it eliminates a real fragility for future runs. (`src/lib/opening-bell-analyzer.ts`) *Commit 255fb79*
+
+---
+
+### Operational / Recovery Actions (not commits)
+
+These actions were performed against production data during Session 13 + Post-13 work. They are recorded here as part of the v5.0a state even though they have no commit hash because they were SQL or one-time scripts run via `docker exec`.
+
+- **`accuracy_records` rebuilt from Prisma Spike actuals** (Session 13, Task 16) — 0 → 270 rows, 198 resolved. All 5 gates that should be active flipped to ACTIVE.
+- **Today's manual scan contamination cleanup** (Session 13 follow-up) — After triggering manual Council/Radar/OB scans during Task 17 verification, the user pointed out the off-hours data would contaminate learning. Scoped DELETE removed pick_ids 219-228 (10 picks, 36 stage_scores, 21 accuracy_records placeholders) — all unresolved, no gate impact.
+- **Orphan dev/test data purge** (Session 13 follow-up) — 83 orphan `pick_history` rows from pre-release dev/test runs (different tickers than the corresponding Prisma Spike rows for the same dates) deleted, scoped to only rows with no Prisma counterpart. Affected dates: 2026-03-19 (18 rows, all orphan), 2026-03-20 (38 of 57), 2026-03-23 (9 of 19), 2026-03-24 (8 of 18), 2026-04-02 (10 of 19). Zero `accuracy_records` lost. Zero gate impact.
+- **All 5 production users backfilled to `emailRadar = true`** (Post-13) — One-time SQL UPDATE.
+- **Cron container fully verified pre-OB-fire** (Post-13) — 20 individual checks across cron schedule, network reachability, auth, timezone handling, route handler, Python endpoints, schema match, unique indexes. All passing.
+
+---
+
+### Summary Table
+
+| Category | Count | Notes |
+|---|---|---|
+| New features | 6 | Radar XLSX route, Radar Accuracy admin card, EODHD news module, accuracy_records recovery script, Stage Performance split, emailRadar wiring |
+| Bug fixes | 18+ | Across Sessions 10-13 |
+| Refactors | 6 | Card alignment work in Session 12 + LLM Stage Performance split + accuracy display move |
+| Deprecations | 1 | Session 10 Phase 1 (all destructive SQL blocks) |
+| Operational fixes | 5 | Data recovery, cleanup, backfills (no commits) |
+| Total commits | 33 | v5.0 (c3eb05a) → v5.0a (255fb79) |
+
+### Tag Update
+
+**v5.0a** (local annotated tag) re-pointed from commit `76a7f2c` (Session 13 + admin polish) to **commit `<TBD — this changelog commit>`** (includes all post-Session-13 fixes and the v5.0a changelog itself).
+
+Original v5.0a was a snapshot of the state when the user first requested a backup tag during Session 13. v5.0a is now a snapshot of the post-emailRadar-fix, post-deprecation, post-zero-picks-fix state — the actual production-deployed v5.0a.
+
+---
+
+
 
 ### Overview
 
