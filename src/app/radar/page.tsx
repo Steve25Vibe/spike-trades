@@ -3,6 +3,7 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import ResponsiveLayout from '@/components/layout/ResponsiveLayout';
+import MarketHeader from '@/components/layout/MarketHeader';
 import RadarCard, { type RadarPickData } from '@/components/radar/RadarCard';
 import RadarIcon from '@/components/radar/RadarIcon';
 import RadarLockInModal from '@/components/radar/RadarLockInModal';
@@ -17,6 +18,7 @@ function RadarContent() {
   const searchParams = useSearchParams();
   const dateParam = searchParams.get('date');
   const [data, setData] = useState<any>(null);
+  const [marketData, setMarketData] = useState<{ marketRegime: string; tsxLevel: number; tsxChange: number; oilPrice: number; goldPrice: number; btcPrice: number; cadUsd: number; prevOilPrice: number | null; prevGoldPrice: number | null; prevBtcPrice: number | null; prevCadUsd: number | null } | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Portfolio lock-in state
@@ -37,7 +39,31 @@ function RadarContent() {
     const url = dateParam ? `/api/radar?date=${dateParam}` : '/api/radar';
     fetch(url)
       .then(r => r.json())
-      .then(setData)
+      .then(async (radarJson) => {
+        setData(radarJson);
+        // Fetch market indicators from the daily report for the same date
+        try {
+          const spikesUrl = dateParam ? `/api/spikes?date=${dateParam}` : '/api/spikes';
+          const spikesRes = await fetch(spikesUrl);
+          const spikesJson = await spikesRes.json();
+          if (spikesJson.success && spikesJson.data?.report) {
+            const r = spikesJson.data.report;
+            setMarketData({
+              marketRegime: r.marketRegime || 'neutral',
+              tsxLevel: r.tsxLevel || 0,
+              tsxChange: r.tsxChange || 0,
+              oilPrice: r.oilPrice || 0,
+              goldPrice: r.goldPrice || 0,
+              btcPrice: r.btcPrice || 0,
+              cadUsd: r.cadUsd || 0,
+              prevOilPrice: r.prevOilPrice,
+              prevGoldPrice: r.prevGoldPrice,
+              prevBtcPrice: r.prevBtcPrice,
+              prevCadUsd: r.prevCadUsd,
+            });
+          }
+        } catch { /* market data is non-essential */ }
+      })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [dateParam]);
@@ -168,19 +194,24 @@ function RadarContent() {
 
   return (
     <ResponsiveLayout>
-      <div className="max-w-7xl mx-auto">
-        {/* Radar header */}
-        <div className="glass-card p-4 mb-6">
-          <div className="flex items-center gap-3">
-            <RadarIcon size={28} />
-            <div>
-              <h2 className="text-xl font-display font-bold tracking-wide text-radar-green">SMART MONEY RADAR</h2>
-              <p className="text-sm text-spike-text-dim">
-                Pre-Market Signals &mdash; {report.date ? new Date(report.date).toLocaleDateString('en-CA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : 'Today'}
-              </p>
-            </div>
-          </div>
-        </div>
+        <MarketHeader
+          title="SMART MONEY RADAR"
+          titleColor="text-radar-green"
+          date={report.date ? new Date(new Date(report.date).toISOString().split('T')[0] + 'T12:00:00').toLocaleDateString('en-CA', {
+            weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+          }) : 'Today'}
+          regime={marketData?.marketRegime || 'neutral'}
+          tsxLevel={marketData?.tsxLevel || 0}
+          tsxChange={marketData?.tsxChange || 0}
+          oilPrice={marketData?.oilPrice || 0}
+          goldPrice={marketData?.goldPrice || 0}
+          btcPrice={marketData?.btcPrice || 0}
+          cadUsd={marketData?.cadUsd || 0}
+          prevOilPrice={marketData?.prevOilPrice}
+          prevGoldPrice={marketData?.prevGoldPrice}
+          prevBtcPrice={marketData?.prevBtcPrice}
+          prevCadUsd={marketData?.prevCadUsd}
+        />
 
         {/* Stats grid */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
@@ -303,7 +334,6 @@ function RadarContent() {
             &copy; {new Date().getFullYear()} Spike Trades &mdash; spiketrades.ca. All rights reserved. &middot; Ver 5.0
           </p>
         </div>
-      </div>
 
       {/* Portfolio Choice Modal — appears first when locking in */}
       {(pendingSinglePick || pendingBulkPicks) && (
