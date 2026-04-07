@@ -15,6 +15,7 @@ export async function GET() {
         emailSellReminders: true,
         emailDeviationAlerts: true,
         emailOpeningBell: true,
+        emailRadar: true,
       },
     });
 
@@ -31,13 +32,14 @@ export async function PUT(request: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
-    const { emailDailySpikes, emailSellReminders, emailDeviationAlerts, emailOpeningBell } = await request.json();
+    const { emailDailySpikes, emailSellReminders, emailDeviationAlerts, emailOpeningBell, emailRadar } = await request.json();
 
     const data: Record<string, boolean> = {};
     if (emailDailySpikes !== undefined) data.emailDailySpikes = Boolean(emailDailySpikes);
     if (emailSellReminders !== undefined) data.emailSellReminders = Boolean(emailSellReminders);
     if (emailDeviationAlerts !== undefined) data.emailDeviationAlerts = Boolean(emailDeviationAlerts);
     if (emailOpeningBell !== undefined) data.emailOpeningBell = Boolean(emailOpeningBell);
+    if (emailRadar !== undefined) data.emailRadar = Boolean(emailRadar);
 
     await prisma.user.update({
       where: { id: user.userId },
