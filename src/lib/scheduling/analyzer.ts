@@ -300,18 +300,6 @@ export async function runDailyAnalysis(useCached = false, trigger = 'scheduled')
     // Step 4: Send email summary
     console.log('[Analyzer] Sending email summary...');
 
-    // Fetch today's radar picks for badges
-    const radarTickers = new Set<string>();
-    try {
-      const todayDate = new Date();
-      todayDate.setHours(0, 0, 0, 0);
-      const radarPicks = await prisma.radarPick.findMany({
-        where: { report: { date: todayDate } },
-        select: { ticker: true },
-      });
-      for (const rp of radarPicks) radarTickers.add(rp.ticker);
-    } catch { /* radar table may not exist yet */ }
-
     // Try to send the rich HTML email from the Python renderer first
     let emailSent = false;
     try {
@@ -393,7 +381,6 @@ export async function runDailyAnalysis(useCached = false, trigger = 'scheduled')
           marketRegime: reportData.marketRegime,
           tsxLevel: reportData.tsxLevel,
           tsxChange: reportData.tsxChange,
-          radarTickers,
         });
       }
     }

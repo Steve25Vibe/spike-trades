@@ -37,17 +37,14 @@ export async function sendDailySummary(data: {
   marketRegime: string;
   tsxLevel: number;
   tsxChange: number;
-  radarTickers?: Set<string>;
 }) {
-  const { to, date, topSpikes, marketRegime, tsxLevel, tsxChange, radarTickers } = data;
-
-  const radarBadge = `<span style="display:inline-block;background:#00FF4122;color:#00FF41;border:1px solid #00FF4144;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:bold;margin-left:4px;vertical-align:middle">RADAR</span>`;
+  const { to, date, topSpikes, marketRegime, tsxLevel, tsxChange } = data;
 
   const spikeRows = topSpikes.slice(0, 10).map((s) =>
     `<tr style="border-bottom:1px solid #1E3A5F">
       <td style="padding:12px;color:#00F0FF;font-weight:bold">#${s.rank}</td>
       <td style="padding:12px">
-        <strong style="color:#E2E8F0">${s.ticker}</strong>${radarTickers?.has(s.ticker) ? radarBadge : ''}<br>
+        <strong style="color:#E2E8F0">${s.ticker}</strong><br>
         <span style="color:#94A3B8;font-size:12px">${s.name}</span>
       </td>
       <td style="padding:12px;text-align:center">

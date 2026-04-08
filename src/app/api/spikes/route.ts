@@ -47,28 +47,6 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Fetch Opening Bell picks for this date to cross-reference
-    let openingBellTickers: Set<string> = new Set();
-    try {
-      const obReport = await prisma.openingBellReport.findUnique({
-        where: { date: report.date },
-        include: { picks: { select: { ticker: true } } },
-      });
-      if (obReport) {
-        openingBellTickers = new Set(obReport.picks.map((p) => p.ticker));
-      }
-    } catch { /* non-fatal */ }
-
-    // Cross-reference: which spikes were also Radar picks?
-    let radarTickerMap: Map<string, number> = new Map();
-    try {
-      const radarPicks = await prisma.radarPick.findMany({
-        where: { report: { date: report.date } },
-        select: { ticker: true, smartMoneyScore: true },
-      });
-      radarTickerMap = new Map(radarPicks.map(rp => [rp.ticker, rp.smartMoneyScore]));
-    } catch { /* non-fatal */ }
-
     // Fetch previous day's report for comparison arrows
     // Use report.date (not targetDate) so weekend/fallback views compare correctly
     const prevReport = await prisma.dailyReport.findFirst({
@@ -131,11 +109,6 @@ export async function GET(request: NextRequest) {
           historicalConfidence: s.historicalConfidence,
           calibrationSamples: s.calibrationSamples,
           overconfidenceFlag: s.overconfidenceFlag,
-          // Opening Bell cross-reference
-          isOpeningBellPick: openingBellTickers.has(s.ticker),
-          // Radar cross-reference
-          isRadarPick: radarTickerMap.has(s.ticker),
-          radarScore: radarTickerMap.get(s.ticker) ?? null,
         })),
       },
       timestamp: Date.now(),
