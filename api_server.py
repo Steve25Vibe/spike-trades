@@ -405,16 +405,28 @@ async def run_status():
 
 @app.get("/learning-state")
 async def learning_state():
-    """Return current learning mechanism states for admin panel."""
+    """Return current learning mechanism states for admin panel.
+
+    LE BYPASS (2026-04-08): Dynamic Stage Weights and Prompt Accuracy Context
+    are bypassed in council runs due to confirmed JOIN defects in their compute
+    functions. The dashboard's get_mechanism_states() still reports them as
+    "active" because the gate queries themselves are unchanged, but the values
+    are no longer used by _build_consensus. The bypassed_mechanisms field below
+    lets the admin panel surface this honestly.
+    See docs/superpowers/specs/2026-04-08-learning-engine-bypass-design.md
+    """
     try:
         from canadian_llm_council_brain import LearningEngine, DB_PATH
         le = LearningEngine(db_path=DB_PATH)
         states = le.get_mechanism_states()
-        weights = le.compute_stage_weights()
+        # Hardcoded bypass weights — matches what _build_consensus uses at runtime.
+        # See canadian_llm_council_brain.py:2122 for the single source of truth.
+        bypass_weights = {1: 0.15, 2: 0.20, 3: 0.30, 4: 0.35}
         return {
             "success": True,
             "mechanisms": states,
-            "current_stage_weights": weights,
+            "current_stage_weights": bypass_weights,
+            "bypassed_mechanisms": ["Dynamic Stage Weights", "Prompt Accuracy Context"],
         }
     except Exception as e:
         logger.error(f"Learning state failed: {e}", exc_info=True)
