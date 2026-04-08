@@ -148,13 +148,14 @@ def _score_insider(ia: InsiderActivity | None) -> float:
     if ia is None or ia.recency_weighted_score is None:
         return 0.0
     r = ia.recency_weighted_score
-    # r range ≈ -3.0 (heavy selling) to +3.0 (heavy buying)
-    if r >= 1.5:   return 35.0
-    if r >= 1.0:   return 30.0
-    if r >= 0.5:   return 25.0
-    if r >= 0.0:   return 18.0
-    if r >= -0.5:  return 10.0
-    if r >= -1.0:  return 5.0
+    # r is clamped to [-1.0, 1.0] by the InsiderActivity Pydantic schema (line 113).
+    # Thresholds are calibrated to that range.
+    if r >= 0.70:   return 35.0
+    if r >= 0.45:   return 30.0
+    if r >= 0.20:   return 25.0
+    if r >= 0.00:   return 18.0
+    if r >= -0.20:  return 10.0
+    if r >= -0.50:  return 5.0
     return 0.0
 
 def _score_institutional(ownership_pct: float | None) -> float:
@@ -354,13 +355,31 @@ Applied via `prisma db push --skip-generate` (same pattern as yesterday's heartb
 
 ### Component 7: `api_server.py` mapped_spikes dict (MODIFIED)
 
-One new line in the dict comprehension that maps `FinalHotPick` to the frontend payload:
+One new line in the dict that maps `FinalHotPick` to the frontend payload (around line 260 alongside existing `historicalConfidence` mapping at line 311):
 
 ```python
-"institutionalConvictionScore": pick.institutional_conviction_score,
+"institutionalConvictionScore": pick.get("institutional_conviction_score"),
 ```
 
-And the equivalent line in the SQL INSERT that persists to Prisma Spike.
+### Component 7B: `src/lib/scheduling/analyzer.ts` — Spike persist pipeline (MODIFIED)
+
+**Location:** `src/lib/scheduling/analyzer.ts` around line 221–264.
+
+This is the bridge between the Python council brain (via `api_server.py`) and the Prisma Spike table. The `spikeData` dict at line 221 maps api_server response fields to Prisma columns, then `prisma.dailyReport.upsert(... spikes: { create: spikeData } ...)` writes the rows at line 266.
+
+Two additions:
+
+**7B-a.** Add `institutionalConvictionScore` to the TypeScript interface for the spike object (around line 79 where `historicalConfidence: number | null` is declared):
+
+```ts
+institutionalConvictionScore: number | null;
+```
+
+**7B-b.** Add the field to the `spikeData.map()` block (around line 260 next to `historicalConfidence`):
+
+```ts
+institutionalConvictionScore: spike.institutionalConvictionScore,
+```
 
 ### Component 8: TypeScript SpikeCard type (MODIFIED)
 
@@ -441,7 +460,8 @@ The History bar remains unchanged. Its position naturally becomes the third bar 
 |---|---|---|
 | `prisma/schema.prisma` | Add `institutionalConvictionScore Int?` to Spike model | +1 |
 | `canadian_llm_council_brain.py` | Add `compute_iic()` + 4 score helpers, NEW `fetch_institutional_ownership` endpoint fetcher, `institutional_ownership_pct` on StockDataPayload + wiring, `institutional_conviction_score` on FinalHotPick, call in `build_consensus_top10()`, multiplier cap block | ~120 |
-| `api_server.py` | Add `institutionalConvictionScore` to `mapped_spikes` dict and Prisma INSERT | +2 |
+| `api_server.py` | Add `institutionalConvictionScore` to `mapped_spikes` dict | +1 |
+| `src/lib/scheduling/analyzer.ts` | Add `institutionalConvictionScore` to interface + spikeData mapping | +2 |
 | `src/types/index.ts` | Add `institutionalConvictionScore: number \| null` to SpikeCard type | +1 |
 | `src/components/spikes/SpikeCard.tsx` | Update Council label conditional (line 135), insert Smart bar block | +35 |
 
