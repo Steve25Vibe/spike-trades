@@ -122,8 +122,6 @@ export default function AdminPage() {
   const [council, setCouncil] = useState<CouncilStatus | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [analytics, setAnalytics] = useState<Record<string, any> | null>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [learning, setLearning] = useState<Record<string, any> | null>(null);
   const [inviteEmail, setInviteEmail] = useState('');
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -168,13 +166,10 @@ export default function AdminPage() {
         const res = await fetch('/api/admin/analytics');
         const json = await res.json();
         if (json.success) setAnalytics(json.data);
-      } else if (tab === 'learning') {
-        const res = await fetch('/api/admin/learning');
-        const json = await res.json();
-        if (json.success && json.data?.success) {
-          setLearning(json.data);
-        }
       }
+      // LE BYPASS (2026-04-08): the 'learning' tab no longer fetches data.
+      // Its content is a static stub stating the Learning Engine is bypassed.
+      // See docs/superpowers/specs/2026-04-08-learning-engine-bypass-design.md
     } catch { /* handle */ }
     finally { setLoading(false); }
   };
@@ -1210,99 +1205,42 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* Learning System Tab */}
+        {/* Learning System Tab — BYPASSED 2026-04-08, see spec for details */}
         {tab === 'learning' && (
           <div className="space-y-6">
-            {loading ? (
-              <p className="text-spike-text-muted">Loading learning system state...</p>
-            ) : !learning ? (
-              <p className="text-spike-text-muted">Learning system not available. Ensure council server is running.</p>
-            ) : (
-              <>
-                {/* Section 1: Mechanism Dashboard */}
-                <div className="glass-card p-6">
-                  <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-4">
-                    Mechanism Activation Status
-                  </h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    {learning.mechanisms?.map((m: { name: string; active: boolean; progress: number | string; gate: number }, i: number) => (
-                      <div key={i} className={cn(
-                        'rounded-xl p-4 border',
-                        m.active
-                          ? 'bg-spike-green/5 border-spike-green/30'
-                          : 'bg-spike-bg/50 border-spike-border'
-                      )}>
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className={cn(
-                            'w-2 h-2 rounded-full',
-                            m.active ? 'bg-spike-green' : 'bg-spike-text-muted'
-                          )} />
-                          <span className={cn(
-                            'text-xs font-bold uppercase',
-                            m.active ? 'text-spike-green' : 'text-spike-text-muted'
-                          )}>
-                            {m.active ? 'Active' : 'Waiting'}
-                          </span>
-                        </div>
-                        <p className="text-sm font-medium text-spike-text mb-2">{m.name}</p>
-                        {typeof m.progress === 'number' && m.gate > 0 ? (
-                          <>
-                            <div className="w-full h-1.5 bg-spike-bg rounded-full overflow-hidden mb-1">
-                              <div
-                                className={cn('h-full rounded-full transition-all', m.active ? 'bg-spike-green' : 'bg-spike-cyan')}
-                                style={{ width: `${Math.min((m.progress / m.gate) * 100, 100)}%` }}
-                              />
-                            </div>
-                            <p className="text-[10px] text-spike-text-muted mono">
-                              {m.progress}/{m.gate} resolved samples
-                            </p>
-                          </>
-                        ) : (
-                          <p className="text-[10px] text-spike-text-muted mono">
-                            {typeof m.progress === 'string' ? m.progress : 'No gate required'}
-                          </p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Section 2: Current Stage Weights */}
-                <div className="glass-card p-6">
-                  <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-4">
-                    Current Stage Weights
-                  </h3>
-                  <p className="text-spike-text-dim text-xs mb-4">
-                    How much influence each LLM stage has on the final consensus score. Default: S1=15%, S2=20%, S3=30%, S4=35%.
-                  </p>
-                  <div className="grid grid-cols-4 gap-4">
-                    {Object.entries(learning.current_stage_weights || {}).map(([stage, weight]) => {
-                      const defaults: Record<string, number> = {'1': 0.15, '2': 0.20, '3': 0.30, '4': 0.35};
-                      const defaultW = defaults[stage] || 0.25;
-                      const w = weight as number;
-                      const delta = ((w - defaultW) * 100).toFixed(1);
-                      const deltaNum = parseFloat(delta);
-                      const stageNames: Record<string, string> = {'1': 'Sonnet', '2': 'Gemini', '3': 'Opus', '4': 'Grok'};
-                      return (
-                        <div key={stage} className="glass-card p-4 text-center">
-                          <p className="text-[9px] text-spike-text-muted uppercase tracking-wider mb-1">
-                            Stage {stage} ({stageNames[stage]})
-                          </p>
-                          <p className="text-xl font-bold text-spike-cyan mono">
-                            {(w * 100).toFixed(1)}%
-                          </p>
-                          {deltaNum !== 0 && (
-                            <p className={cn('text-xs mono', deltaNum > 0 ? 'text-spike-green' : 'text-spike-red')}>
-                              {deltaNum > 0 ? '+' : ''}{delta}% vs default
-                            </p>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </>
-            )}
+            <div className="glass-card p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <span className="w-2 h-2 rounded-full bg-spike-amber" />
+                <h3 className="text-sm font-bold text-spike-amber uppercase tracking-wider">
+                  Learning Engine — Bypassed
+                </h3>
+              </div>
+              <p className="text-spike-text text-sm mb-3">
+                The Learning Engine is currently bypassed pending a full audit and redesign.
+                Council runs use the hardcoded stage weights{' '}
+                <span className="mono text-spike-cyan">{`{S1: 15%, S2: 20%, S3: 30%, S4: 35%}`}</span>{' '}
+                instead of the dynamically computed values.
+              </p>
+              <p className="text-spike-text-dim text-xs mb-3">
+                Reason: a confirmed SQL JOIN defect in <span className="mono">compute_stage_weights()</span> caused
+                weights to always collapse to a uniform <span className="mono">{`{0.25 × 4}`}</span>, silently underweighting
+                Stage 4 by 10 percentage points relative to design. A parallel statistical-significance
+                analysis showed that across 198 resolved accuracy records, none of the council&apos;s
+                directional hit rates (3d/5d/8d) are distinguishable from a coin flip at 95% confidence —
+                so even bug-free code would be learning from noise at current sample sizes.
+              </p>
+              <p className="text-spike-text-dim text-xs mb-3">
+                The bypass leaves the Learning Engine class and SQLite tables intact for future repair.
+                Other mechanisms (sector multiplier, disagreement adjustment, conviction thresholds,
+                factor weights, pre-filter) continue to run unchanged, but the buggy{' '}
+                <span className="mono">compute_stage_weights()</span> and{' '}
+                <span className="mono">build_prompt_context()</span> are no longer called from the
+                council pipeline.
+              </p>
+              <p className="text-spike-text-muted text-[10px] mono">
+                Spec: docs/superpowers/specs/2026-04-08-learning-engine-bypass-design.md
+              </p>
+            </div>
           </div>
         )}
 
