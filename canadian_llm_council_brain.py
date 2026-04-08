@@ -233,6 +233,7 @@ class FinalHotPick(BaseModel):
     change_pct: float = 0.0
     consensus_score: float = Field(..., ge=0, le=100)
     conviction_tier: ConvictionTier
+    institutional_conviction_score: Optional[int] = Field(None, ge=0, le=100, description="IIC 0-100, None if insufficient data")
     stages_appeared: int = Field(..., ge=1, le=4)
     stage_scores: dict[str, ScoreBreakdown] = Field(default_factory=dict)
     forecasts: list[ProbabilisticForecast] = Field(default_factory=list)
@@ -2539,6 +2540,7 @@ def _build_consensus(
             sector_relative_strength=(
                 payload.sector_relative_strength if payload else None
             ),
+            institutional_conviction_score=data.get("institutional_conviction_score"),
             learning_adjustments=data.get("learning_adjustments"),
         )
         picks.append(pick)
