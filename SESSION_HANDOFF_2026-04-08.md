@@ -213,31 +213,29 @@ User asked "is there data from FMP/EODHD that could improve results — history 
 - Reevaluate after data accumulates — at current rate ~15 resolved picks/day, this is 60–90 days out
 - Don't act before data justifies it
 
-### D. Operational hygiene
+### D. Operational hygiene — ✅ ALL CLOSED 2026-04-08
 
-**D1. Pre-existing 2026-04-03 DailyReport gap**
-- `CouncilLog` has a 2026-04-03 row but `DailyReport` does not
-- Predates Phase 1, not caused by Phase 1
-- Investigate when convenient — likely a silent failure in `prisma.dailyReport.upsert` from that day
-- Low priority — not user-visible, single-day outlier
+**D1. ✅ CLOSED — Pre-existing 2026-04-03 DailyReport gap**
+- Resolution: NOT a bug. April 3, 2026 = Good Friday (Canadian stat holiday, TSX closed). The holiday-skip logic correctly suppressed the `DailyReport` write while `CouncilLog` row was still created (council brain ran but report write was correctly gated). Working as intended.
+- Closed in same-day session 2026-04-08
 
-**D2. Production build cache prune**
-- `docker builder prune` on production
-- Currently 88 GB build cache, disk at 83%
-- Not urgent but should be done before disk gets tight
+**D2. ✅ CLOSED — Production build cache prune**
+- Executed `docker builder prune -f` 2026-04-08 ~10:35 UTC
+- Reclaimed 89.5 GB. Disk dropped from 80% (93G/117G used) to 9% (10G/117G used)
+- Image cache also dropped from 87 GB to 4.2 GB (dangling images that were pinned by build cache)
+- All 6 containers remained healthy through the operation
+- Closed in same-day session 2026-04-08
 
-### E. Topic A blocker — needs user clarification
+### E. Topic A blocker — ✅ RESOLVED 2026-04-08
 
-**E1. "User Tracking update previously discussed"**
-- User mentioned this in the brainstorming command but I could not find ANY prior reference in:
-  - `docs/superpowers/specs/`
-  - `docs/superpowers/plans/`
-  - `SESSION_*.md` files
-  - `.claude/plans/`
-  - The auto-memory at `/Users/coeus/.claude/projects/-Users-coeus-spiketrades-ca-claude-code/memory/`
-  - Recent git log
-- Possibilities: per-user portfolio attribution? user activity logging? user analytics dashboard? something verbal from a prior session not documented anywhere?
-- **Action required:** ask user to clarify what "User Tracking update" means before any work begins
+**E1. ✅ RESOLVED — "User Tracking update previously discussed"**
+- User clarified: the admin Activity tab dashboard was showing nonsensical data (21h durations, 0s durations, "Active Today: 0"). Root cause: the dashboard tracked LOGIN EVENTS, not user activity.
+- Resolution: User Activity Heartbeat feature designed, implemented, deployed via PR #7 (`8286a2d`) on 2026-04-08 ~12:00 UTC
+- 60s visibility-gated client heartbeat → POST /api/activity/heartbeat → lazy session extend/rotate → COALESCE-aware admin query → 68 contaminated legacy rows scoped-deleted via `scripts/wipe_legacy_user_sessions.sql`
+- T+0 verification confirmed: real heartbeat sessions created, `User.lastSeenAt` updates correctly
+- Spec: `docs/superpowers/specs/2026-04-08-user-activity-heartbeat-design.md`
+- Plan: `docs/superpowers/plans/2026-04-08-user-activity-heartbeat.md`
+- Closed in same-day session 2026-04-08
 
 ---
 
