@@ -4673,11 +4673,36 @@ class CanadianStockCouncilBrain:
                     logger.warning(f"Enhanced signals fetch failed (non-fatal): {e}")
                     return {}, {}, {}
 
+            async def _fetch_eodhd():
+                try:
+                    session = await self.fetcher._get_session()
+                    return await eodhd_enrichment.fetch_eodhd_batch_enrichment(
+                        session, [p.ticker for p in payloads_list]
+                    )
+                except Exception as e:
+                    logger.warning(f"EODHD enrichment fetch failed (non-fatal): {e}")
+                    return {}
+
             # Note: /earnings-surprises/{ticker} returns 404 for all .TO tickers.
             # Bulk /earnings-calendar (via _fetch_earnings) is the working replacement.
 
-            earnings_map, (insider_map, analyst_map, institutional_map) = await asyncio.gather(
-                _fetch_earnings(), _fetch_enhanced()
+            earnings_map, (insider_map, analyst_map, institutional_map), eodhd_map = await asyncio.gather(
+                _fetch_earnings(), _fetch_enhanced(), _fetch_eodhd()
+            )
+
+            # ── Step 4e.5: Cross-compare FMP quotes vs EODHD fundamentals ──
+            # Produces DataQualityFlags per ticker — flags ghost stocks and (future)
+            # source disagreements. Ghost detection is the primary value at this stage.
+            # Price-diff detection is a no-op until EODHD enrichment includes a quote
+            # endpoint (see cross_compare.py docstring and the Task 11 recon report).
+            quality_flags_map = cross_compare.cross_compare_batch(
+                [p.ticker for p in payloads_list], quotes, eodhd_map
+            )
+            flagged_count = sum(1 for f in quality_flags_map.values() if f.has_any_flag())
+            ghost_count = sum(1 for f in quality_flags_map.values() if f.ghost_stock)
+            logger.info(
+                f"Step 4e.5: Cross-compare — {flagged_count} flagged tickers "
+                f"({ghost_count} ghost)"
             )
 
             # ── Step 4f: Compute sector-relative strength + attach all signals ──
@@ -4698,6 +4723,48 @@ class CanadianStockCouncilBrain:
                 f"{len(analyst_map)} analyst, {len(institutional_map)} institutional, "
                 f"{len(rel_strength_map)} sector-rel"
             )
+
+            # ── Step 4g: Dual-listing enrichment (Tier 2 MUST, Tier 3 IF FEASIBLE) ──
+            # Order matters: this MUST run AFTER the Canadian institutional assignment
+            # above so US 13F values OVERRIDE the Canadian values for dual-listed tickers.
+            # US data is higher quality for Canadian dual-listed names because the US
+            # institutional holder base (13F filers) is deeper than the Canadian equivalent.
+            # Tier 1 (US options IV → IVExpectedMove) is deferred to Task 11.5 follow-up
+            # pending FMP response format investigation + Black-Scholes back-out.
+
+            dual_listed_payloads = [
+                p for p in payloads_list
+                if us_dual_listing_enrichment.get_us_ticker(p.ticker) is not None
+            ]
+            dual_hit_count = len(dual_listed_payloads)
+
+            if dual_hit_count > 0:
+                logger.info(f"Step 4g: Dual-listing enrichment — {dual_hit_count} matches")
+                dual_sem = asyncio.Semaphore(5)
+
+                async def _enrich_dual(p):
+                    us_ticker = us_dual_listing_enrichment.get_us_ticker(p.ticker)
+                    if us_ticker is None:
+                        return  # should not happen given pre-filter above
+                    async with dual_sem:
+                        # Tier 2: US 13F institutional override (MUST)
+                        us_13f = await us_dual_listing_enrichment.fetch_us_13f_institutional(
+                            self.fetcher, us_ticker
+                        )
+                        if us_13f is not None:
+                            p.institutional_ownership_pct = us_13f
+
+                await asyncio.gather(*[_enrich_dual(p) for p in dual_listed_payloads])
+                tier2_count = sum(
+                    1 for p in dual_listed_payloads
+                    if p.institutional_ownership_pct is not None
+                )
+                logger.info(
+                    f"Step 4g: Dual-listing Tier 2 complete — {tier2_count}/{dual_hit_count} "
+                    f"tickers have US 13F override"
+                )
+            else:
+                logger.info("Step 4g: Dual-listing enrichment — no dual-listed tickers in this run")
 
             # Index payloads by ticker for later lookup
             payloads_map = {p.ticker: p for p in payloads_list}
@@ -4841,6 +4908,8 @@ class CanadianStockCouncilBrain:
                         logger.error(f"Stage 1 (Sonnet) FAILED: {e}")
                         stage1_results = []
                         skipped_stages.append({"stage": 1, "model": "sonnet", "error": str(e)})
+                        if tracker:
+                            tracker.skip_stage("stage1_sonnet", reason=str(e))
                 else:
                     logger.warning("Stage 1 (Sonnet) cancelled by wall-clock timeout — no results")
                     stage1_results = []
