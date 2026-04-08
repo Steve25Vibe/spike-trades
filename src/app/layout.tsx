@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import '@/styles/globals.css';
 import { AuthProvider } from '@/components/providers/AuthProvider';
 import ServiceWorkerRegistration from '@/components/providers/ServiceWorkerRegistration';
+import { ActivityHeartbeat } from '@/components/ActivityHeartbeat';
 
 export const metadata: Metadata = {
   title: 'Spike Trades — Today\'s Spikes | AI Canadian Stock Analyst',
@@ -28,6 +29,7 @@ export default function RootLayout({
       <body className="bg-spike-bg text-spike-text antialiased min-h-screen">
         <AuthProvider>
           <ServiceWorkerRegistration />
+          <ActivityHeartbeat />
           {children}
         </AuthProvider>
       </body>

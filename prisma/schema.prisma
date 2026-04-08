@@ -29,6 +29,7 @@ model User {
   emailRadar           Boolean  @default(true)
 
   lastLoginAt       DateTime?
+  lastSeenAt        DateTime?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
@@ -55,15 +56,17 @@ model Invitation {
 }
 
 model UserSession {
-  id        String    @id @default(cuid())
-  userId    String
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  loginAt   DateTime  @default(now())
-  logoutAt  DateTime?
-  duration  Int?      // seconds
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  loginAt         DateTime  @default(now())
+  logoutAt        DateTime?
+  duration        Int?      // seconds
+  lastHeartbeatAt DateTime?
 
   @@index([userId])
   @@index([loginAt])
+  @@index([lastHeartbeatAt])
 }
 
 // ---- Market Data ----
