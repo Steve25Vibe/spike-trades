@@ -94,6 +94,7 @@ export interface SpikeCard {
   narrative: string;
   technicals: TechnicalIndicators;
   scoreBreakdown: SpikeScoreBreakdown;
+  institutionalConvictionScore?: number | null;
   historicalConfidence?: number;   // 0-100, from calibration engine
   calibrationSamples?: number;     // sample count
   overconfidenceFlag?: boolean;    // council >> history

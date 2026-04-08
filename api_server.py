@@ -307,6 +307,8 @@ def _map_to_prisma(council_output: dict) -> dict:
             "killCondition": pick.get("kill_condition"),
             "worstCase": pick.get("worst_case_scenario"),
             "forecasts": forecasts,
+            # Institutional Conviction Score (from build_consensus_top10)
+            "institutionalConvictionScore": pick.get("institutional_conviction_score"),
             # Calibration data (from HistoricalCalibrationEngine)
             "historicalConfidence": round(cal.get("calibrated_confidence", 0) * 100, 1) if (cal := pick.get("calibration")) else None,
             "calibrationSamples": cal.get("sample_count") if (cal := pick.get("calibration")) else None,

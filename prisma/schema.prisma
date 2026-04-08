@@ -194,6 +194,7 @@ model Spike {
   historicalConfidence Float?   // calibrated confidence from backtest (0-100)
   calibrationSamples  Int?     // number of historical samples
   overconfidenceFlag  Boolean? // true if council >> history
+  institutionalConvictionScore Int?    // IIC 0-100; null for legacy rows
 
   // Learning engine adjustments
   learningAdjustments String?  // JSON blob of per-pick learning adjustments

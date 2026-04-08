@@ -154,6 +154,7 @@ class StockDataPayload(BaseModel):
     insider_activity: Optional[InsiderActivity] = None
     analyst_consensus: Optional[AnalystConsensus] = None
     sector_relative_strength: Optional[float] = Field(None, description="Ticker change% minus sector avg")
+    institutional_ownership_pct: Optional[float] = Field(None, ge=0.0, le=1.0, description="Fraction of shares held by institutions (from /v4/institutional-ownership)")
     iv_expected_move: Optional[IVExpectedMove] = Field(default=None)
     earnings_surprise_history: list[dict] = Field(default_factory=list, description="Recent earnings surprises (last 8 quarters)")
     earnings_transcript_summary: str | None = Field(default=None, description="Truncated most-recent earnings call transcript")
@@ -232,6 +233,7 @@ class FinalHotPick(BaseModel):
     change_pct: float = 0.0
     consensus_score: float = Field(..., ge=0, le=100)
     conviction_tier: ConvictionTier
+    institutional_conviction_score: Optional[int] = Field(None, ge=0, le=100, description="IIC 0-100, None if insufficient data")
     stages_appeared: int = Field(..., ge=1, le=4)
     stage_scores: dict[str, ScoreBreakdown] = Field(default_factory=dict)
     forecasts: list[ProbabilisticForecast] = Field(default_factory=list)
@@ -964,14 +966,52 @@ async def fetch_analyst_consensus(
     )
 
 
+async def fetch_institutional_ownership(
+    fetcher: "LiveDataFetcher", ticker: str
+) -> Optional[float]:
+    """
+    Fetch institutional ownership percentage for a ticker from FMP.
+    Returns the fraction of shares held by institutions (0.0-1.0), or None.
+    Non-blocking: returns None on any error rather than raising.
+
+    Uses the /api/v4/institutional-ownership/symbol-ownership endpoint, which is
+    NOT available via fetcher._fmp_get() (that method is hardcoded to FMP_BASE
+    which points at /stable/). This function makes a direct call using the
+    fetcher's shared session and API key.
+    """
+    try:
+        session = await fetcher._get_session()
+        url = "https://financialmodelingprep.com/api/v4/institutional-ownership/symbol-ownership"
+        params = {
+            "symbol": ticker,
+            "includeCurrentQuarter": "false",
+            "apikey": fetcher.fmp_key,
+        }
+        async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            if resp.status != 200:
+                return None
+            data = await resp.json()
+            if not data or not isinstance(data, list) or len(data) == 0:
+                return None
+            latest = data[0]
+            pct = latest.get("ownershipPercent")
+            if pct is None:
+                return None
+            # FMP returns as a percentage (e.g. 45.7 for 45.7%); normalize to [0,1]
+            return min(max(float(pct) / 100.0, 0.0), 1.0)
+    except Exception:
+        return None
+
+
 async def fetch_enhanced_signals_batch(
     fetcher: "LiveDataFetcher",
     tickers: list[str],
     quotes: dict[str, dict],
-) -> tuple[dict[str, InsiderActivity], dict[str, AnalystConsensus]]:
+) -> tuple[dict[str, InsiderActivity], dict[str, AnalystConsensus], dict[str, float]]:
     """Fetch analyst data for tickers, rate-limited. (Insider trades disabled — FMP endpoint removed.)"""
     insider_map: dict[str, InsiderActivity] = {}
     analyst_map: dict[str, AnalystConsensus] = {}
+    institutional_map: dict[str, float] = {}
     sem = asyncio.Semaphore(2)  # 2 concurrent to avoid FMP 429s on /grades
 
     async def _fetch_one(ticker: str):
@@ -983,6 +1023,12 @@ async def fetch_enhanced_signals_batch(
                     analyst_map[ticker] = analyst
             except Exception as e:
                 logger.debug(f"Analyst fetch failed for {ticker}: {e}")
+            try:
+                institutional = await fetch_institutional_ownership(fetcher, ticker)
+                if institutional is not None:
+                    institutional_map[ticker] = institutional
+            except Exception as e:
+                logger.debug(f"Institutional ownership fetch failed for {ticker}: {e}")
             await asyncio.sleep(0.15)
 
     for i in range(0, len(tickers), 20):
@@ -992,8 +1038,8 @@ async def fetch_enhanced_signals_batch(
             await asyncio.sleep(3)
             logger.info(f"Enhanced signals: {min(i + 20, len(tickers))}/{len(tickers)} fetched")
 
-    logger.info(f"Enhanced signals: {len(insider_map)} insider, {len(analyst_map)} analyst records")
-    return insider_map, analyst_map
+    logger.info(f"Enhanced signals: {len(insider_map)} insider, {len(analyst_map)} analyst, {len(institutional_map)} institutional records")
+    return insider_map, analyst_map, institutional_map
 
 
 def compute_sector_relative_strength(
@@ -2067,6 +2113,109 @@ class CouncilFactChecker:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# INSTITUTIONAL CONVICTION SCORE (IIC)
+# ═══════════════════════════════════════════════════════════════════════════
+# Unified 0-100 smart-money conviction signal surfaced on SpikeCard as a
+# third graduated bar between Council and History.
+#
+# Weights: insider 35 / institutional 30 / analyst 20 / srs 15 = 100.
+# Returns None ("No Scoring — Insufficient Data") when ALL 4 inputs are missing.
+#
+# Spec: docs/superpowers/specs/2026-04-08-conviction-score-cleanup-design.md
+
+def _score_insider(ia: Optional["InsiderActivity"]) -> float:
+    """Insider buying gets 0-35 points. Strongest single smart-money signal."""
+    if ia is None or ia.recency_weighted_score is None:
+        return 0.0
+    r = ia.recency_weighted_score
+    # r is clamped to [-1.0, 1.0] by the InsiderActivity Pydantic schema.
+    if r >= 0.70:   return 35.0
+    if r >= 0.45:   return 30.0
+    if r >= 0.20:   return 25.0
+    if r >= 0.00:   return 18.0
+    if r >= -0.20:  return 10.0
+    if r >= -0.50:  return 5.0
+    return 0.0
+
+
+def _score_institutional(ownership_pct: Optional[float]) -> float:
+    """Institutional ownership 0-30 points. Captures 13F/13G filings."""
+    if ownership_pct is None:
+        return 0.0
+    if ownership_pct >= 0.70:  return 30.0
+    if ownership_pct >= 0.50:  return 26.0
+    if ownership_pct >= 0.30:  return 22.0
+    if ownership_pct >= 0.15:  return 16.0
+    if ownership_pct >= 0.05:  return 10.0
+    if ownership_pct > 0.0:    return 5.0
+    return 0.0
+
+
+def _score_analyst(ac: Optional["AnalystConsensus"]) -> float:
+    """Analyst consensus 0-20 points."""
+    if ac is None or ac.sentiment_score is None:
+        return 0.0
+    s = ac.sentiment_score  # clamped to [-1.0, 1.0]
+    if s >= 0.70:   return 20.0
+    if s >= 0.40:   return 17.0
+    if s >= 0.20:   return 13.0
+    if s >= 0.00:   return 9.0
+    if s >= -0.30:  return 5.0
+    return 0.0
+
+
+def _score_srs(srs: Optional[float]) -> float:
+    """Sector relative strength 0-15 points."""
+    if srs is None:
+        return 0.0
+    # srs is ticker-change% minus sector-average-change%, effectively [-3, +3]
+    if srs >= 2.0:   return 15.0
+    if srs >= 1.0:   return 12.0
+    if srs >= 0.5:   return 9.0
+    if srs >= 0.0:   return 6.0
+    if srs >= -0.5:  return 3.0
+    return 0.0
+
+
+def compute_iic(
+    insider_activity: Optional["InsiderActivity"],
+    institutional_ownership_pct: Optional[float],
+    analyst_consensus: Optional["AnalystConsensus"],
+    sector_relative_strength: Optional[float],
+) -> Optional[int]:
+    """
+    Institutional Conviction Score (0-100) from smart-money signals.
+    Returns None if ALL four input signals are missing or neutral
+    (triggers "No Scoring — Insufficient Data" in the UI).
+    """
+    has_insider = (
+        insider_activity is not None
+        and insider_activity.recency_weighted_score is not None
+        and insider_activity.recency_weighted_score != 0
+    )
+    has_institutional = (
+        institutional_ownership_pct is not None
+        and institutional_ownership_pct > 0
+    )
+    has_analyst = (
+        analyst_consensus is not None
+        and analyst_consensus.sentiment_score is not None
+    )
+    has_srs = sector_relative_strength is not None
+
+    if not (has_insider or has_institutional or has_analyst or has_srs):
+        return None
+
+    total = (
+        _score_insider(insider_activity)
+        + _score_institutional(institutional_ownership_pct)
+        + _score_analyst(analyst_consensus)
+        + _score_srs(sector_relative_strength)
+    )
+    return int(round(min(max(total, 0), 100)))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # CONSENSUS + CONVICTION TIERING (Session 3)
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -2257,6 +2406,43 @@ def _build_consensus(
                 consensus_score *= edge_mult
         adjustments["edge_multiplier"] = edge_mult
 
+        # ── Combined multiplier cap ──
+        # Prevents the [0,100] clamp at FinalHotPick construction from
+        # silently swallowing mathematically impossible scores.
+        # directional_multiplier is excluded — it is an LLM forecast signal,
+        # not a smart-money multiplier.
+        CAP_MIN, CAP_MAX = 0.5, 1.5
+        combined_adj = (
+            sector_adj * earnings_mult * insider_adj * analyst_adj
+            * srs_adj * disagreement_adj * iv_check * edge_mult
+        )
+        if combined_adj == 0.0:
+            # A multiplier zeroed the score (typically edge_mult for
+            # noise-filtered tickers — see HistoricalPerformanceAnalyzer
+            # .get_historical_edge_multiplier). consensus_score is already 0;
+            # the cap has nothing to rescale. Skip the division.
+            adjustments["was_capped"] = True
+        elif combined_adj > CAP_MAX:
+            consensus_score *= CAP_MAX / combined_adj
+            adjustments["was_capped"] = True
+        elif combined_adj < CAP_MIN:
+            consensus_score *= CAP_MIN / combined_adj
+            adjustments["was_capped"] = True
+        else:
+            adjustments["was_capped"] = False
+        adjustments["combined_adj_multiplier"] = round(combined_adj, 4)
+
+        # ── Institutional Conviction Score (IIC) ──
+        # Pure derived view of smart-money signals. Does NOT replace the
+        # existing consensus_score math — surfaces it as an orthogonal bar.
+        iic_score = compute_iic(
+            insider_activity=payload.insider_activity if payload else None,
+            institutional_ownership_pct=payload.institutional_ownership_pct if payload else None,
+            analyst_consensus=payload.analyst_consensus if payload else None,
+            sector_relative_strength=payload.sector_relative_strength if payload else None,
+        )
+        data["institutional_conviction_score"] = iic_score
+
         data["learning_adjustments"] = adjustments
         scored_tickers.append((ticker, consensus_score, len(stages), data))
 
@@ -2354,6 +2540,7 @@ def _build_consensus(
             sector_relative_strength=(
                 payload.sector_relative_strength if payload else None
             ),
+            institutional_conviction_score=data.get("institutional_conviction_score"),
             learning_adjustments=data.get("learning_adjustments"),
         )
         picks.append(pick)
@@ -4451,12 +4638,12 @@ class CanadianStockCouncilBrain:
                     )
                 except Exception as e:
                     logger.warning(f"Enhanced signals fetch failed (non-fatal): {e}")
-                    return {}, {}
+                    return {}, {}, {}
 
             # Note: /earnings-surprises/{ticker} returns 404 for all .TO tickers.
             # Bulk /earnings-calendar (via _fetch_earnings) is the working replacement.
 
-            earnings_map, (insider_map, analyst_map) = await asyncio.gather(
+            earnings_map, (insider_map, analyst_map, institutional_map) = await asyncio.gather(
                 _fetch_earnings(), _fetch_enhanced()
             )
 
@@ -4469,11 +4656,14 @@ class CanadianStockCouncilBrain:
                     p.insider_activity = insider_map[p.ticker]
                 if p.ticker in analyst_map:
                     p.analyst_consensus = analyst_map[p.ticker]
+                if p.ticker in institutional_map:
+                    p.institutional_ownership_pct = institutional_map[p.ticker]
                 p.sector_relative_strength = rel_strength_map.get(p.ticker)
             logger.info(
                 f"Step 4f: Signals attached — "
                 f"{len(earnings_map)} earnings, {len(insider_map)} insider, "
-                f"{len(analyst_map)} analyst, {len(rel_strength_map)} sector-rel"
+                f"{len(analyst_map)} analyst, {len(institutional_map)} institutional, "
+                f"{len(rel_strength_map)} sector-rel"
             )
 
             # Index payloads by ticker for later lookup
