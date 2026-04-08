@@ -2112,6 +2112,109 @@ class CouncilFactChecker:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# INSTITUTIONAL CONVICTION SCORE (IIC)
+# ═══════════════════════════════════════════════════════════════════════════
+# Unified 0-100 smart-money conviction signal surfaced on SpikeCard as a
+# third graduated bar between Council and History.
+#
+# Weights: insider 35 / institutional 30 / analyst 20 / srs 15 = 100.
+# Returns None ("No Scoring — Insufficient Data") when ALL 4 inputs are missing.
+#
+# Spec: docs/superpowers/specs/2026-04-08-conviction-score-cleanup-design.md
+
+def _score_insider(ia: Optional["InsiderActivity"]) -> float:
+    """Insider buying gets 0-35 points. Strongest single smart-money signal."""
+    if ia is None or ia.recency_weighted_score is None:
+        return 0.0
+    r = ia.recency_weighted_score
+    # r is clamped to [-1.0, 1.0] by the InsiderActivity Pydantic schema.
+    if r >= 0.70:   return 35.0
+    if r >= 0.45:   return 30.0
+    if r >= 0.20:   return 25.0
+    if r >= 0.00:   return 18.0
+    if r >= -0.20:  return 10.0
+    if r >= -0.50:  return 5.0
+    return 0.0
+
+
+def _score_institutional(ownership_pct: Optional[float]) -> float:
+    """Institutional ownership 0-30 points. Captures 13F/13G filings."""
+    if ownership_pct is None:
+        return 0.0
+    if ownership_pct >= 0.70:  return 30.0
+    if ownership_pct >= 0.50:  return 26.0
+    if ownership_pct >= 0.30:  return 22.0
+    if ownership_pct >= 0.15:  return 16.0
+    if ownership_pct >= 0.05:  return 10.0
+    if ownership_pct > 0.0:    return 5.0
+    return 0.0
+
+
+def _score_analyst(ac: Optional["AnalystConsensus"]) -> float:
+    """Analyst consensus 0-20 points."""
+    if ac is None or ac.sentiment_score is None:
+        return 0.0
+    s = ac.sentiment_score  # clamped to [-1.0, 1.0]
+    if s >= 0.70:   return 20.0
+    if s >= 0.40:   return 17.0
+    if s >= 0.20:   return 13.0
+    if s >= 0.00:   return 9.0
+    if s >= -0.30:  return 5.0
+    return 0.0
+
+
+def _score_srs(srs: Optional[float]) -> float:
+    """Sector relative strength 0-15 points."""
+    if srs is None:
+        return 0.0
+    # srs is ticker-change% minus sector-average-change%, effectively [-3, +3]
+    if srs >= 2.0:   return 15.0
+    if srs >= 1.0:   return 12.0
+    if srs >= 0.5:   return 9.0
+    if srs >= 0.0:   return 6.0
+    if srs >= -0.5:  return 3.0
+    return 0.0
+
+
+def compute_iic(
+    insider_activity: Optional["InsiderActivity"],
+    institutional_ownership_pct: Optional[float],
+    analyst_consensus: Optional["AnalystConsensus"],
+    sector_relative_strength: Optional[float],
+) -> Optional[int]:
+    """
+    Institutional Conviction Score (0-100) from smart-money signals.
+    Returns None if ALL four input signals are missing or neutral
+    (triggers "No Scoring — Insufficient Data" in the UI).
+    """
+    has_insider = (
+        insider_activity is not None
+        and insider_activity.recency_weighted_score is not None
+        and insider_activity.recency_weighted_score != 0
+    )
+    has_institutional = (
+        institutional_ownership_pct is not None
+        and institutional_ownership_pct > 0
+    )
+    has_analyst = (
+        analyst_consensus is not None
+        and analyst_consensus.sentiment_score is not None
+    )
+    has_srs = sector_relative_strength is not None
+
+    if not (has_insider or has_institutional or has_analyst or has_srs):
+        return None
+
+    total = (
+        _score_insider(insider_activity)
+        + _score_institutional(institutional_ownership_pct)
+        + _score_analyst(analyst_consensus)
+        + _score_srs(sector_relative_strength)
+    )
+    return int(round(min(max(total, 0), 100)))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # CONSENSUS + CONVICTION TIERING (Session 3)
 # ═══════════════════════════════════════════════════════════════════════════
 
