@@ -45,26 +45,6 @@ console.log(`[Cron] Spike Trades scheduler starting...`);
 console.log(`[Cron] Scheduled: ${CRON_MINUTE} ${CRON_HOUR} * * 1-5 (${TIMEZONE})`);
 console.log(`[Cron] App URL: ${APP_URL}`);
 
-// ── Pre-market Radar — 10:05 AM AST weekdays ──
-cron.schedule(
-  '5 10 * * 1-5',
-  async () => {
-    console.log(`[Cron] Triggering Radar scan at ${new Date().toISOString()}`);
-    try {
-      const res = await httpRequest(`${APP_URL}/api/cron/radar`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${CRON_SECRET}`, 'Content-Type': 'application/json' },
-        timeout: 600_000, // 10 minutes — scan can take 7+ min with 60 AI-scored candidates
-      });
-      console.log(`[Cron] Radar result: ${res.status} — ${res.body.substring(0, 200)}`);
-    } catch (err) {
-      console.error(`[Cron] Radar failed:`, err);
-    }
-  },
-  { timezone: TIMEZONE }
-);
-console.log(`[Cron] Radar: 5 10 * * 1-5 (${TIMEZONE})`);
-
 // Main daily analysis — weekdays at 10:45am AST
 cron.schedule(
   `${CRON_MINUTE} ${CRON_HOUR} * * 1-5`,
@@ -86,29 +66,6 @@ cron.schedule(
   },
   { timezone: TIMEZONE }
 );
-
-// ── Opening Bell — 10:35 AM AST weekdays ──
-cron.schedule(
-  '35 10 * * 1-5',
-  async () => {
-    console.log(`[Cron] ${new Date().toISOString()} — Triggering Opening Bell scan`);
-    try {
-      const result = await httpRequest(`${APP_URL}/api/cron/opening-bell`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${CRON_SECRET}`,
-          'Content-Type': 'application/json',
-        },
-        timeout: 360_000,  // 6 minutes (5 min pipeline + 1 min buffer)
-      });
-      console.log(`[Cron] Opening Bell result (status ${result.status}):`, result.body);
-    } catch (error) {
-      console.error(`[Cron] Opening Bell trigger failed:`, error);
-    }
-  },
-  { timezone: TIMEZONE }
-);
-console.log(`[Cron] Opening Bell scheduled: 10:35 AM ${TIMEZONE} (weekdays)`);
 
 // Accuracy check — weekdays at 4:30pm AST (after market close)
 cron.schedule(
