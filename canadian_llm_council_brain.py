@@ -2119,7 +2119,11 @@ def _build_consensus(
 
     # Compute consensus score: weighted average across stages that scored the ticker
     # Stage 4 (final) gets highest weight, Stage 1 gets lowest
-    STAGE_WEIGHTS = learning_engine.compute_stage_weights() if learning_engine else {1: 0.15, 2: 0.20, 3: 0.30, 4: 0.35}
+    # LE BYPASS (2026-04-08): compute_stage_weights() has a confirmed JOIN defect
+    # that always returns uniform {0.25 × 4}, underweighting Stage 4 by 10pp from
+    # the intended {0.15, 0.20, 0.30, 0.35}. Bypassed pending full audit.
+    # See docs/superpowers/specs/2026-04-08-learning-engine-bypass-design.md
+    STAGE_WEIGHTS = {1: 0.15, 2: 0.20, 3: 0.30, 4: 0.35}
 
     scored_tickers = []
     for ticker, data in stage_map.items():
@@ -2137,7 +2141,7 @@ def _build_consensus(
         consensus_score = weighted_sum / weight_sum if weight_sum > 0 else 0
 
         # Track learning adjustments for per-pick transparency
-        adjustments: dict[str, Any] = {"stage_weights": dict(STAGE_WEIGHTS)}
+        adjustments: dict[str, Any] = {"stage_weights": dict(STAGE_WEIGHTS), "le_stage_weights_bypassed": True}
 
         # Apply macro regime / sector adjustment
         payload = payloads.get(ticker)
