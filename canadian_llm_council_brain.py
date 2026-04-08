@@ -8,8 +8,8 @@ analyzes, challenges, and ranks Canadian TSX/TSXV stocks for short-term
 
 Pipeline:
   Stage 1 — Claude Sonnet 4.6    → screens universe to Top 100
-  Stage 2 — Gemini 3.1 Pro       → narrows to Top 80
-  Stage 3 — Claude Opus 4.6      → narrows to Top 40
+  Stage 2 — Gemini 3.1 Pro       → narrows to Top 60
+  Stage 3 — Claude Opus 4.6      → narrows to Top 30
   Stage 4 — SuperGrok Heavy (xAI)→ final Top 10 with probabilistic forecasts
 
 Fully self-contained.  Import into FastAPI, Airflow, cron, or any Python app.
@@ -1709,7 +1709,7 @@ OUTPUT FORMAT (strict JSON):
   ]
 }}
 
-Sort by total score descending. Return the top 80 (or all if fewer than 80).
+Sort by total score descending. Return the top 60 (or all if fewer than 60).
 """
 
 
@@ -1719,7 +1719,7 @@ async def run_stage2_gemini(
     stage1_results: list[dict],
     learning_engine: Optional["LearningEngine"] = None,
 ) -> list[dict]:
-    """Stage 2: Gemini independently re-scores, narrows to Top 80."""
+    """Stage 2: Gemini independently re-scores, narrows to Top 60."""
     logger.info(f"Stage 2 (Gemini): Processing {len(stage1_results)} tickers from Stage 1")
     start = time.time()
     stage_tokens = {"model": os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview"), "input_tokens": 0, "output_tokens": 0}
@@ -1795,7 +1795,7 @@ OUTPUT FORMAT (strict JSON):
   ]
 }}
 
-Sort by total score descending. Return the top 40 (or all if fewer than 40).
+Sort by total score descending. Return the top 30 (or all if fewer than 30).
 Be HARSH. This stage exists to eliminate weak picks.
 """
 
@@ -1808,7 +1808,7 @@ async def run_stage3_opus(
     stage2_results: list[dict],
     learning_engine: Optional["LearningEngine"] = None,
 ) -> list[dict]:
-    """Stage 3: Opus challenges picks, narrows to Top 40."""
+    """Stage 3: Opus challenges picks, narrows to Top 30."""
     logger.info(f"Stage 3 (Opus): Processing {len(stage2_results)} tickers from Stage 2")
     start = time.time()
     stage_tokens = {"model": "claude-opus-4-6", "input_tokens": 0, "output_tokens": 0}
@@ -4426,8 +4426,8 @@ class CanadianStockCouncilBrain:
           3. Fetch quotes → liquidity filter ($5M ADV, >$1 price)
           4. Build payloads (parallel: historical + news + sentiment)
           5. Stage 1 — Sonnet screens to Top 100
-          6. Stage 2 — Gemini re-scores to Top 80
-          7. Stage 3 — Opus challenges to Top 40
+          6. Stage 2 — Gemini re-scores to Top 60
+          7. Stage 3 — Opus challenges to Top 30
           8. Stage 4 — Grok final Top 10 with probabilistic forecasts
           9. Fact-check Stage 4 output
           10. Build consensus + conviction tiering
@@ -4820,11 +4820,11 @@ class CanadianStockCouncilBrain:
                                 stage2_tokens["model"] = batch_tok["model"]
                                 stage2_tokens["input_tokens"] += batch_tok["input_tokens"]
                                 stage2_tokens["output_tokens"] += batch_tok["output_tokens"]
-                        return sorted(all_results, key=lambda x: x["score"]["total"], reverse=True)[:80]
+                        return sorted(all_results, key=lambda x: x["score"]["total"], reverse=True)[:60]
                     else:
                         r, stage2_tokens = await run_stage2_gemini(payloads_list, macro, stage1_results,
                                                      learning_engine=self.learning_engine)
-                        return r[:80]
+                        return r[:60]
 
                 stage2_results = await asyncio.wait_for(
                     _run_stage2_all(), timeout=STAGE_WALL_CLOCK_TIMEOUT
@@ -4848,7 +4848,7 @@ class CanadianStockCouncilBrain:
                     skipped_stages.append({"stage": 2, "model": "gemini", "error": "empty results"})
                     if tracker:
                         tracker.skip_stage("stage2_gemini", reason="empty results")
-                stage2_results = stage1_results[:80]
+                stage2_results = stage1_results[:60]
                 logger.info(f"Step 6: Stage 2 SKIPPED — passing through {len(stage2_results)} Stage 1 results")
             else:
                 if tracker:
@@ -4899,14 +4899,14 @@ class CanadianStockCouncilBrain:
                             await asyncio.sleep(INTER_BATCH_DELAY)
                     stage3_results = sorted(
                         stage3_all, key=lambda x: x["score"]["total"], reverse=True
-                    )[:40]
+                    )[:30]
                 else:
                     stage3_results, stage3_tokens = await run_stage3_opus(
                         self.anthropic_key, payloads_list, macro,
                         stage1_results, stage2_results,
                         learning_engine=self.learning_engine,
                     )
-                    stage3_results = stage3_results[:40]
+                    stage3_results = stage3_results[:30]
             except Exception as e:
                 logger.error(f"Stage 3 (Opus) FAILED — skipping: {e}")
                 stage3_skipped = True
@@ -4920,7 +4920,7 @@ class CanadianStockCouncilBrain:
                     skipped_stages.append({"stage": 3, "model": "opus", "error": "empty results"})
                     if tracker:
                         tracker.skip_stage("stage3_opus", reason="empty results")
-                stage3_results = stage2_results[:40]
+                stage3_results = stage2_results[:30]
                 logger.info(f"Step 7: Stage 3 SKIPPED — passing through {len(stage3_results)} Stage 2 results")
             else:
                 if tracker:
