@@ -4,6 +4,9 @@
 
 set -euo pipefail
 
+# Normalize to repo root so relative paths resolve the same from any CWD.
+cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 PRE="scripts/phase1_snapshot_pre.txt"
 POST="scripts/phase1_snapshot_post.txt"
 

@@ -5,6 +5,9 @@
 
 set -euo pipefail
 
+# Normalize to repo root so relative output paths are stable regardless of CWD.
+cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 LABEL="${1:-snap}"
 TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 OUT="scripts/phase1_snapshot_${LABEL}.txt"
@@ -37,4 +40,12 @@ echo "[snapshot:$LABEL] $TS — capturing database state via $SSH_TARGET"
 ssh -i "$SSH_KEY" "$SSH_TARGET" 'cd /opt/spike-trades && docker compose exec -T db psql -U spiketrades -d spiketrades -At -F"|"' <<<"$SQL" \
   | tee "$OUT"
 
-echo "[snapshot:$LABEL] saved to $OUT"
+# Guard against silent empty-output failures (SSH connect OK but psql produced no rows).
+ROWS=$(grep -c '^' "$OUT" || true)
+if [ "$ROWS" -lt 5 ]; then
+  echo "ERROR: snapshot appears empty or truncated ($ROWS rows in $OUT)" >&2
+  echo "       Expected at least 13 metric rows. Investigate SSH/psql output above." >&2
+  exit 1
+fi
+
+echo "[snapshot:$LABEL] saved to $OUT ($ROWS rows)"
