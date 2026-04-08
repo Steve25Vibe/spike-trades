@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth';
 import prisma from '@/lib/db/prisma';
 
-// GET /api/admin/activity — User activity summary
+// GET /api/admin/activity — User activity summary (heartbeat-driven)
 export async function GET() {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -14,52 +14,72 @@ export async function GET() {
     // Total users
     const totalUsers = await prisma.user.count();
 
-    // Active today (users with sessions starting today)
-    const activeToday = await prisma.userSession.groupBy({
-      by: ['userId'],
-      where: { loginAt: { gte: todayStart } },
+    // Active today: users with at least one heartbeat since 00:00 today
+    const activeTodayRows = await prisma.userSession.findMany({
+      where: { lastHeartbeatAt: { gte: todayStart } },
+      distinct: ['userId'],
+      select: { userId: true },
     });
+    const activeToday = activeTodayRows.length;
 
-    // Per-user activity
+    // Per-user aggregate: COALESCE handles still-open sessions by treating
+    // (lastHeartbeatAt - loginAt) as "duration so far" until the session closes
+    const sessionsByUser = await prisma.$queryRaw<
+      Array<{
+        userId: string;
+        sessions: number;
+        avg_duration_sec: number | null;
+        last_active: Date | null;
+      }>
+    >`
+      SELECT
+        "userId",
+        COUNT(*)::int AS sessions,
+        AVG(COALESCE(
+          duration,
+          EXTRACT(EPOCH FROM ("lastHeartbeatAt" - "loginAt"))::int
+        ))::int AS avg_duration_sec,
+        MAX("lastHeartbeatAt") AS last_active
+      FROM "UserSession"
+      WHERE "loginAt" >= NOW() - INTERVAL '30 days'
+      GROUP BY "userId"
+    `;
+
+    // Join with User table for email
     const users = await prisma.user.findMany({
-      select: {
-        id: true,
-        email: true,
-        lastLoginAt: true,
-        sessions: {
-          select: { loginAt: true, duration: true },
-          orderBy: { loginAt: 'desc' },
-        },
-      },
-      orderBy: { lastLoginAt: 'desc' },
+      select: { id: true, email: true },
     });
+    const userById = new Map(users.map((u) => [u.id, u.email]));
 
-    const perUser = users.map((u) => {
-      const sessions = u.sessions;
-      const sessionsWithDuration = sessions.filter((s) => s.duration !== null);
-      const avgDuration = sessionsWithDuration.length > 0
-        ? Math.round(sessionsWithDuration.reduce((sum, s) => sum + (s.duration || 0), 0) / sessionsWithDuration.length)
-        : 0;
+    const perUser = sessionsByUser
+      .map((row) => ({
+        email: userById.get(row.userId) ?? '(unknown)',
+        totalSessions: row.sessions,
+        avgDurationSec: row.avg_duration_sec ?? 0,
+        lastActive: row.last_active,
+      }))
+      .sort((a, b) => {
+        const at = a.lastActive ? a.lastActive.getTime() : 0;
+        const bt = b.lastActive ? b.lastActive.getTime() : 0;
+        return bt - at;
+      });
 
-      return {
-        email: u.email,
-        totalSessions: sessions.length,
-        avgDurationSec: avgDuration,
-        lastActive: u.lastLoginAt,
-      };
-    });
-
-    // Global average session duration
-    const allDurations = users.flatMap((u) => u.sessions.filter((s) => s.duration).map((s) => s.duration || 0));
-    const globalAvgDuration = allDurations.length > 0
-      ? Math.round(allDurations.reduce((a, b) => a + b, 0) / allDurations.length)
-      : 0;
+    // Global average session duration (same COALESCE logic, all users)
+    const globalAvg = await prisma.$queryRaw<Array<{ avg_sec: number | null }>>`
+      SELECT AVG(COALESCE(
+        duration,
+        EXTRACT(EPOCH FROM ("lastHeartbeatAt" - "loginAt"))::int
+      ))::int AS avg_sec
+      FROM "UserSession"
+      WHERE "loginAt" >= NOW() - INTERVAL '30 days'
+    `;
+    const globalAvgDuration = globalAvg[0]?.avg_sec ?? 0;
 
     return NextResponse.json({
       success: true,
       data: {
         totalUsers,
-        activeToday: activeToday.length,
+        activeToday,
         avgSessionDurationSec: globalAvgDuration,
         perUser,
       },
