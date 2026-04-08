@@ -104,10 +104,7 @@ export async function GET() {
 }
 
 // POST /api/admin/council — Trigger a council run (background)
-export async function POST(request: Request) {
-  const body = await request.json().catch(() => ({}));
-
-  // Default: Council run
+export async function POST() {
   if (_runInProgress) {
     return NextResponse.json(
       { success: false, error: 'A council run is already in progress' },
