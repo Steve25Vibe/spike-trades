@@ -2415,7 +2415,13 @@ def _build_consensus(
             sector_adj * earnings_mult * insider_adj * analyst_adj
             * srs_adj * disagreement_adj * iv_check * edge_mult
         )
-        if combined_adj > CAP_MAX:
+        if combined_adj == 0.0:
+            # A multiplier zeroed the score (typically edge_mult for
+            # noise-filtered tickers — see HistoricalPerformanceAnalyzer
+            # .get_historical_edge_multiplier). consensus_score is already 0;
+            # the cap has nothing to rescale. Skip the division.
+            adjustments["was_capped"] = True
+        elif combined_adj > CAP_MAX:
             consensus_score *= CAP_MAX / combined_adj
             adjustments["was_capped"] = True
         elif combined_adj < CAP_MIN:
