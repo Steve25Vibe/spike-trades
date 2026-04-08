@@ -6,11 +6,10 @@ WORKDIR /app
 COPY requirements-council.txt .
 RUN pip install --no-cache-dir -r requirements-council.txt
 
-# Copy brain + API server + portfolio interface + scanner
+# Copy brain + API server + portfolio interface
 COPY canadian_llm_council_brain.py .
 COPY canadian_portfolio_interface.py .
 COPY api_server.py .
-COPY opening_bell_scanner.py .
 COPY fmp_bulk_cache.py .
 COPY eodhd_news.py .
 
