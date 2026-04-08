@@ -964,6 +964,41 @@ async def fetch_analyst_consensus(
     )
 
 
+async def fetch_institutional_ownership(
+    session: aiohttp.ClientSession,
+    ticker: str,
+    api_key: str,
+) -> Optional[float]:
+    """
+    Fetch institutional ownership percentage for a ticker from FMP.
+    Returns the fraction of shares held by institutions (0.0-1.0), or None.
+    Non-blocking: returns None on any error rather than raising.
+
+    Endpoint: /api/v4/institutional-ownership/symbol-ownership (FMP Ultimate plan)
+    """
+    try:
+        url = "https://financialmodelingprep.com/api/v4/institutional-ownership/symbol-ownership"
+        params = {
+            "symbol": ticker,
+            "includeCurrentQuarter": "false",
+            "apikey": api_key,
+        }
+        async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            if resp.status != 200:
+                return None
+            data = await resp.json()
+            if not data or not isinstance(data, list) or len(data) == 0:
+                return None
+            latest = data[0]
+            pct = latest.get("ownershipPercent")
+            if pct is None:
+                return None
+            # FMP returns as a percentage (e.g. 45.7 for 45.7%); normalize to [0,1]
+            return min(max(float(pct) / 100.0, 0.0), 1.0)
+    except Exception:
+        return None
+
+
 async def fetch_enhanced_signals_batch(
     fetcher: "LiveDataFetcher",
     tickers: list[str],
