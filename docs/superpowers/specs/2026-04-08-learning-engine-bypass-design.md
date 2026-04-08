@@ -31,10 +31,11 @@ Restore the council's intended stage-weight distribution `{1: 0.15, 2: 0.20, 3: 
 
 ### In scope
 
-1. **`canadian_llm_council_brain.py:2122`** — replace the `compute_stage_weights()` call with the hardcoded `{1: 0.15, 2: 0.20, 3: 0.30, 4: 0.35}` dict. Add a comment referencing this spec.
+1. **`canadian_llm_council_brain.py:2122`** — replace the `compute_stage_weights()` call in `_build_consensus` with the hardcoded `{1: 0.15, 2: 0.20, 3: 0.30, 4: 0.35}` dict. This is the hot-path fix that actually changes scoring. Add a comment referencing this spec.
 2. **`canadian_llm_council_brain.py:2140`** — extend the per-pick `adjustments` dict to include `"le_stage_weights_bypassed": True` so downstream consumers and logs can tell this pick ran under the bypass.
 3. **`canadian_llm_council_brain.py:1565, 1642, 1730, 1866`** — replace the four `build_prompt_context()` call sites with empty-string literals. Add comments referencing this spec.
-4. **`api_server.py` `/learning-state` endpoint (lines 406–421)** — extend the response JSON with a `"bypassed_mechanisms"` field listing `["Dynamic Stage Weights", "Prompt Accuracy Context"]`.
+4. **`canadian_llm_council_brain.py:4830`** — replace the second `compute_stage_weights()` call (which assembles `result_dict["stage_weights_used"]` for dashboard/output visibility) with the same hardcoded `{1: 0.15, 2: 0.20, 3: 0.30, 4: 0.35}` dict. Without this fix, the admin dashboard would continue to display the buggy uniform weights even while the actual scoring uses the correct ones — creating a confusing internal inconsistency. Added during plan-writing self-review after discovering this second call site during exact-line verification.
+5. **`api_server.py` `/learning-state` endpoint (lines 406–421)** — extend the response JSON with a `"bypassed_mechanisms"` field listing `["Dynamic Stage Weights", "Prompt Accuracy Context"]`.
 
 ### Not in scope
 
