@@ -97,9 +97,6 @@ export interface SpikeCard {
   historicalConfidence?: number;   // 0-100, from calibration engine
   calibrationSamples?: number;     // sample count
   overconfidenceFlag?: boolean;    // council >> history
-  isOpeningBellPick?: boolean;     // also detected by Opening Bell scanner
-  isRadarPick?: boolean;           // flagged by pre-market Radar scanner
-  radarScore?: number | null;      // Smart Money Conviction Score (0-100)
 }
 
 export interface MarketRegime {
