@@ -148,40 +148,33 @@ export default function SpikeCard({ spike, selected, onSelect, onLockIn, selecti
           </div>
           <span className="text-xs mono text-spike-text-dim w-9 text-right">{spike.confidence.toFixed(0)}%</span>
         </div>
-        {/* Smart bar — Institutional Conviction Score (always shown, with "No Scoring" placeholder when insufficient data) */}
+        {/* Smart bar — Institutional Conviction Score (inline "No Scoring" placeholder when insufficient data) */}
         <div className="flex items-center gap-2 mb-1.5"
              title={spike.institutionalConvictionScore != null
                ? "Insider activity, institutional ownership, analyst consensus, and sector strength combined (0-100)"
                : "No insider trades, institutional ownership, analyst data, or sector relative strength available"}>
           <span className="text-xs text-spike-text-muted w-14 font-medium">Smart</span>
-          <div className="flex-1 h-2 bg-spike-bg rounded-full overflow-hidden">
-            {spike.institutionalConvictionScore != null ? (
-              <div
-                className="h-full rounded-full transition-all duration-1000 opacity-80"
-                style={{
-                  width: `${spike.institutionalConvictionScore}%`,
-                  background: spike.institutionalConvictionScore >= 80
-                    ? 'linear-gradient(90deg, rgba(0,255,136,0.3), #00FF88)'
-                    : spike.institutionalConvictionScore >= 60
-                    ? 'linear-gradient(90deg, rgba(255,184,0,0.3), #FFB800)'
-                    : 'linear-gradient(90deg, rgba(255,51,102,0.3), #FF3366)',
-                }}
-              />
-            ) : (
-              <div className="h-full w-full bg-spike-border/20" />
-            )}
-          </div>
-          <span className="text-xs mono text-spike-text-dim w-9 text-right">
-            {spike.institutionalConvictionScore != null
-              ? `${spike.institutionalConvictionScore}%`
-              : '—'}
-          </span>
+          {spike.institutionalConvictionScore != null ? (
+            <>
+              <div className="flex-1 h-2 bg-spike-bg rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-1000 opacity-80"
+                  style={{
+                    width: `${spike.institutionalConvictionScore}%`,
+                    background: spike.institutionalConvictionScore >= 80
+                      ? 'linear-gradient(90deg, rgba(0,255,136,0.3), #00FF88)'
+                      : spike.institutionalConvictionScore >= 60
+                      ? 'linear-gradient(90deg, rgba(255,184,0,0.3), #FFB800)'
+                      : 'linear-gradient(90deg, rgba(255,51,102,0.3), #FF3366)',
+                  }}
+                />
+              </div>
+              <span className="text-xs mono text-spike-text-dim w-9 text-right">{spike.institutionalConvictionScore}%</span>
+            </>
+          ) : (
+            <span className="flex-1 text-xs text-spike-text-muted italic">No Scoring — Insufficient Data</span>
+          )}
         </div>
-        {spike.institutionalConvictionScore == null && (
-          <div className="text-[10px] text-spike-text-muted italic mb-1.5 ml-16">
-            No Scoring — Insufficient Data
-          </div>
-        )}
         {/* History bar (only shown when calibration data exists) */}
         {spike.historicalConfidence != null && (
           <div className="flex items-center gap-2" title={`Based on ${spike.calibrationSamples?.toLocaleString() || '?'} similar historical setups`}>
