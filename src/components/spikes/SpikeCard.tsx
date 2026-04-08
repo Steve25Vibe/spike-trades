@@ -127,7 +127,7 @@ export default function SpikeCard({ spike, selected, onSelect, onLockIn, selecti
             <span className={cn(
               'text-xs font-medium',
               spike.spikeScore >= 80 ? 'text-spike-green' : spike.spikeScore >= 60 ? 'text-spike-amber' : 'text-spike-red'
-            )} title="Council confidence exceeds historical base rate by &gt;10 points">Council Optimistic</span>
+            )} title="Council confidence exceeds historical hit rate by &gt;10 points">Council Optimistic</span>
           )}
         </div>
         {/* Council bar */}
@@ -175,26 +175,49 @@ export default function SpikeCard({ spike, selected, onSelect, onLockIn, selecti
             <span className="flex-1 text-xs text-spike-text-muted italic">No Scoring — Insufficient Data</span>
           )}
         </div>
-        {/* History bar (only shown when calibration data exists) */}
-        {spike.historicalConfidence != null && (
-          <div className="flex items-center gap-2" title={`Based on ${spike.calibrationSamples?.toLocaleString() || '?'} similar historical setups`}>
-            <span className="text-xs text-spike-text-muted w-14 font-medium">History</span>
-            <div className="flex-1 h-2 bg-spike-bg rounded-full overflow-hidden">
-              <div
-                className="h-full rounded-full transition-all duration-1000 opacity-60"
-                style={{
-                  width: `${spike.historicalConfidence}%`,
-                  background: spike.historicalConfidence >= 80
-                    ? 'linear-gradient(90deg, rgba(0,255,136,0.3), #00FF88)'
-                    : spike.historicalConfidence >= 60
-                    ? 'linear-gradient(90deg, rgba(255,184,0,0.3), #FFB800)'
-                    : 'linear-gradient(90deg, rgba(255,51,102,0.3), #FF3366)',
-                }}
-              />
+        {/* Hit Rate bar — renamed from History, with low-confidence cue when n<100 and inline placeholder when missing */}
+        {(() => {
+          const rate = spike.historicalConfidence;
+          const n = spike.calibrationSamples;
+          const hasData = rate != null && n != null && n > 0;
+
+          if (!hasData) {
+            return (
+              <div className="flex items-center gap-2 mb-1.5"
+                   title="No similar historical setups available for calibration">
+                <span className="text-xs text-spike-text-muted w-14 font-medium">Hit Rate</span>
+                <span className="flex-1 text-xs text-spike-text-muted italic">No History — Insufficient Data</span>
+              </div>
+            );
+          }
+
+          const lowSample = n < 100;
+          const opacityClass = lowSample ? 'opacity-30' : 'opacity-60';
+          const labelSuffix = lowSample ? ' ⚠' : '';
+          const tooltipText = lowSample
+            ? `Based on N=${n.toLocaleString()} similar historical setups (low sample — treat as directional only)`
+            : `Based on N=${n.toLocaleString()} similar historical setups`;
+
+          return (
+            <div className="flex items-center gap-2" title={tooltipText}>
+              <span className="text-xs text-spike-text-muted w-14 font-medium">Hit Rate{labelSuffix}</span>
+              <div className="flex-1 h-2 bg-spike-bg rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-1000 ${opacityClass}`}
+                  style={{
+                    width: `${rate}%`,
+                    background: rate >= 80
+                      ? 'linear-gradient(90deg, rgba(0,255,136,0.3), #00FF88)'
+                      : rate >= 60
+                      ? 'linear-gradient(90deg, rgba(255,184,0,0.3), #FFB800)'
+                      : 'linear-gradient(90deg, rgba(255,51,102,0.3), #FF3366)',
+                  }}
+                />
+              </div>
+              <span className="text-xs mono text-spike-text-dim w-9 text-right">{rate.toFixed(0)}%</span>
             </div>
-            <span className="text-xs mono text-spike-text-dim w-9 text-right">{spike.historicalConfidence.toFixed(0)}%</span>
-          </div>
-        )}
+          );
+        })()}
       </div>
 
       {/* Plain-language reasoning summary (always visible) */}
