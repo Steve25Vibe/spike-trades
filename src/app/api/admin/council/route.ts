@@ -35,13 +35,8 @@ export async function GET() {
       fmpHealthResult,
       runStatusResult,
       latestOutputResult,
-      openingBellStatusResult,
-      openingBellHealthResult,
-      radarStatusResult,
-      radarHealthResult,
       recentReports,
       latestLog,
-      radarAccuracyPicks,
     ] = await Promise.all([
       // Python health — retry once on failure (most critical endpoint)
       safeFetch<Record<string, unknown>>(`${COUNCIL_API_URL}/health`, 8000)
@@ -54,14 +49,6 @@ export async function GET() {
       safeFetch<Record<string, unknown>>(`${COUNCIL_API_URL}/run-status`, 5000),
       // Latest output — non-critical, short timeout
       safeFetch<Record<string, unknown>>(`${COUNCIL_API_URL}/latest-output`, 5000),
-      // Opening Bell run status — non-critical, short timeout
-      safeFetch<Record<string, unknown>>(`${COUNCIL_API_URL}/run-opening-bell-status`, 5000),
-      // Opening Bell FMP health — non-critical, short timeout
-      safeFetch<Record<string, unknown>>(`${COUNCIL_API_URL}/opening-bell-health`, 5000),
-      // Radar run status — non-critical, short timeout
-      safeFetch<Record<string, unknown>>(`${COUNCIL_API_URL}/run-radar-status`, 5000),
-      // Radar FMP health — non-critical, short timeout
-      safeFetch<Record<string, unknown>>(`${COUNCIL_API_URL}/radar-health`, 5000),
       // Prisma: recent reports
       prisma.dailyReport.findMany({
         take: 5,
@@ -79,46 +66,11 @@ export async function GET() {
         orderBy: { date: 'desc' },
         select: { processingTime: true, consensusScore: true, date: true },
       }),
-      // Prisma: Radar accuracy (last 90 days)
-      prisma.radarPick.findMany({
-        where: {
-          actualOpenPrice: { not: null },
-          report: { date: { gte: new Date(Date.now() - 90 * 86400000) } },
-        },
-        select: {
-          actualOpenChangePct: true,
-          openMoveCorrect: true,
-          passedOpeningBell: true,
-          passedSpikes: true,
-        },
-      }),
     ]);
 
     const councilHealth = councilHealthResult ?? { status: 'unreachable', council_running: false };
     const fmpHealth = fmpHealthResult?.success ? fmpHealthResult : null;
     const latestStageMetadata = latestOutputResult?.stage_metadata ?? null;
-    const openingBellStatus = openingBellStatusResult ?? null;
-    const openingBellHealth = openingBellHealthResult ?? null;
-    const radarStatus = radarStatusResult ?? null;
-    const radarHealth = radarHealthResult ?? null;
-
-    // Compute Radar accuracy from resolved picks (moved from public Accuracy Engine in Session 13)
-    const radarTotal = radarAccuracyPicks.length;
-    const radarCorrect = radarAccuracyPicks.filter((p) => p.openMoveCorrect).length;
-    const radarHitRate = radarTotal > 0 ? (radarCorrect / radarTotal) * 100 : null;
-    const radarAvgOpenMove = radarTotal > 0
-      ? radarAccuracyPicks.reduce((s, p) => s + (p.actualOpenChangePct || 0), 0) / radarTotal
-      : null;
-    const radarPassedOB = radarAccuracyPicks.filter((p) => p.passedOpeningBell).length;
-    const radarPassedSpikes = radarAccuracyPicks.filter((p) => p.passedSpikes).length;
-    const radarAccuracy = radarTotal > 0 ? {
-      total: radarTotal,
-      correct: radarCorrect,
-      hitRate: radarHitRate != null ? Math.round(radarHitRate * 10) / 10 : null,
-      avgOpenMove: radarAvgOpenMove != null ? Math.round(radarAvgOpenMove * 100) / 100 : null,
-      passedOpeningBell: radarPassedOB,
-      passedSpikes: radarPassedSpikes,
-    } : null;
 
     return NextResponse.json({
       success: true,
@@ -134,11 +86,6 @@ export async function GET() {
         fmpHealth,
         runStatus: runStatusResult,
         latestStageMetadata,
-        openingBellStatus,
-        openingBellHealth: openingBellHealth?.success ? openingBellHealth : null,
-        radarStatus,
-        radarHealth: radarHealth?.success ? radarHealth : null,
-        radarAccuracy,
         recentReports: recentReports.map((r) => ({
           id: r.id,
           date: r.date,
@@ -156,61 +103,9 @@ export async function GET() {
   }
 }
 
-// POST /api/admin/council — Trigger a council or opening-bell run (background)
+// POST /api/admin/council — Trigger a council run (background)
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
-
-  // Route to Radar trigger
-  if (body.type === 'radar') {
-    try {
-      const res = await fetch(`${COUNCIL_API_URL}/run-radar`, {
-        method: 'POST',
-        signal: AbortSignal.timeout(10000),
-      });
-      if (!res.ok) {
-        const errText = await res.text().catch(() => 'unknown error');
-        return NextResponse.json(
-          { success: false, error: `Radar trigger failed: ${errText}` },
-          { status: res.status }
-        );
-      }
-      return NextResponse.json({
-        success: true,
-        message: 'Radar run started. Poll GET /api/admin/council for status.',
-      });
-    } catch (error) {
-      return NextResponse.json(
-        { success: false, error: `Failed to reach Python server: ${String(error)}` },
-        { status: 503 }
-      );
-    }
-  }
-
-  // Route to Opening Bell trigger
-  if (body.type === 'opening-bell') {
-    try {
-      const res = await fetch(`${COUNCIL_API_URL}/run-opening-bell`, {
-        method: 'POST',
-        signal: AbortSignal.timeout(10000),
-      });
-      if (!res.ok) {
-        const errText = await res.text().catch(() => 'unknown error');
-        return NextResponse.json(
-          { success: false, error: `Opening Bell trigger failed: ${errText}` },
-          { status: res.status }
-        );
-      }
-      return NextResponse.json({
-        success: true,
-        message: 'Opening Bell run started. Poll GET /api/admin/council for status.',
-      });
-    } catch (error) {
-      return NextResponse.json(
-        { success: false, error: `Failed to reach Python server: ${String(error)}` },
-        { status: 503 }
-      );
-    }
-  }
 
   // Default: Council run
   if (_runInProgress) {
