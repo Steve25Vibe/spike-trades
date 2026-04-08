@@ -1562,7 +1562,11 @@ async def run_stage1_sonnet(
         f"{json.dumps(payload_dicts, **_COMPACT)}"
     )
 
-    prompt_context = learning_engine.build_prompt_context(1) if learning_engine else ""
+    # LE BYPASS (2026-04-08): build_prompt_context has the same JOIN defect
+    # as compute_stage_weights — returns stage-identical "your accuracy is X%"
+    # text derived from pick-level accuracy instead of per-stage accuracy.
+    # Bypassed. See docs/superpowers/specs/2026-04-08-learning-engine-bypass-design.md
+    prompt_context = ""
     system_prompt = SONNET_SYSTEM_PROMPT + prompt_context
 
     raw, _usage = await _call_anthropic(
@@ -1639,7 +1643,8 @@ async def run_stage2_gemini(
     passed_tickers = {r["ticker"] for r in stage1_results}
     payload_dicts = _prepare_stage_payloads(payloads, passed_tickers)
 
-    prompt_context = learning_engine.build_prompt_context(2) if learning_engine else ""
+    # LE BYPASS (2026-04-08): see Stage 1 call site for rationale.
+    prompt_context = ""
     system_prompt = GEMINI_SYSTEM_PROMPT + prompt_context
 
     user_prompt = (
@@ -1727,7 +1732,8 @@ async def run_stage3_opus(
     passed_tickers = {r["ticker"] for r in stage2_results}
     payload_dicts = _prepare_stage_payloads(payloads, passed_tickers)
 
-    prompt_context = learning_engine.build_prompt_context(3) if learning_engine else ""
+    # LE BYPASS (2026-04-08): see Stage 1 call site for rationale.
+    prompt_context = ""
     system_prompt = OPUS_SYSTEM_PROMPT + prompt_context
 
     user_prompt = (
@@ -1863,7 +1869,8 @@ async def run_stage4_grok(
     passed_tickers = {r["ticker"] for r in stage3_results}
     payload_dicts = _prepare_stage_payloads(payloads, passed_tickers)
 
-    prompt_context = learning_engine.build_prompt_context(4) if learning_engine else ""
+    # LE BYPASS (2026-04-08): see Stage 1 call site for rationale.
+    prompt_context = ""
     system_prompt = GROK_SYSTEM_PROMPT + prompt_context
 
     user_prompt = (
