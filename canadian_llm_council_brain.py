@@ -4713,7 +4713,7 @@ class CanadianStockCouncilBrain:
             stage2_tokens = {"model": "skipped", "input_tokens": 0, "output_tokens": 0}
             stage3_tokens = {"model": "skipped", "input_tokens": 0, "output_tokens": 0}
             stage4_tokens = {"model": "skipped", "input_tokens": 0, "output_tokens": 0}
-            STAGE_WALL_CLOCK_TIMEOUT = 420  # 7 minutes max per stage
+            STAGE_WALL_CLOCK_TIMEOUT = 600  # 10 minutes max per stage
             logger.info(f"Step 5: Stage 1 (Sonnet) — {len(payloads_list)} tickers")
             # Batch size 15 to stay under Anthropic rate limits (~30K tokens/min)
             BATCH_SIZE = 15
