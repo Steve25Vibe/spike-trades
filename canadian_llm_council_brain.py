@@ -48,6 +48,9 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 import eodhd_news
+import eodhd_enrichment
+import us_dual_listing_enrichment
+import cross_compare
 
 import fmp_bulk_cache
 
