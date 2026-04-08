@@ -407,3 +407,11 @@ model RadarPick {
   @@index([reportId])
   @@index([ticker])
 }
+
+model CouncilConfig {
+  id                String   @id @default("singleton")
+  minAdvDollars     Int      @default(5000000)
+  updatedAt         DateTime @updatedAt
+  updatedByUserId   String?
+  updatedByEmail    String?
+}
