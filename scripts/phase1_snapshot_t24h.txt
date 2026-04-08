@@ -1,0 +1,14 @@
+CouncilLog_total|15
+DailyReport_total|14
+OpeningBellPick_count|3
+OpeningBellReport_count|1
+PortfolioEntry_total|40
+PortfolioEntry_with_obPick|0
+PortfolioEntry_with_radarPick|0
+RadarPick_count|20
+RadarReport_count|2
+Spike_total|131
+User_emailOpeningBell_true|5
+User_emailRadar_true|5
+User_total|5
+snapshot_taken_at|2026-04-08 20:07:24.898032+00
