@@ -154,6 +154,7 @@ class StockDataPayload(BaseModel):
     insider_activity: Optional[InsiderActivity] = None
     analyst_consensus: Optional[AnalystConsensus] = None
     sector_relative_strength: Optional[float] = Field(None, description="Ticker change% minus sector avg")
+    institutional_ownership_pct: Optional[float] = Field(None, ge=0.0, le=1.0, description="Fraction of shares held by institutions (from /v4/institutional-ownership)")
     iv_expected_move: Optional[IVExpectedMove] = Field(default=None)
     earnings_surprise_history: list[dict] = Field(default_factory=list, description="Recent earnings surprises (last 8 quarters)")
     earnings_transcript_summary: str | None = Field(default=None, description="Truncated most-recent earnings call transcript")
@@ -1005,10 +1006,11 @@ async def fetch_enhanced_signals_batch(
     fetcher: "LiveDataFetcher",
     tickers: list[str],
     quotes: dict[str, dict],
-) -> tuple[dict[str, InsiderActivity], dict[str, AnalystConsensus]]:
+) -> tuple[dict[str, InsiderActivity], dict[str, AnalystConsensus], dict[str, float]]:
     """Fetch analyst data for tickers, rate-limited. (Insider trades disabled — FMP endpoint removed.)"""
     insider_map: dict[str, InsiderActivity] = {}
     analyst_map: dict[str, AnalystConsensus] = {}
+    institutional_map: dict[str, float] = {}
     sem = asyncio.Semaphore(2)  # 2 concurrent to avoid FMP 429s on /grades
 
     async def _fetch_one(ticker: str):
@@ -1020,6 +1022,12 @@ async def fetch_enhanced_signals_batch(
                     analyst_map[ticker] = analyst
             except Exception as e:
                 logger.debug(f"Analyst fetch failed for {ticker}: {e}")
+            try:
+                institutional = await fetch_institutional_ownership(fetcher, ticker)
+                if institutional is not None:
+                    institutional_map[ticker] = institutional
+            except Exception as e:
+                logger.debug(f"Institutional ownership fetch failed for {ticker}: {e}")
             await asyncio.sleep(0.15)
 
     for i in range(0, len(tickers), 20):
@@ -1029,8 +1037,8 @@ async def fetch_enhanced_signals_batch(
             await asyncio.sleep(3)
             logger.info(f"Enhanced signals: {min(i + 20, len(tickers))}/{len(tickers)} fetched")
 
-    logger.info(f"Enhanced signals: {len(insider_map)} insider, {len(analyst_map)} analyst records")
-    return insider_map, analyst_map
+    logger.info(f"Enhanced signals: {len(insider_map)} insider, {len(analyst_map)} analyst, {len(institutional_map)} institutional records")
+    return insider_map, analyst_map, institutional_map
 
 
 def compute_sector_relative_strength(
@@ -4488,12 +4496,12 @@ class CanadianStockCouncilBrain:
                     )
                 except Exception as e:
                     logger.warning(f"Enhanced signals fetch failed (non-fatal): {e}")
-                    return {}, {}
+                    return {}, {}, {}
 
             # Note: /earnings-surprises/{ticker} returns 404 for all .TO tickers.
             # Bulk /earnings-calendar (via _fetch_earnings) is the working replacement.
 
-            earnings_map, (insider_map, analyst_map) = await asyncio.gather(
+            earnings_map, (insider_map, analyst_map, institutional_map) = await asyncio.gather(
                 _fetch_earnings(), _fetch_enhanced()
             )
 
@@ -4506,11 +4514,14 @@ class CanadianStockCouncilBrain:
                     p.insider_activity = insider_map[p.ticker]
                 if p.ticker in analyst_map:
                     p.analyst_consensus = analyst_map[p.ticker]
+                if p.ticker in institutional_map:
+                    p.institutional_ownership_pct = institutional_map[p.ticker]
                 p.sector_relative_strength = rel_strength_map.get(p.ticker)
             logger.info(
                 f"Step 4f: Signals attached — "
                 f"{len(earnings_map)} earnings, {len(insider_map)} insider, "
-                f"{len(analyst_map)} analyst, {len(rel_strength_map)} sector-rel"
+                f"{len(analyst_map)} analyst, {len(institutional_map)} institutional, "
+                f"{len(rel_strength_map)} sector-rel"
             )
 
             # Index payloads by ticker for later lookup
