@@ -173,15 +173,13 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { spikeId, spikeIds, openingBellPickId, openingBellPickIds, radarPickId, radarPickIds, portfolioId, portfolioSize, mode, shares: manualShares, positionSize: manualPositionSize, fixedAmount, perSpikeShares, kellyMaxPct, kellyWinRate } = body;
+    const { spikeId, spikeIds, portfolioId, portfolioSize, mode, shares: manualShares, positionSize: manualPositionSize, fixedAmount, perSpikeShares, kellyMaxPct, kellyWinRate } = body;
 
     const idsToLock: string[] = spikeIds || (spikeId ? [spikeId] : []);
-    const obIdsToLock: string[] = openingBellPickIds || (openingBellPickId ? [openingBellPickId] : []);
-    const radarIdsToLock: string[] = radarPickIds || (radarPickId ? [radarPickId] : []);
 
-    if (idsToLock.length === 0 && obIdsToLock.length === 0 && radarIdsToLock.length === 0) {
+    if (idsToLock.length === 0) {
       return NextResponse.json(
-        { success: false, error: 'spikeId, openingBellPickId, or radarPickId required' },
+        { success: false, error: 'spikeId required' },
         { status: 400 }
       );
     }
@@ -267,131 +265,6 @@ export async function POST(request: NextRequest) {
         },
       });
       entries.push(entry);
-    }
-
-    // Process Opening Bell picks
-    for (const id of obIdsToLock) {
-      const pick = await prisma.openingBellPick.findUnique({ where: { id } });
-      if (!pick) {
-        errors.push({ id, error: 'Opening Bell pick not found' });
-        continue;
-      }
-
-      // Only check for duplicates within the SAME portfolio
-      const existingObWhere: Record<string, unknown> = { openingBellPickId: id, status: 'active' };
-      if (portfolioId) existingObWhere.portfolioId = portfolioId;
-      const existingOb = await prisma.portfolioEntry.findFirst({ where: existingObWhere });
-      if (existingOb) {
-        errors.push({ id, ticker: pick.ticker, error: 'Already locked in' });
-        continue;
-      }
-
-      // ATR estimate from intraday target vs price at scan
-      const atrEstimatePct = ((pick.intradayTarget - pick.priceAtScan) / pick.priceAtScan) * 100;
-      let obShares: number;
-      let obPositionPct: number;
-
-      if (effectiveMode === 'fixed' && (fixedAmount || portfolio?.fixedAmount)) {
-        // Fixed mode with dollar amount — calculate shares per pick
-        const amount = fixedAmount || portfolio?.fixedAmount || 2500;
-        obShares = Math.floor(amount / pick.priceAtScan);
-        obPositionPct = totalPortfolio > 0 ? ((obShares * pick.priceAtScan) / totalPortfolio) * 100 : 0;
-      } else if (effectiveMode === 'manual' && manualShares) {
-        // Manual mode — user specifies shares directly
-        obShares = Math.floor(manualShares);
-        obPositionPct = totalPortfolio > 0 ? ((obShares * pick.priceAtScan) / totalPortfolio) * 100 : 0;
-      } else {
-        // Auto mode — Kelly Criterion sizing
-        const winRate = kellyWinRate || portfolio?.kellyWinRate || 0.6;
-        const maxPct = ((kellyMaxPct || portfolio?.kellyMaxPct || 2) / 100);
-        const kellyFraction = calculateKellyFraction(winRate, atrEstimatePct, atrEstimatePct * 0.5);
-        obPositionPct = Math.min(kellyFraction, maxPct) * 100;
-        const positionSize = totalPortfolio * (obPositionPct / 100);
-        obShares = Math.floor(positionSize / pick.priceAtScan);
-      }
-
-      if (obShares <= 0) {
-        errors.push({ id, ticker: pick.ticker, error: 'Position too small' });
-        continue;
-      }
-
-      const obEntry = await prisma.portfolioEntry.create({
-        data: {
-          portfolioId: portfolioId || null,
-          openingBellPickId: pick.id,
-          ticker: pick.ticker,
-          name: pick.name,
-          entryPrice: pick.priceAtScan,
-          entryDate: new Date(),
-          shares: obShares,
-          positionSize: obShares * pick.priceAtScan,
-          positionPct: obPositionPct,
-          target3Day: pick.intradayTarget,
-          stopLoss: pick.keyLevel,
-          status: 'active',
-        },
-      });
-      entries.push(obEntry);
-    }
-
-    // Process Radar picks
-    for (const id of radarIdsToLock) {
-      const pick = await prisma.radarPick.findUnique({ where: { id } });
-      if (!pick) {
-        errors.push({ id, error: 'Radar pick not found' });
-        continue;
-      }
-
-      const existingRadarWhere: Record<string, unknown> = { radarPickId: id, status: 'active' };
-      if (portfolioId) existingRadarWhere.portfolioId = portfolioId;
-      const existingRadar = await prisma.portfolioEntry.findFirst({ where: existingRadarWhere });
-      if (existingRadar) {
-        errors.push({ id, ticker: pick.ticker, error: 'Already locked in' });
-        continue;
-      }
-
-      // Radar picks don't have ATR directly, estimate 2% for sizing
-      const atrEstimatePct = 2;
-      let radarShares: number;
-      let radarPositionPct: number;
-
-      if (effectiveMode === 'fixed' && (fixedAmount || portfolio?.fixedAmount)) {
-        const amount = fixedAmount || portfolio?.fixedAmount || 2500;
-        radarShares = Math.floor(amount / pick.priceAtScan);
-        radarPositionPct = totalPortfolio > 0 ? ((radarShares * pick.priceAtScan) / totalPortfolio) * 100 : 0;
-      } else if (effectiveMode === 'manual' && manualShares) {
-        radarShares = Math.floor(manualShares);
-        radarPositionPct = totalPortfolio > 0 ? ((radarShares * pick.priceAtScan) / totalPortfolio) * 100 : 0;
-      } else {
-        const winRate = kellyWinRate || portfolio?.kellyWinRate || 0.6;
-        const maxPct = ((kellyMaxPct || portfolio?.kellyMaxPct || 2) / 100);
-        const kellyFraction = calculateKellyFraction(winRate, atrEstimatePct, atrEstimatePct * 0.5);
-        radarPositionPct = Math.min(kellyFraction, maxPct) * 100;
-        const positionSize = totalPortfolio * (radarPositionPct / 100);
-        radarShares = Math.floor(positionSize / pick.priceAtScan);
-      }
-
-      if (radarShares <= 0) {
-        errors.push({ id, ticker: pick.ticker, error: 'Position too small' });
-        continue;
-      }
-
-      const radarEntry = await prisma.portfolioEntry.create({
-        data: {
-          portfolioId: portfolioId || null,
-          radarPickId: pick.id,
-          ticker: pick.ticker,
-          name: pick.name,
-          entryPrice: pick.priceAtScan,
-          entryDate: new Date(),
-          shares: radarShares,
-          positionSize: radarShares * pick.priceAtScan,
-          positionPct: radarPositionPct,
-          stopLoss: null,
-          status: 'active',
-        },
-      });
-      entries.push(radarEntry);
     }
 
     return NextResponse.json({

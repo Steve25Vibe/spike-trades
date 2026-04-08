@@ -17,9 +17,8 @@ EODHD_HEALTH_KEY = "eodhd/news"
 def _track(endpoint_health: dict | None, status: str) -> None:
     """Increment the eodhd/news counter in a fetcher-style endpoint_health dict.
     No-op when endpoint_health is None. Matches the shape produced by
-    LiveDataFetcher._track_endpoint and OpeningBellScanner so the admin
-    Data Source Health dashboard displays EODHD alongside FMP without any
-    frontend changes."""
+    LiveDataFetcher._track_endpoint so the admin Data Source Health dashboard
+    displays EODHD alongside FMP without any frontend changes."""
     if endpoint_health is None:
         return
     if EODHD_HEALTH_KEY not in endpoint_health:

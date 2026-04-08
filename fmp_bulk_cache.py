@@ -1,6 +1,6 @@
 """
 fmp_bulk_cache.py
-Shared FMP profile cache for all pipelines (Radar, Opening Bell, Spikes).
+Shared FMP profile cache for the Today's Spikes pipeline.
 
 - Whitelist: CSV bulk download from /stable/profile-bulk (all .TO tickers)
 - Profiles: JSON per-ticker from /stable/profile?symbol=X (proper types)

@@ -4,7 +4,6 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { cn, formatCurrency, formatPercent, formatVolume } from '@/lib/utils';
 import type { SpikeCard as SpikeCardType } from '@/types';
-import RadarIcon from '@/components/radar/RadarIcon';
 
 interface Props {
   spike: SpikeCardType;
@@ -81,20 +80,6 @@ export default function SpikeCard({ spike, selected, onSelect, onLockIn, selecti
             <span className="text-xs px-2 py-0.5 rounded-full bg-spike-violet/10 text-spike-violet flex-shrink-0">
               {spike.sector}
             </span>
-            {spike.isRadarPick && (
-              <RadarIcon
-                size={24}
-                title={`Flagged by Smart Money Radar${spike.radarScore ? ` (Score: ${spike.radarScore})` : ''}`}
-              />
-            )}
-            {spike.isOpeningBellPick && (
-              <span
-                className="inline-block text-xl animate-bell-ring"
-                title="Also an Opening Bell pick"
-              >
-                🔔
-              </span>
-            )}
           </div>
           <p className="text-sm text-spike-text-dim line-clamp-2">{spike.name}</p>
 

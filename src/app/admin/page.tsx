@@ -60,19 +60,6 @@ interface RunStatus {
   } | null;
 }
 
-interface OpeningBellStatus {
-  status?: 'running' | 'complete' | 'failed' | 'pending';
-  picks?: number;
-  duration_s?: number;
-  last_result_summary?: {
-    success?: boolean;
-    error?: string;
-    picks?: number;
-    duration_s?: number;
-  } | null;
-  [key: string]: unknown;
-}
-
 interface CouncilStatus {
   councilHealth: { status?: string; council_running?: boolean; last_run_time?: number; last_run_error?: string };
   runInProgress: boolean;
@@ -89,18 +76,6 @@ interface CouncilStatus {
       stage4?: { model: string; input_tokens: number; output_tokens: number };
     };
     [key: string]: unknown;
-  } | null;
-  openingBellStatus?: OpeningBellStatus | null;
-  openingBellHealth?: { endpoints?: Record<string, Record<string, number>> } | null;
-  radarStatus?: { running?: boolean; picks_count?: number; last_run_time?: number; last_error?: string; status?: string } | null;
-  radarHealth?: { endpoints?: Record<string, Record<string, number>> } | null;
-  radarAccuracy?: {
-    total: number;
-    correct: number;
-    hitRate: number | null;
-    avgOpenMove: number | null;
-    passedOpeningBell: number;
-    passedSpikes: number;
   } | null;
 }
 
@@ -269,26 +244,6 @@ export default function AdminPage() {
     } finally {
       setActionLoading(null);
     }
-  };
-
-  const triggerOpeningBell = async () => {
-    try {
-      await fetch('/api/admin/council', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'opening-bell' }),
-      });
-    } catch { /* polling will pick up status */ }
-  };
-
-  const triggerRadar = async () => {
-    try {
-      await fetch('/api/admin/council', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'radar' }),
-      });
-    } catch { /* polling will pick up status */ }
   };
 
   const resetPassword = async (userId: string) => {
@@ -611,158 +566,6 @@ export default function AdminPage() {
               })()}
             </div>
 
-            {/* 2. Radar Scanner (first in pipeline sequence) */}
-            {(() => {
-              const radar = council?.radarStatus;
-              const status = radar?.status ?? 'pending';
-              const statusColorMap: Record<string, string> = {
-                running: 'text-spike-amber',
-                complete: 'text-spike-green',
-                failed: 'text-spike-red',
-                pending: 'text-spike-text-dim',
-              };
-              const statusText = radar?.running ? 'Running' : status.charAt(0).toUpperCase() + status.slice(1);
-              const picks = radar?.picks_count ?? null;
-              const duration = radar?.last_run_time ?? null;
-              const error = radar?.last_error ?? null;
-              return (
-                <div className="glass-card p-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-bold text-green-400 uppercase tracking-wider">Radar Scanner</span>
-                    <button
-                      onClick={triggerRadar}
-                      className="px-3 py-1.5 rounded-lg bg-green-400/10 text-green-400 text-xs font-bold hover:bg-green-400/20 transition-all border border-green-400/30"
-                    >
-                      Run Radar
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-4 gap-3 text-center">
-                    <div>
-                      <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">Status</p>
-                      <p className={cn('text-sm font-bold mono', radar?.running ? 'text-spike-amber' : statusColorMap[status] ?? 'text-spike-text-dim')}>{statusText}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">Picks</p>
-                      <p className="text-sm font-bold mono text-green-400">{picks ?? '--'}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">Duration</p>
-                      <p className="text-sm font-bold mono text-spike-text">{duration != null ? formatDuration(Math.round(duration)) : '--'}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">Last Run</p>
-                      <p className="text-sm font-bold mono text-spike-text-dim">{duration != null ? new Date().toLocaleDateString('en-CA') : '--'}</p>
-                    </div>
-                  </div>
-                  {error && (
-                    <div className="mt-3 p-2 rounded bg-spike-red/10 border border-spike-red/20">
-                      <p className="text-xs text-spike-red mono break-all">{error}</p>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-
-            {/* 2b. Radar Accuracy (moved from public Accuracy Engine in Session 13) */}
-            {council?.radarAccuracy && council.radarAccuracy.total > 0 && (
-              <div className="glass-card p-5 border border-green-400/20">
-                <div className="flex items-center gap-2 mb-4">
-                  <span className="w-3 h-3 rounded-full bg-green-400" />
-                  <span className="text-xs font-bold text-green-400 uppercase tracking-wider">
-                    Radar Accuracy — Pre-Market Signal
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-                  <div>
-                    <p className={cn(
-                      'text-2xl font-bold mono',
-                      (council.radarAccuracy.hitRate ?? 0) >= 55 ? 'text-spike-green'
-                        : (council.radarAccuracy.hitRate ?? 0) >= 50 ? 'text-spike-amber'
-                        : 'text-spike-red'
-                    )}>
-                      {council.radarAccuracy.hitRate != null ? `${council.radarAccuracy.hitRate.toFixed(1)}%` : '—'}
-                    </p>
-                    <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mt-1">Open Direction Hit Rate</p>
-                  </div>
-                  <div>
-                    <p className="text-2xl font-bold mono text-spike-text">
-                      {council.radarAccuracy.correct}/{council.radarAccuracy.total}
-                    </p>
-                    <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mt-1">Correct / Total</p>
-                  </div>
-                  <div>
-                    <p className={cn(
-                      'text-2xl font-bold mono',
-                      (council.radarAccuracy.avgOpenMove ?? 0) >= 0 ? 'text-spike-green' : 'text-spike-red'
-                    )}>
-                      {council.radarAccuracy.avgOpenMove != null
-                        ? `${(council.radarAccuracy.avgOpenMove >= 0 ? '+' : '')}${council.radarAccuracy.avgOpenMove.toFixed(2)}%`
-                        : '—'}
-                    </p>
-                    <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mt-1">Avg Open Move</p>
-                  </div>
-                  <div>
-                    <p className="text-2xl font-bold mono text-spike-text">
-                      {council.radarAccuracy.passedSpikes}/{council.radarAccuracy.total}
-                    </p>
-                    <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mt-1">Made Final Spikes</p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* 3. Opening Bell (second in pipeline sequence) */}
-            {(() => {
-              const ob = council?.openingBellStatus;
-              const status = ob?.status ?? 'pending';
-              const statusColorMap: Record<string, string> = {
-                running: 'text-spike-amber',
-                complete: 'text-spike-green',
-                failed: 'text-spike-red',
-                pending: 'text-spike-text-dim',
-              };
-              const statusText = status.charAt(0).toUpperCase() + status.slice(1);
-              const picks = ob?.picks ?? ob?.last_result_summary?.picks ?? null;
-              const duration = ob?.duration_s ?? ob?.last_result_summary?.duration_s ?? null;
-              const error = ob?.last_result_summary?.success === false ? ob?.last_result_summary?.error : null;
-              return (
-                <div className="glass-card p-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-bold text-spike-amber uppercase tracking-wider">Opening Bell</span>
-                    <button
-                      onClick={triggerOpeningBell}
-                      className="px-3 py-1.5 rounded-lg bg-spike-amber/10 text-spike-amber text-xs font-bold hover:bg-spike-amber/20 transition-all border border-spike-amber/30"
-                    >
-                      Run Opening Bell
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-4 gap-3 text-center">
-                    <div>
-                      <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">Status</p>
-                      <p className={cn('text-sm font-bold mono', statusColorMap[status] ?? 'text-spike-text-dim')}>{statusText}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">Picks</p>
-                      <p className="text-sm font-bold mono text-spike-cyan">{picks ?? '--'}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">Duration</p>
-                      <p className="text-sm font-bold mono text-spike-text">{duration != null ? formatDuration(Math.round(duration)) : '--'}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-spike-text-muted uppercase tracking-wider mb-1">Last Run</p>
-                      <p className="text-sm font-bold mono text-spike-text-dim">{duration != null ? new Date().toLocaleDateString('en-CA') : '--'}</p>
-                    </div>
-                  </div>
-                  {error && (
-                    <div className="mt-3 p-2 rounded bg-spike-red/10 border border-spike-red/20">
-                      <p className="text-xs text-spike-red mono break-all">{error}</p>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-
             {/* 4. Today's Spikes — Stage Pipeline Visualization */}
             {(() => {
               const STAGE_KEYS = ['pre_filter', 'stage1_sonnet', 'stage2_gemini', 'stage3_opus', 'stage4_grok', 'consensus'] as const;
@@ -1026,15 +829,13 @@ export default function AdminPage() {
             </div>
 
             {/* 9. Data Source Health — per scanner */}
-            {(council?.radarHealth?.endpoints || council?.openingBellHealth?.endpoints || council?.fmpHealth?.endpoints) && (
+            {council?.fmpHealth?.endpoints && (
               <div className="glass-card p-6">
                 <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider mb-4">
                   Data Source Health
                 </h3>
                 {(() => {
                   const sections: { label: string; color: string; endpoints: Record<string, Record<string, number>> }[] = [
-                    { label: 'Radar', color: 'text-green-400', endpoints: (council?.radarHealth?.endpoints || {}) as Record<string, Record<string, number>> },
-                    { label: 'Opening Bell', color: 'text-spike-amber', endpoints: (council?.openingBellHealth?.endpoints || {}) as Record<string, Record<string, number>> },
                     { label: 'Today\'s Spikes', color: 'text-spike-cyan', endpoints: (council?.fmpHealth?.endpoints || {}) as Record<string, Record<string, number>> },
                   ].filter(s => Object.keys(s.endpoints).length > 0);
 

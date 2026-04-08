@@ -44,9 +44,8 @@ load_dotenv(override=True)
 FMP_BASE = "https://financialmodelingprep.com/stable"
 FMP_API_KEY = os.environ.get("FMP_API_KEY", "")
 
-from canadian_llm_council_brain import CanadianStockCouncilBrain, RadarScanner, _call_grok, _extract_json, _call_anthropic
+from canadian_llm_council_brain import CanadianStockCouncilBrain, _call_grok, _extract_json, _call_anthropic
 from canadian_portfolio_interface import CanadianPortfolioInterface
-from opening_bell_scanner import OpeningBellScanner
 
 # ── Logging ──────────────────────────────────────────────────────────────
 
@@ -575,13 +574,6 @@ async def latest_output_mapped():
     return _map_to_prisma(data)
 
 
-def _get_radar_tickers() -> set[str]:
-    """Get today's radar pick tickers from the latest radar result."""
-    if _radar_last_result and _radar_last_result.get("picks"):
-        return {p["ticker"] for p in _radar_last_result["picks"]}
-    return set()
-
-
 @app.post("/render-email")
 async def render_email():
     """
@@ -593,7 +585,7 @@ async def render_email():
         raise HTTPException(404, "No council output found")
 
     renderer = CanadianPortfolioInterface()
-    html = renderer.render(data, "html", radar_tickers=_get_radar_tickers())
+    html = renderer.render(data, "html")
     return HTMLResponse(content=html)
 
 
@@ -605,7 +597,7 @@ async def render_email_get():
         raise HTTPException(404, "No council output found")
 
     renderer = CanadianPortfolioInterface()
-    html = renderer.render(data, "html", radar_tickers=_get_radar_tickers())
+    html = renderer.render(data, "html")
     return HTMLResponse(content=html)
 
 
@@ -1126,222 +1118,6 @@ async def _close_spike_session():
     global _spike_it_session
     if _spike_it_session and not _spike_it_session.closed:
         await _spike_it_session.close()
-
-
-# ── Opening Bell State ────────────────────────────────────────────
-_opening_bell_running = False
-_opening_bell_last_result: dict | None = None
-_opening_bell_last_run_time: float | None = None
-_opening_bell_last_error: str | None = None
-
-OPENING_BELL_TIMEOUT = 300  # 5-minute hard timeout
-
-
-@app.post("/run-opening-bell")
-async def run_opening_bell(background_tasks: BackgroundTasks):
-    """Trigger Opening Bell scan. Returns immediately, runs in background."""
-    global _opening_bell_running
-    if _opening_bell_running:
-        raise HTTPException(409, "Opening Bell already running")
-    if _council_running:
-        raise HTTPException(409, "Council is running — wait for completion")
-
-    _opening_bell_running = True
-    background_tasks.add_task(_execute_opening_bell)
-    return {"success": True, "message": "Opening Bell started"}
-
-
-async def _execute_opening_bell():
-    """Background task for Opening Bell execution with hard timeout."""
-    global _opening_bell_running, _opening_bell_last_result, _opening_bell_last_run_time, _opening_bell_last_error
-    start = time.time()
-    try:
-        scanner = OpeningBellScanner(
-            fmp_key=os.environ.get("FMP_API_KEY", ""),
-            anthropic_key=os.environ.get("ANTHROPIC_API_KEY", ""),
-        )
-        result = await asyncio.wait_for(scanner.run(), timeout=OPENING_BELL_TIMEOUT)
-        _opening_bell_last_result = result
-        _opening_bell_last_run_time = time.time() - start
-        if not result.get("success"):
-            _opening_bell_last_error = result.get("error", "Unknown error")
-        else:
-            _opening_bell_last_error = None
-
-        # Save to disk for Next.js analyzer to pick up
-        ob_output_path = OUTPUT_DIR / "latest_opening_bell_output.json"
-        ob_output_path.write_text(json.dumps(result, default=str))
-
-        logger.info(f"Opening Bell completed in {_opening_bell_last_run_time:.1f}s: {len(result.get('picks', []))} picks")
-
-    except asyncio.TimeoutError:
-        _opening_bell_last_error = f"Hard timeout after {OPENING_BELL_TIMEOUT}s"
-        _opening_bell_last_result = {"success": False, "error": _opening_bell_last_error}
-        logger.error(_opening_bell_last_error)
-    except Exception as e:
-        _opening_bell_last_error = str(e)
-        _opening_bell_last_result = {"success": False, "error": str(e)}
-        logger.error(f"Opening Bell failed: {e}")
-    finally:
-        _opening_bell_running = False
-
-
-@app.get("/run-opening-bell-status")
-async def opening_bell_status():
-    """Get Opening Bell run status."""
-    return {
-        "running": _opening_bell_running,
-        "last_run_time": _opening_bell_last_run_time,
-        "last_error": _opening_bell_last_error,
-        "last_result_summary": {
-            "success": _opening_bell_last_result.get("success") if _opening_bell_last_result else None,
-            "picks_count": len(_opening_bell_last_result.get("picks", [])) if _opening_bell_last_result else 0,
-            "tickers_scanned": _opening_bell_last_result.get("tickers_scanned") if _opening_bell_last_result else 0,
-            "duration_ms": _opening_bell_last_result.get("duration_ms") if _opening_bell_last_result else None,
-        } if _opening_bell_last_result else None,
-    }
-
-
-@app.get("/opening-bell-health")
-async def opening_bell_health():
-    """Get Opening Bell FMP endpoint health from last run."""
-    if _opening_bell_last_result and "endpoint_health" in _opening_bell_last_result:
-        return {"success": True, "endpoints": _opening_bell_last_result["endpoint_health"]}
-    # Fall back to persisted file
-    ob_output_path = OUTPUT_DIR / "latest_opening_bell_output.json"
-    if ob_output_path.exists():
-        try:
-            data = json.loads(ob_output_path.read_text())
-            if "endpoint_health" in data:
-                return {"success": True, "endpoints": data["endpoint_health"]}
-        except Exception:
-            pass
-    return {"success": False, "message": "No Opening Bell run data available"}
-
-
-@app.get("/latest-opening-bell")
-async def latest_opening_bell():
-    """Return latest Opening Bell results."""
-    ob_output_path = OUTPUT_DIR / "latest_opening_bell_output.json"
-    if not ob_output_path.exists():
-        raise HTTPException(404, "No Opening Bell output found")
-    return json.loads(ob_output_path.read_text())
-
-
-@app.get("/latest-opening-bell-mapped")
-async def latest_opening_bell_mapped():
-    """Return latest Opening Bell results mapped for Prisma insertion."""
-    ob_output_path = OUTPUT_DIR / "latest_opening_bell_output.json"
-    if not ob_output_path.exists():
-        raise HTTPException(404, "No Opening Bell output found")
-    data = json.loads(ob_output_path.read_text())
-    if not data.get("success"):
-        raise HTTPException(500, data.get("error", "Last run failed"))
-    return {
-        "success": True,
-        "report": {
-            "sectorSnapshot": data.get("sector_snapshot", []),
-            "tickersScanned": data.get("tickers_scanned", 0),
-            "scanDurationMs": data.get("duration_ms", 0),
-        },
-        "picks": data.get("picks", []),
-        "tokenUsage": data.get("token_usage", {}),
-    }
-
-
-# ── Radar State ──────────────────────────────────────────────────────
-_radar_running = False
-_radar_last_result: dict | None = None
-_radar_last_run_time: float | None = None
-_radar_last_error: str | None = None
-
-RADAR_TIMEOUT = 600  # 10-minute hard timeout (Radar scans more tickers)
-
-
-@app.post("/run-radar")
-async def run_radar(background_tasks: BackgroundTasks):
-    """Trigger pre-market Radar scan. Returns immediately, runs in background."""
-    global _radar_running
-    if _radar_running:
-        raise HTTPException(409, "Radar scan already running")
-
-    _radar_running = True
-    background_tasks.add_task(_execute_radar)
-    return {"success": True, "message": "Radar scan started"}
-
-
-async def _execute_radar():
-    """Background task for Radar execution with hard timeout."""
-    global _radar_running, _radar_last_result, _radar_last_run_time, _radar_last_error
-    start = time.time()
-    try:
-        scanner = RadarScanner(
-            fmp_api_key=os.environ.get("FMP_API_KEY", ""),
-            anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
-        )
-        result = await asyncio.wait_for(scanner.run(), timeout=RADAR_TIMEOUT)
-        _radar_last_result = result
-        _radar_last_run_time = time.time() - start
-        if result.get("error"):
-            _radar_last_error = result.get("error")
-        else:
-            _radar_last_error = None
-
-        # Save to disk
-        output_path = OUTPUT_DIR / "latest_radar_output.json"
-        output_path.write_text(json.dumps(result, default=str))
-
-        logger.info(f"Radar completed in {_radar_last_run_time:.1f}s: {len(result.get('picks', []))} picks")
-
-    except asyncio.TimeoutError:
-        _radar_last_error = f"Hard timeout after {RADAR_TIMEOUT}s"
-        _radar_last_result = {"error": _radar_last_error, "success": False}
-        logger.error(_radar_last_error)
-    except Exception as e:
-        _radar_last_error = str(e)
-        _radar_last_result = {"error": str(e), "success": False}
-        logger.error(f"Radar failed: {e}")
-    finally:
-        _radar_running = False
-
-
-@app.get("/run-radar-status")
-async def radar_status():
-    """Get Radar run status."""
-    return {
-        "running": _radar_running,
-        "last_run_time": _radar_last_run_time,
-        "last_error": _radar_last_error,
-        "picks_count": len(_radar_last_result.get("picks", [])) if _radar_last_result else 0,
-    }
-
-
-@app.get("/radar-health")
-async def radar_health():
-    """Get Radar FMP endpoint health from last run."""
-    if _radar_last_result and "endpoint_health" in _radar_last_result:
-        return {"success": True, "endpoints": _radar_last_result["endpoint_health"]}
-    # Fall back to persisted file
-    radar_output_path = OUTPUT_DIR / "latest_radar_output.json"
-    if radar_output_path.exists():
-        try:
-            data = json.loads(radar_output_path.read_text())
-            if "endpoint_health" in data:
-                return {"success": True, "endpoints": data["endpoint_health"]}
-        except Exception:
-            pass
-    return {}
-
-
-@app.get("/latest-radar-output")
-async def latest_radar_output():
-    """Return latest Radar results."""
-    if _radar_last_result:
-        return _radar_last_result
-    output_path = OUTPUT_DIR / "latest_radar_output.json"
-    if output_path.exists():
-        return json.loads(output_path.read_text())
-    raise HTTPException(404, "No radar output available")
 
 
 # ── Main ─────────────────────────────────────────────────────────────────
