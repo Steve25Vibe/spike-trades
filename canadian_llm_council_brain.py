@@ -1562,7 +1562,11 @@ async def run_stage1_sonnet(
         f"{json.dumps(payload_dicts, **_COMPACT)}"
     )
 
-    prompt_context = learning_engine.build_prompt_context(1) if learning_engine else ""
+    # LE BYPASS (2026-04-08): build_prompt_context has the same JOIN defect
+    # as compute_stage_weights — returns stage-identical "your accuracy is X%"
+    # text derived from pick-level accuracy instead of per-stage accuracy.
+    # Bypassed. See docs/superpowers/specs/2026-04-08-learning-engine-bypass-design.md
+    prompt_context = ""
     system_prompt = SONNET_SYSTEM_PROMPT + prompt_context
 
     raw, _usage = await _call_anthropic(
@@ -1639,7 +1643,8 @@ async def run_stage2_gemini(
     passed_tickers = {r["ticker"] for r in stage1_results}
     payload_dicts = _prepare_stage_payloads(payloads, passed_tickers)
 
-    prompt_context = learning_engine.build_prompt_context(2) if learning_engine else ""
+    # LE BYPASS (2026-04-08): see Stage 1 call site for rationale.
+    prompt_context = ""
     system_prompt = GEMINI_SYSTEM_PROMPT + prompt_context
 
     user_prompt = (
@@ -1727,7 +1732,8 @@ async def run_stage3_opus(
     passed_tickers = {r["ticker"] for r in stage2_results}
     payload_dicts = _prepare_stage_payloads(payloads, passed_tickers)
 
-    prompt_context = learning_engine.build_prompt_context(3) if learning_engine else ""
+    # LE BYPASS (2026-04-08): see Stage 1 call site for rationale.
+    prompt_context = ""
     system_prompt = OPUS_SYSTEM_PROMPT + prompt_context
 
     user_prompt = (
@@ -1863,7 +1869,8 @@ async def run_stage4_grok(
     passed_tickers = {r["ticker"] for r in stage3_results}
     payload_dicts = _prepare_stage_payloads(payloads, passed_tickers)
 
-    prompt_context = learning_engine.build_prompt_context(4) if learning_engine else ""
+    # LE BYPASS (2026-04-08): see Stage 1 call site for rationale.
+    prompt_context = ""
     system_prompt = GROK_SYSTEM_PROMPT + prompt_context
 
     user_prompt = (
@@ -2119,7 +2126,11 @@ def _build_consensus(
 
     # Compute consensus score: weighted average across stages that scored the ticker
     # Stage 4 (final) gets highest weight, Stage 1 gets lowest
-    STAGE_WEIGHTS = learning_engine.compute_stage_weights() if learning_engine else {1: 0.15, 2: 0.20, 3: 0.30, 4: 0.35}
+    # LE BYPASS (2026-04-08): compute_stage_weights() has a confirmed JOIN defect
+    # that always returns uniform {0.25 × 4}, underweighting Stage 4 by 10pp from
+    # the intended {0.15, 0.20, 0.30, 0.35}. Bypassed pending full audit.
+    # See docs/superpowers/specs/2026-04-08-learning-engine-bypass-design.md
+    STAGE_WEIGHTS = {1: 0.15, 2: 0.20, 3: 0.30, 4: 0.35}
 
     scored_tickers = []
     for ticker, data in stage_map.items():
@@ -2137,7 +2148,7 @@ def _build_consensus(
         consensus_score = weighted_sum / weight_sum if weight_sum > 0 else 0
 
         # Track learning adjustments for per-pick transparency
-        adjustments: dict[str, Any] = {"stage_weights": dict(STAGE_WEIGHTS)}
+        adjustments: dict[str, Any] = {"stage_weights": dict(STAGE_WEIGHTS), "le_stage_weights_bypassed": True}
 
         # Apply macro regime / sector adjustment
         payload = payloads.get(ticker)
@@ -4827,7 +4838,10 @@ class CanadianStockCouncilBrain:
             # Include learning state in output
             try:
                 result_dict["learning_state"] = self.learning_engine.get_mechanism_states()
-                result_dict["stage_weights_used"] = self.learning_engine.compute_stage_weights()
+                # LE BYPASS (2026-04-08): second compute_stage_weights call site.
+                # Same hardcoded literal as _build_consensus so the dashboard's
+                # stage_weights_used value matches what scoring actually used.
+                result_dict["stage_weights_used"] = {1: 0.15, 2: 0.20, 3: 0.30, 4: 0.35}
                 # Mechanism #6: Factor-level feedback weights (logged for transparency)
                 factor_weights = self.learning_engine.compute_factor_weights()
                 if factor_weights:
