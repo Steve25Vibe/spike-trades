@@ -85,13 +85,12 @@ class CanadianPortfolioInterface:
 
     SUPPORTED_FORMATS = ("console", "markdown", "html", "streamlit", "slack")
 
-    def render(self, data: dict, format: str = "streamlit", radar_tickers: set[str] | None = None) -> Any:
+    def render(self, data: dict, format: str = "streamlit") -> Any:
         """Render council output in the specified format.
 
         Args:
             data: Council result dict (from CouncilResult.model_dump()).
             format: One of 'console', 'markdown', 'html', 'streamlit', 'slack'.
-            radar_tickers: Optional set of tickers flagged by Radar scanner.
 
         Returns:
             str for console/markdown/html/slack. None for streamlit (renders in-place).
@@ -99,7 +98,6 @@ class CanadianPortfolioInterface:
         if format not in self.SUPPORTED_FORMATS:
             raise ValueError(f"Unsupported format '{format}'. Use one of {self.SUPPORTED_FORMATS}")
 
-        self._radar_tickers = radar_tickers or set()
         renderer = getattr(self, f"_render_{format}")
         return renderer(data)
 
@@ -361,18 +359,15 @@ class CanadianPortfolioInterface:
         m = e["macro"]
 
         # Build picks rows
-        radar_badge = '<span style="display:inline-block;background:#00FF4122;color:#00FF41;border:1px solid #00FF4144;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:bold;margin-left:4px;vertical-align:middle;">RADAR</span>'
-
         pick_rows = ""
         for p in e["picks"]:
             color = _conviction_color(p["conviction_tier"])
             chg = p.get("change_pct", 0)
             chg_color = "#00ff88" if chg >= 0 else "#ff4444"
-            is_radar = p["ticker"] in self._radar_tickers
             pick_rows += f"""
             <tr>
                 <td style="padding:8px;border-bottom:1px solid #333;color:#ccc;">{p['rank']}</td>
-                <td style="padding:8px;border-bottom:1px solid #333;font-weight:bold;color:#fff;">{p['ticker']}{radar_badge if is_radar else ''}</td>
+                <td style="padding:8px;border-bottom:1px solid #333;font-weight:bold;color:#fff;">{p['ticker']}</td>
                 <td style="padding:8px;border-bottom:1px solid #333;color:#ccc;">{_fmt_price(p['price'])}</td>
                 <td style="padding:8px;border-bottom:1px solid #333;color:{chg_color};">{_fmt_pct(chg)}</td>
                 <td style="padding:8px;border-bottom:1px solid #333;color:#fff;font-weight:bold;">{p['consensus_score']:.1f}</td>
