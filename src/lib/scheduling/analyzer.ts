@@ -76,6 +76,7 @@ interface CouncilMappedResponse {
       price_range_high: number;
       clarity_decay_note: string;
     }>;
+    institutionalConvictionScore: number | null;
     historicalConfidence: number | null;
     calibrationSamples: number | null;
     overconfidenceFlag: boolean | null;
@@ -256,6 +257,8 @@ export async function runDailyAnalysis(useCached = false, trigger = 'scheduled')
       ema3: spike.ema3,
       ema8: spike.ema8,
       atr: spike.atr,
+      // IIC for third bar on SpikeCard
+      institutionalConvictionScore: spike.institutionalConvictionScore,
       // Calibration data for dual-bar confidence meter
       historicalConfidence: spike.historicalConfidence,
       calibrationSamples: spike.calibrationSamples,
