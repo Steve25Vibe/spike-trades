@@ -14,13 +14,19 @@
 
 ---
 
+## Deploy workflow note
+
+This project does **not** use Prisma migrations. Schema changes are deployed via `prisma db push` (see `scripts/deploy.sh:134` and `DEPLOYMENT.md:52`). The `prisma/migrations/` directory is gitignored and the `_prisma_migrations` table does not exist on production. Do not create migration files. Schema deltas land in `prisma/schema.prisma` only and are applied at deploy time via `prisma db push`.
+
+Arbitrary one-shot SQL (the legacy data wipe) lives in `scripts/` and is executed via `psql -f` at deploy time. This is the project's pattern for non-schema data operations.
+
 ## File Structure
 
 ### New files
 
 | Path | Responsibility | Approx LoC |
 |---|---|---|
-| `prisma/migrations/20260408_user_activity_heartbeat/migration.sql` | Schema additions + scoped legacy wipe | ~25 |
+| `scripts/wipe_legacy_user_sessions.sql` | One-shot SQL: pre-flight count + scoped DELETE of contaminated UserSession rows | ~15 |
 | `src/app/api/activity/heartbeat/route.ts` | Heartbeat endpoint: extends or rotates open UserSession | ~55 |
 | `src/components/ActivityHeartbeat.tsx` | Client component: 60s visibility-gated heartbeat | ~45 |
 
@@ -154,33 +160,36 @@ git push
 
 ---
 
-## Task 2: Migration file with scoped wipe
+## Task 2: One-shot wipe SQL script
+
+**Why a script and not a migration:** This project does not use Prisma migrations (see Deploy workflow note above). Schema changes go via `prisma db push`. Arbitrary one-shot SQL like this data wipe lives in `scripts/` and is executed via `psql -f` at deploy time. The `prisma/migrations/` directory is gitignored.
 
 **Files:**
-- Create: `prisma/migrations/20260408_user_activity_heartbeat/migration.sql`
+- Create: `scripts/wipe_legacy_user_sessions.sql`
 
-- [ ] **Step 1: Create migration directory**
+- [ ] **Step 1: Write the wipe SQL script**
 
-Run:
-```bash
-mkdir -p prisma/migrations/20260408_user_activity_heartbeat
-```
-
-- [ ] **Step 2: Write migration SQL**
-
-Create `prisma/migrations/20260408_user_activity_heartbeat/migration.sql` with this exact content:
+Create `scripts/wipe_legacy_user_sessions.sql` with this exact content:
 
 ```sql
--- AlterTable: Add lastSeenAt to User
-ALTER TABLE "User" ADD COLUMN "lastSeenAt" TIMESTAMP(3);
+-- ============================================
+-- Wipe contaminated legacy UserSession rows
+-- One-shot script, runs once at heartbeat deploy
+-- ============================================
+--
+-- Spec:  docs/superpowers/specs/2026-04-08-user-activity-heartbeat-design.md
+-- Plan:  docs/superpowers/plans/2026-04-08-user-activity-heartbeat.md
+--
+-- The legacy UserSession data has two contamination bugs:
+--   1. NULL durations (users never explicitly logged out)
+--   2. ~21h durations (overnight tab-open rotated to logout the next morning)
+-- The user explicitly authorized wiping it.
+--
+-- This is a SCOPED DELETE, not unconditional. The WHERE clause is honest
+-- ("everything that exists at script start") and race-safe: any rows inserted
+-- by other connections during this script have loginAt > NOW() and survive.
 
--- AlterTable: Add lastHeartbeatAt to UserSession
-ALTER TABLE "UserSession" ADD COLUMN "lastHeartbeatAt" TIMESTAMP(3);
-
--- CreateIndex: lastHeartbeatAt (for "active today" queries)
-CREATE INDEX "UserSession_lastHeartbeatAt_idx" ON "UserSession"("lastHeartbeatAt");
-
--- Audit log: pre-flight count of legacy rows about to be deleted
+-- Audit log: pre-flight count of rows about to be deleted
 DO $$
 DECLARE row_count int;
 BEGIN
@@ -188,30 +197,31 @@ BEGIN
   RAISE NOTICE 'About to delete % UserSession rows (legacy data, pre-heartbeat)', row_count;
 END $$;
 
--- Scoped wipe of contaminated legacy data
--- WHERE clause is honest ("everything that exists at migration time")
--- and race-safe: rows inserted by other connections after NOW() survive
+-- Scoped wipe
 DELETE FROM "UserSession" WHERE "loginAt" < NOW();
+
+-- Confirmation
+SELECT COUNT(*) AS remaining_rows FROM "UserSession";
 ```
 
-- [ ] **Step 3: Verify migration file exists**
+- [ ] **Step 2: Verify file exists and contents are correct**
 
 Run:
 ```bash
-ls -la prisma/migrations/20260408_user_activity_heartbeat/
-cat prisma/migrations/20260408_user_activity_heartbeat/migration.sql | head -20
+ls -la scripts/wipe_legacy_user_sessions.sql
+cat scripts/wipe_legacy_user_sessions.sql
 ```
 Expected: file exists, contents match.
 
-- [ ] **Step 4: Commit (do NOT run migrate dev — that hits the local DB)**
+- [ ] **Step 3: Commit (do NOT execute the script — it runs on production at deploy time)**
 
 ```bash
-git add prisma/migrations/20260408_user_activity_heartbeat/
-git commit -m "feat(migration): heartbeat schema + scoped legacy wipe"
+git add scripts/wipe_legacy_user_sessions.sql
+git commit -m "feat(scripts): one-shot wipe of contaminated legacy UserSession rows"
 git push
 ```
 
-The migration will be applied on production via `prisma migrate deploy` in Task 7. Do not run it locally unless you have a disposable dev DB.
+The script will be executed on production via `psql -f` in Task 7 Step 5. Do not run it locally — there is no local Postgres to wipe.
 
 ---
 
@@ -595,11 +605,13 @@ Spec: docs/superpowers/specs/2026-04-08-user-activity-heartbeat-design.md
 
 ## Test plan
 - [x] Local TypeScript build passes
-- [ ] Production migration log shows pre-flight RAISE NOTICE row count
+- [ ] Production wipe script log shows pre-flight RAISE NOTICE row count
 - [ ] Post-deploy: heartbeat fires every 60s in browser DevTools (POST /api/activity/heartbeat 204)
-- [ ] Post-deploy: SELECT COUNT(*) FROM "UserSession" returns 0 immediately after migration
+- [ ] Post-deploy: SELECT COUNT(*) FROM "UserSession" returns 0 immediately after wipe
 - [ ] Post-deploy: admin Activity tab shows realistic minute-scale durations
 - [ ] T+24h: no UserSession row has duration > 4 hours
+
+Deploy mechanism: this project uses `prisma db push` (not migrations). Schema changes apply via db push; the wipe runs as a one-shot SQL script via psql.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF
@@ -627,31 +639,49 @@ Run:
 ```bash
 ssh -i ~/.ssh/digitalocean_saa root@147.182.150.30 'cd /opt/spike-trades && git pull origin main && git log --oneline -3'
 ```
-Expected: HEAD advances to the merge commit of this PR.
+Expected: HEAD advances to the merge commit of this PR. Confirm `scripts/wipe_legacy_user_sessions.sql` exists on production filesystem.
 
-- [ ] **Step 5: Run the migration on production**
+- [ ] **Step 5: Apply schema changes via `prisma db push`**
 
 Run:
 ```bash
-ssh -i ~/.ssh/digitalocean_saa root@147.182.150.30 'cd /opt/spike-trades && docker compose run --rm app npx prisma migrate deploy 2>&1'
+ssh -i ~/.ssh/digitalocean_saa root@147.182.150.30 'cd /opt/spike-trades && docker compose exec -T app npx prisma db push --skip-generate 2>&1'
 ```
-Expected: output includes the line:
+Expected: output includes lines like `Your database is now in sync with your Prisma schema` and references to `lastSeenAt` and `lastHeartbeatAt` columns being added.
+
+If `db push` complains about data loss, STOP — the schema delta should be purely additive (two nullable columns, one new index). Investigate before forcing.
+
+- [ ] **Step 6: Run the wipe script via psql**
+
+Run:
+```bash
+ssh -i ~/.ssh/digitalocean_saa root@147.182.150.30 'cd /opt/spike-trades && docker compose exec -T db psql -U spiketrades -d spiketrades -f /docker-entrypoint-initdb.d/wipe.sql 2>&1' || \
+ssh -i ~/.ssh/digitalocean_saa root@147.182.150.30 'cd /opt/spike-trades && cat scripts/wipe_legacy_user_sessions.sql | docker compose exec -T db psql -U spiketrades -d spiketrades 2>&1'
+```
+
+(The first form requires the file to be mounted into the db container; the second form pipes the file content over stdin and is the safer fallback. Use whichever works.)
+
+Expected output includes:
 ```
 NOTICE:  About to delete N UserSession rows (legacy data, pre-heartbeat)
+DELETE N
+ remaining_rows
+----------------
+              0
 ```
-Where N is the legacy row count (should be ~70 based on the handoff doc's snapshot data).
+Where N is the legacy row count (~70 based on the handoff doc snapshot).
 
-**Two-keys-to-fire safety check:** Before this step, the user has approved the wipe in the spec review. The migration log captures the row count for audit. If N is wildly different from ~70 (e.g., > 1000 or < 10), STOP and investigate before continuing — something may have changed.
+**Two-keys-to-fire safety check:** The user has approved the wipe in the spec review (key 1). This step is the trigger (key 2). If N is wildly different from ~70 (e.g., > 1000 or < 10), STOP and investigate before continuing — something may have changed since the spec was written.
 
-- [ ] **Step 6: Rebuild + restart app container**
+- [ ] **Step 7: Rebuild + restart app container**
 
 Run:
 ```bash
 ssh -i ~/.ssh/digitalocean_saa root@147.182.150.30 'cd /opt/spike-trades && docker compose up -d --build app'
 ```
-Expected: app container rebuilds with new code, restarts cleanly.
+Expected: app container rebuilds with new code (heartbeat endpoint + client component + new admin query), restarts cleanly.
 
-- [ ] **Step 7: Verify container health**
+- [ ] **Step 8: Verify container health**
 
 Run:
 ```bash
