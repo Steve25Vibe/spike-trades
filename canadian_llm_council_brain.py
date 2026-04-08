@@ -4838,7 +4838,10 @@ class CanadianStockCouncilBrain:
             # Include learning state in output
             try:
                 result_dict["learning_state"] = self.learning_engine.get_mechanism_states()
-                result_dict["stage_weights_used"] = self.learning_engine.compute_stage_weights()
+                # LE BYPASS (2026-04-08): second compute_stage_weights call site.
+                # Same hardcoded literal as _build_consensus so the dashboard's
+                # stage_weights_used value matches what scoring actually used.
+                result_dict["stage_weights_used"] = {1: 0.15, 2: 0.20, 3: 0.30, 4: 0.35}
                 # Mechanism #6: Factor-level feedback weights (logged for transparency)
                 factor_weights = self.learning_engine.compute_factor_weights()
                 if factor_weights:
