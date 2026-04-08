@@ -2405,6 +2405,37 @@ def _build_consensus(
                 consensus_score *= edge_mult
         adjustments["edge_multiplier"] = edge_mult
 
+        # ── Combined multiplier cap ──
+        # Prevents the [0,100] clamp at FinalHotPick construction from
+        # silently swallowing mathematically impossible scores.
+        # directional_multiplier is excluded — it is an LLM forecast signal,
+        # not a smart-money multiplier.
+        CAP_MIN, CAP_MAX = 0.5, 1.5
+        combined_adj = (
+            sector_adj * earnings_mult * insider_adj * analyst_adj
+            * srs_adj * disagreement_adj * iv_check * edge_mult
+        )
+        if combined_adj > CAP_MAX:
+            consensus_score *= CAP_MAX / combined_adj
+            adjustments["was_capped"] = True
+        elif combined_adj < CAP_MIN:
+            consensus_score *= CAP_MIN / combined_adj
+            adjustments["was_capped"] = True
+        else:
+            adjustments["was_capped"] = False
+        adjustments["combined_adj_multiplier"] = round(combined_adj, 4)
+
+        # ── Institutional Conviction Score (IIC) ──
+        # Pure derived view of smart-money signals. Does NOT replace the
+        # existing consensus_score math — surfaces it as an orthogonal bar.
+        iic_score = compute_iic(
+            insider_activity=payload.insider_activity if payload else None,
+            institutional_ownership_pct=payload.institutional_ownership_pct if payload else None,
+            analyst_consensus=payload.analyst_consensus if payload else None,
+            sector_relative_strength=payload.sector_relative_strength if payload else None,
+        )
+        data["institutional_conviction_score"] = iic_score
+
         data["learning_adjustments"] = adjustments
         scored_tickers.append((ticker, consensus_score, len(stages), data))
 
