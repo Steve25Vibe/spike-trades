@@ -965,23 +965,25 @@ async def fetch_analyst_consensus(
 
 
 async def fetch_institutional_ownership(
-    session: aiohttp.ClientSession,
-    ticker: str,
-    api_key: str,
+    fetcher: "LiveDataFetcher", ticker: str
 ) -> Optional[float]:
     """
     Fetch institutional ownership percentage for a ticker from FMP.
     Returns the fraction of shares held by institutions (0.0-1.0), or None.
     Non-blocking: returns None on any error rather than raising.
 
-    Endpoint: /api/v4/institutional-ownership/symbol-ownership (FMP Ultimate plan)
+    Uses the /api/v4/institutional-ownership/symbol-ownership endpoint, which is
+    NOT available via fetcher._fmp_get() (that method is hardcoded to FMP_BASE
+    which points at /stable/). This function makes a direct call using the
+    fetcher's shared session and API key.
     """
     try:
+        session = await fetcher._get_session()
         url = "https://financialmodelingprep.com/api/v4/institutional-ownership/symbol-ownership"
         params = {
             "symbol": ticker,
             "includeCurrentQuarter": "false",
-            "apikey": api_key,
+            "apikey": fetcher.fmp_key,
         }
         async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as resp:
             if resp.status != 200:
