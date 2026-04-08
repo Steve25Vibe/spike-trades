@@ -58,6 +58,41 @@ import fmp_bulk_cache
 logger = logging.getLogger("spike_trades.council")
 
 
+def _read_council_config_min_adv(default: int = 5_000_000) -> int:
+    """
+    Read the configured minimum ADV threshold from the CouncilConfig Prisma table.
+
+    Returns the configured value on success, or `default` on any error (missing
+    table, empty row, DB connection failure, etc). Non-blocking — never raises.
+
+    The value is set via the admin panel (/admin → Council tab → ADV Slider).
+    See docs/superpowers/specs/2026-04-08-adv-slider-admin-control-design.md
+    """
+    try:
+        database_url = os.getenv("DATABASE_URL", "")
+        if not database_url:
+            logger.warning(f"DATABASE_URL not set, using default MIN_ADV_DOLLARS=${default:,}")
+            return default
+        # Lazy import so this function is usable even when psycopg2 is not installed
+        import psycopg2
+        conn = psycopg2.connect(database_url)
+        try:
+            cur = conn.cursor()
+            cur.execute('SELECT "minAdvDollars" FROM "CouncilConfig" WHERE id = %s', ('singleton',))
+            row = cur.fetchone()
+            if row and row[0]:
+                value = int(row[0])
+                logger.info(f"Council config: MIN_ADV_DOLLARS=${value:,} (from DB)")
+                return value
+            logger.info(f"Council config: singleton row missing, using default ${default:,}")
+            return default
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning(f"Failed to read CouncilConfig, using default ${default:,}: {type(e).__name__}: {e}")
+        return default
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # PYDANTIC V2 MODELS
 # ═══════════════════════════════════════════════════════════════════════════
@@ -4437,7 +4472,8 @@ class CanadianStockCouncilBrain:
             logger.info(f"Step 3: Got {len(quotes)} quotes")
 
             # Pre-filter: price > $1 and volume > 0 (cheap filter, no API calls)
-            MIN_ADV_DOLLARS = 5_000_000
+            # Read minimum ADV threshold from CouncilConfig (set via admin panel Council tab)
+            MIN_ADV_DOLLARS = _read_council_config_min_adv(default=5_000_000)
             MIN_PRICE = 1.0
             price_filtered = []
             for ticker, q in quotes.items():
@@ -4465,7 +4501,7 @@ class CanadianStockCouncilBrain:
                 logger.info(f"Step 3: Removed {etf_removed} ETFs/ghost tickers via bulk cache whitelist")
             price_filtered = whitelisted
 
-            # Full liquidity filter: ADV >= $8M using avgVolume from profile
+            # Full liquidity filter: ADV >= MIN_ADV_DOLLARS (configured via admin panel, default $5M)
             liquid_tickers = []
             for ticker in price_filtered:
                 q = quotes.get(ticker)

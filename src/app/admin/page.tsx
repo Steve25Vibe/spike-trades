@@ -120,6 +120,10 @@ export default function AdminPage() {
   const [invites, setInvites] = useState<InviteInfo[]>([]);
   const [activity, setActivity] = useState<{ totalUsers: number; activeToday: number; avgSessionDurationSec: number; perUser: ActivityUser[] } | null>(null);
   const [council, setCouncil] = useState<CouncilStatus | null>(null);
+  const [config, setConfig] = useState<{ minAdvDollars: number; updatedAt: string; updatedByEmail: string | null } | null>(null);
+  const [configLocalValue, setConfigLocalValue] = useState<number>(5_000_000);
+  const [configSaving, setConfigSaving] = useState(false);
+  const [configMessage, setConfigMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [analytics, setAnalytics] = useState<Record<string, any> | null>(null);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -161,6 +165,7 @@ export default function AdminPage() {
         if (json.success) setActivity(json.data);
       } else if (tab === 'council') {
         await fetchCouncilStatus();
+        await fetchCouncilConfig();
         startPolling();
       } else if (tab === 'analytics') {
         const res = await fetch('/api/admin/analytics');
@@ -204,6 +209,49 @@ export default function AdminPage() {
       }
     } catch { /* silent — will retry on next poll */ }
   }, []);
+
+  const fetchCouncilConfig = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/council/config');
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.data) {
+          setConfig(json.data);
+          setConfigLocalValue(json.data.minAdvDollars);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch council config:', err);
+    }
+  }, []);
+
+  const saveCouncilConfig = async () => {
+    setConfigSaving(true);
+    setConfigMessage(null);
+    try {
+      const res = await fetch('/api/admin/council/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ minAdvDollars: configLocalValue }),
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        setConfig(json.data);
+        setConfigMessage({ type: 'success', text: 'ADV threshold saved. Next council run will use this value.' });
+      } else {
+        setConfigMessage({ type: 'error', text: json.error || 'Failed to save config' });
+      }
+    } catch (err) {
+      setConfigMessage({ type: 'error', text: 'Network error while saving' });
+    } finally {
+      setConfigSaving(false);
+    }
+  };
+
+  const resetConfigToDefault = () => {
+    setConfigLocalValue(5_000_000);
+    setConfigMessage(null);
+  };
 
   // Stable ref for fetchCouncilStatus so setInterval always calls latest version
   const fetchCouncilStatusRef = useRef(fetchCouncilStatus);
@@ -560,6 +608,72 @@ export default function AdminPage() {
                 return <span className="text-lg font-bold mono text-spike-red">Offline</span>;
               })()}
             </div>
+
+            {/* ADV Slider Config Panel */}
+          <div className="glass-card p-5 mb-4">
+            <h3 className="text-sm font-semibold text-spike-text mb-3 uppercase tracking-wider">Council Configuration</h3>
+
+            <div className="mb-4">
+              <div className="flex items-baseline justify-between mb-2">
+                <label className="text-xs text-spike-text-muted uppercase tracking-wider">
+                  Minimum ADV for next run
+                </label>
+                <span className="text-2xl font-bold mono text-spike-cyan">
+                  ${configLocalValue.toLocaleString()}
+                </span>
+              </div>
+              <input
+                type="range"
+                min={500000}
+                max={8000000}
+                step={500000}
+                value={configLocalValue}
+                onChange={(e) => {
+                  setConfigLocalValue(Number(e.target.value));
+                  setConfigMessage(null);
+                }}
+                disabled={configSaving}
+                className="w-full h-2 bg-spike-bg rounded-lg appearance-none cursor-pointer accent-spike-cyan disabled:opacity-50"
+              />
+              <div className="flex justify-between text-[10px] text-spike-text-muted mt-1">
+                <span>$500k</span>
+                <span>$8M</span>
+              </div>
+            </div>
+
+            {config && (
+              <p className="text-[11px] text-spike-text-muted mb-3">
+                Last saved: {new Date(config.updatedAt).toLocaleString()}
+                {config.updatedByEmail ? ` by ${config.updatedByEmail}` : ''}
+                {config.minAdvDollars !== configLocalValue ? (
+                  <span className="text-spike-amber ml-2">(unsaved changes)</span>
+                ) : null}
+              </p>
+            )}
+
+            {configMessage && (
+              <div className={`text-xs mb-3 ${configMessage.type === 'success' ? 'text-spike-green' : 'text-spike-red'}`}>
+                {configMessage.text}
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <button
+                onClick={saveCouncilConfig}
+                disabled={configSaving || (config?.minAdvDollars === configLocalValue)}
+                className="px-4 py-2 rounded-lg bg-spike-cyan/10 text-spike-cyan border border-spike-cyan/30 hover:bg-spike-cyan/20 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {configSaving ? 'Saving...' : 'Save Configuration'}
+              </button>
+              <button
+                onClick={resetConfigToDefault}
+                disabled={configSaving || configLocalValue === 5_000_000}
+                className="px-4 py-2 rounded-lg bg-spike-bg text-spike-text-muted border border-spike-border hover:border-spike-cyan/30 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Reset to $5M Default
+              </button>
+            </div>
+          </div>
 
             {/* 4. Today's Spikes — Stage Pipeline Visualization */}
             {(() => {

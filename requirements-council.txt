@@ -10,3 +10,4 @@ openai>=1.0.0
 pandas>=2.0.0
 plotly>=5.0.0
 scipy>=1.11
+psycopg2-binary>=2.9.0
