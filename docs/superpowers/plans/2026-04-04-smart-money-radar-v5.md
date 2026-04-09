@@ -2762,7 +2762,7 @@ git push
 In `start-cron.ts`, after the initial console.log statements and before the Opening Bell job, add:
 
 ```typescript
-// Pre-market Radar — weekdays at 8:15am AST
+// Pre-market Radar — weekdays at 10:05am AST
 cron.schedule(
   '5 10 * * 1-5',
   async () => {
