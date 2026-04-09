@@ -12,6 +12,11 @@ COPY canadian_portfolio_interface.py .
 COPY api_server.py .
 COPY fmp_bulk_cache.py .
 COPY eodhd_news.py .
+# Sibling B modules (PR #15)
+COPY eodhd_enrichment.py .
+COPY us_dual_listing_enrichment.py .
+COPY cross_compare.py .
+COPY dual_listing_map.json .
 
 EXPOSE 8100
 
