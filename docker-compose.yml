@@ -41,7 +41,11 @@ services:
       # DATABASE_URL allows _read_council_config_min_adv() to read the ADV Slider
       # value from the CouncilConfig Postgres table (admin panel → Council tab).
       # Without this the council falls back to the hard-coded $5M default.
-      DATABASE_URL: postgresql://spiketrades:${DB_PASSWORD:-spike_trades_secure_pw_2024}@db:5432/spiketrades?schema=public
+      # NOTE: No `?schema=public` query param — the app container's URL has it
+      # for Prisma, but the council container uses raw psycopg2 which rejects
+      # that Prisma-specific query param ("invalid URI query parameter: schema").
+      # The public schema is the default anyway, so omitting the hint is safe.
+      DATABASE_URL: postgresql://spiketrades:${DB_PASSWORD:-spike_trades_secure_pw_2024}@db:5432/spiketrades
     volumes:
       - council_data:/app/data
       - ./spiketrades-sa.json:/app/credentials/spiketrades-sa.json:ro
