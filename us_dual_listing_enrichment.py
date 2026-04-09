@@ -75,34 +75,14 @@ async def fetch_us_13f_institutional(
     fetcher,  # LiveDataFetcher
     us_ticker: str,
 ) -> Optional[float]:
-    """Tier 2: Fetch US 13F institutional ownership pct for a dual-listed ticker.
+    """Tier 2: US 13F institutional ownership for a dual-listed ticker.
 
-    Returns fraction 0.0-1.0, or None. Non-blocking.
-
-    Uses the same endpoint as Sibling A's fetch_institutional_ownership,
-    just with the US ticker instead of the TSX ticker.
+    DISABLED 2026-04-09 — same root cause as Sibling A's
+    fetch_institutional_ownership: FMP deprecated /api/v4/institutional-ownership
+    on 2025-08-31. Returns None unconditionally pending /stable/ replacement
+    investigation or EODHD source switch (v6.1 follow-up).
     """
-    try:
-        session = await fetcher._get_session()
-        url = "https://financialmodelingprep.com/api/v4/institutional-ownership/symbol-ownership"
-        params = {
-            "symbol": us_ticker,
-            "includeCurrentQuarter": "false",
-            "apikey": fetcher.fmp_key,
-        }
-        async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-            if resp.status != 200:
-                return None
-            data = await resp.json()
-            if not data or not isinstance(data, list) or len(data) == 0:
-                return None
-            latest = data[0]
-            pct = latest.get("ownershipPercent")
-            if pct is None:
-                return None
-            return min(max(float(pct) / 100.0, 0.0), 1.0)
-    except Exception:
-        return None
+    return None
 
 
 async def fetch_us_analyst_consensus(

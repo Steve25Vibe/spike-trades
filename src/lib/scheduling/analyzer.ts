@@ -301,7 +301,26 @@ export async function runDailyAnalysis(useCached = false, trigger = 'scheduled')
     });
 
     // Step 4: Send email summary
-    console.log('[Analyzer] Sending email summary...');
+    // Degraded-run gate (2026-04-09): if any LLM stage was skipped due to timeout
+    // or error, the pipeline ran with reduced quality (e.g. 2 of 4 stages instead
+    // of 4 of 4). In that case we suppress the user-facing email entirely and
+    // only notify the admin address with a ⚠️ prefix, so users never receive
+    // degraded picks as if they were normal.
+    const councilLogMeta = councilLog as Record<string, unknown>;
+    const degradedRun = councilLogMeta?.degradedRun === true;
+    const skippedStages = Array.isArray(councilLogMeta?.skippedStages)
+      ? (councilLogMeta.skippedStages as unknown[])
+      : [];
+
+    if (degradedRun) {
+      console.warn(
+        `[Analyzer] DEGRADED RUN detected (${skippedStages.length} stage(s) skipped): ` +
+          JSON.stringify(skippedStages) +
+          ' — suppressing user email, notifying admin only.'
+      );
+    } else {
+      console.log('[Analyzer] Sending email summary...');
+    }
 
     // Try to send the rich HTML email from the Python renderer first
     let emailSent = false;
@@ -340,19 +359,40 @@ export async function runDailyAnalysis(useCached = false, trigger = 'scheduled')
       });
       if (emailResponse.ok) {
         const html = await emailResponse.text();
-        // Send council email to all opted-in users
-        const councilRecipients = await prisma.user.findMany({
-          where: { emailDailySpikes: true },
-          select: { email: true },
-        });
-        for (const recipient of councilRecipients) {
+
+        if (degradedRun) {
+          // Admin-only email with degraded prefix. Users get nothing today.
+          const adminAddress = process.env.EMAIL_TO || 'steve@boomerang.energy';
+          const degradedHtml =
+            `<div style="background:#fff3cd;border:1px solid #ffb800;padding:12px;margin-bottom:16px;border-radius:8px;">` +
+            `<strong>⚠️ DEGRADED RUN — DO NOT DISTRIBUTE</strong><br/>` +
+            `${skippedStages.length} of 4 council stages were skipped due to timeout or error. ` +
+            `Picks shown below were generated with reduced quality. ` +
+            `Skipped: ${JSON.stringify(skippedStages)}` +
+            `</div>` + html;
           await sendCouncilEmail({
-            to: recipient.email,
+            to: adminAddress,
             date: reportData.date,
-            html,
-            topTicker: spikes[0]?.ticker || 'N/A',
+            html: degradedHtml,
+            topTicker: `⚠️ DEGRADED: ${spikes[0]?.ticker || 'N/A'}`,
             topScore: spikes[0]?.spikeScore || 0,
           });
+          console.warn(`[Analyzer] Degraded-run admin notification sent to ${adminAddress}`);
+        } else {
+          // Normal user-facing email loop
+          const councilRecipients = await prisma.user.findMany({
+            where: { emailDailySpikes: true },
+            select: { email: true },
+          });
+          for (const recipient of councilRecipients) {
+            await sendCouncilEmail({
+              to: recipient.email,
+              date: reportData.date,
+              html,
+              topTicker: spikes[0]?.ticker || 'N/A',
+              topScore: spikes[0]?.spikeScore || 0,
+            });
+          }
         }
         emailSent = true;
       }
@@ -361,30 +401,53 @@ export async function runDailyAnalysis(useCached = false, trigger = 'scheduled')
     }
 
     // Fallback: send simple daily summary
+    // Degraded-run gate applies here too — suppress user emails and notify admin only.
     if (!emailSent) {
-      // Send daily summary to all opted-in users
-      const summaryRecipients = await prisma.user.findMany({
-        where: { emailDailySpikes: true },
-        select: { email: true },
-      });
-      for (const recipient of summaryRecipients) {
+      if (degradedRun) {
+        const adminAddress = process.env.EMAIL_TO || 'steve@boomerang.energy';
         await sendDailySummary({
-          to: recipient.email,
+          to: adminAddress,
           date: today,
           topSpikes: spikes.map((s) => ({
             rank: s.rank,
-            ticker: s.ticker,
+            ticker: `⚠️ DEGRADED: ${s.ticker}`,
             name: s.name,
             spikeScore: s.spikeScore,
             predicted3Day: s.predicted3Day,
             predicted5Day: s.predicted5Day,
             predicted8Day: s.predicted8Day,
-            narrative: s.narrative || '',
+            narrative: `[DEGRADED RUN — ${skippedStages.length} stages skipped] ${s.narrative || ''}`,
           })),
           marketRegime: reportData.marketRegime,
           tsxLevel: reportData.tsxLevel,
           tsxChange: reportData.tsxChange,
         });
+        console.warn(`[Analyzer] Degraded-run fallback admin notification sent to ${adminAddress}`);
+      } else {
+        // Normal fallback: send simple daily summary to all opted-in users
+        const summaryRecipients = await prisma.user.findMany({
+          where: { emailDailySpikes: true },
+          select: { email: true },
+        });
+        for (const recipient of summaryRecipients) {
+          await sendDailySummary({
+            to: recipient.email,
+            date: today,
+            topSpikes: spikes.map((s) => ({
+              rank: s.rank,
+              ticker: s.ticker,
+              name: s.name,
+              spikeScore: s.spikeScore,
+              predicted3Day: s.predicted3Day,
+              predicted5Day: s.predicted5Day,
+              predicted8Day: s.predicted8Day,
+              narrative: s.narrative || '',
+            })),
+            marketRegime: reportData.marketRegime,
+            tsxLevel: reportData.tsxLevel,
+            tsxChange: reportData.tsxChange,
+          });
+        }
       }
     }
 

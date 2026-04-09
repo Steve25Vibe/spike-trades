@@ -319,6 +319,7 @@ def _map_to_prisma(council_output: dict) -> dict:
 
     # Build council log
     stage_meta = council_output.get("stage_metadata", {})
+    skipped_stages = council_output.get("skipped_stages", []) or []
     council_log = {
         "claudeAnalysis": {
             "sonnet": {"count": stage_meta.get("stage1_count", 0)},
@@ -337,6 +338,11 @@ def _map_to_prisma(council_output: dict) -> dict:
         "processingTime": int(council_output.get("total_runtime_seconds", 0) * 1000),
         "universeSize": council_output.get("universe_size", 0),
         "tickersScreened": council_output.get("tickers_screened", 0),
+        # Degraded-run metadata (2026-04-09 hotfix). If any stage was skipped due
+        # to timeout/error, downstream email dispatch suppresses the user-facing
+        # email and only notifies the admin. See src/lib/scheduling/analyzer.ts.
+        "skippedStages": skipped_stages,
+        "degradedRun": len(skipped_stages) > 0,
     }
 
     return {

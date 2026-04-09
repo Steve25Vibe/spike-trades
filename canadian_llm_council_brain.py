@@ -61,6 +61,12 @@ import fmp_bulk_cache
 logger = logging.getLogger("spike_trades.council")
 
 
+# Seconds to sleep between LLM stage batches. Shared across all stages (1, 2, 3).
+# Moved to module scope 2026-04-09 to fix NameError in Stage 3 after the
+# Sibling B refactor scoped it inside _run_stage1_async().
+INTER_BATCH_DELAY = 3
+
+
 def _read_council_config_min_adv(default: int = 5_000_000) -> int:
     """
     Read the configured minimum ADV threshold from the CouncilConfig Prisma table.
@@ -1007,37 +1013,17 @@ async def fetch_institutional_ownership(
     fetcher: "LiveDataFetcher", ticker: str
 ) -> Optional[float]:
     """
-    Fetch institutional ownership percentage for a ticker from FMP.
-    Returns the fraction of shares held by institutions (0.0-1.0), or None.
-    Non-blocking: returns None on any error rather than raising.
+    DISABLED 2026-04-09 — FMP deprecated /api/v4/institutional-ownership/symbol-ownership
+    on 2025-08-31 ("Legacy Endpoint" 403). A short probe of candidate /stable/
+    replacement paths (/institutional-ownership-latest, /institutional-ownership-list,
+    /symbol-ownership, /institutional-holders, /institutional-stock-ownership,
+    /institutional-ownership, /institutional-ownership-extract) all returned HTTP 404.
 
-    Uses the /api/v4/institutional-ownership/symbol-ownership endpoint, which is
-    NOT available via fetcher._fmp_get() (that method is hardcoded to FMP_BASE
-    which points at /stable/). This function makes a direct call using the
-    fetcher's shared session and API key.
+    Returns None unconditionally so the consensus path sees no institutional signal.
+    Tracked as a v6.1 follow-up: either find the current FMP endpoint on Ultimate
+    tier, or switch source to EODHD institutional data.
     """
-    try:
-        session = await fetcher._get_session()
-        url = "https://financialmodelingprep.com/api/v4/institutional-ownership/symbol-ownership"
-        params = {
-            "symbol": ticker,
-            "includeCurrentQuarter": "false",
-            "apikey": fetcher.fmp_key,
-        }
-        async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-            if resp.status != 200:
-                return None
-            data = await resp.json()
-            if not data or not isinstance(data, list) or len(data) == 0:
-                return None
-            latest = data[0]
-            pct = latest.get("ownershipPercent")
-            if pct is None:
-                return None
-            # FMP returns as a percentage (e.g. 45.7 for 45.7%); normalize to [0,1]
-            return min(max(float(pct) / 100.0, 0.0), 1.0)
-    except Exception:
-        return None
+    return None
 
 
 async def fetch_enhanced_signals_batch(
@@ -4720,7 +4706,8 @@ class CanadianStockCouncilBrain:
             logger.info(
                 f"Step 4f: Signals attached — "
                 f"{len(earnings_map)} earnings, {len(insider_map)} insider, "
-                f"{len(analyst_map)} analyst, {len(institutional_map)} institutional, "
+                f"{len(analyst_map)} analyst, "
+                f"institutional disabled (FMP v4 deprecated 2025-08-31), "
                 f"{len(rel_strength_map)} sector-rel"
             )
 
@@ -4769,30 +4756,43 @@ class CanadianStockCouncilBrain:
             # Index payloads by ticker for later lookup
             payloads_map = {p.ticker: p for p in payloads_list}
 
-            # ── Step 5: Stage 1 — Sonnet ──
+            # ── Step 5+6: LLM stages run STRICTLY SEQUENTIALLY (Sonnet → Gemini → Opus → Grok) ──
+            # Each stage has its own wall-clock timeout via asyncio.wait_for.
+            # Partial results are preserved in function-scope accumulators if a timeout fires.
+            # Upstream data fetches (Step 4d/4e/4f/4g, including EODHD news/fundamentals
+            # and Sibling B's cross-compare + dual-listing) remain parallel via gather.
             stage1_tokens = {"model": "skipped", "input_tokens": 0, "output_tokens": 0}
             stage2_tokens = {"model": "skipped", "input_tokens": 0, "output_tokens": 0}
             stage3_tokens = {"model": "skipped", "input_tokens": 0, "output_tokens": 0}
             stage4_tokens = {"model": "skipped", "input_tokens": 0, "output_tokens": 0}
-            STAGE_WALL_CLOCK_TIMEOUT = 600  # 10 minutes max per stage
-            # ── Steps 5+6: Stages 1 (Sonnet) + 2 (Gemini) — PARALLEL via asyncio.wait ──
-            logger.info(f"Steps 5+6: Stages 1 (Sonnet) + 2 (Gemini) PARALLEL — {len(payloads_list)} tickers each")
 
-            # Stage 1 wrapper coroutine — captures stage1_tokens via closure
-            async def _run_stage1_async() -> tuple[list[dict], dict]:
-                """Run Stage 1 (Sonnet) batched or non-batched, return (results, tokens)."""
+            # Per-stage wall-clock budgets (seconds). Total headroom: ~55 min vs 60 min cron cap.
+            STAGE1_TIMEOUT = 1200  # 20 min — Sonnet, ~14-17 min typical across 10 batches of 15
+            STAGE2_TIMEOUT = 600   # 10 min — Gemini, ~5-6 min typical across 10 batches
+            STAGE3_TIMEOUT = 900   # 15 min — Opus, ~8-9 min typical across 3 batches of 20
+            STAGE4_TIMEOUT = 600   # 10 min — Grok, ~1-3 min typical (single call)
+
+            BATCH_SIZE = 15
+            skipped_stages: list[dict] = []
+
+            # ── Step 5: Stage 1 — Sonnet (sequential, batched) ──
+            logger.info(f"Step 5: Stage 1 (Sonnet) — {len(payloads_list)} tickers")
+            _stage1_batch_count = (len(payloads_list) + BATCH_SIZE - 1) // BATCH_SIZE
+            if tracker:
+                tracker.start_stage("stage1_sonnet", batches_total=_stage1_batch_count)
+
+            stage1_all: list[dict] = []  # Function-scope — preserved on timeout
+            stage1_results: list[dict] = []
+
+            async def _run_stage1_batched() -> None:
+                """Run Stage 1 (Sonnet) in batches. Mutates stage1_all + stage1_tokens via closure."""
                 nonlocal stage1_tokens
-                BATCH_SIZE = 15
-                INTER_BATCH_DELAY = 3  # seconds between batches
                 if len(payloads_list) > BATCH_SIZE:
-                    stage1_all = []
-                    n_batches = (len(payloads_list) + BATCH_SIZE - 1) // BATCH_SIZE
                     for i in range(0, len(payloads_list), BATCH_SIZE):
-                        # No per-stage wall-clock check — the gather-level wait handles timeout
                         batch = payloads_list[i:i + BATCH_SIZE]
                         batch_num = i // BATCH_SIZE + 1
                         logger.info(
-                            f"Stage 1 batch {batch_num}/{n_batches}: "
+                            f"Stage 1 batch {batch_num}/{_stage1_batch_count}: "
                             f"tickers {i+1}-{min(i+BATCH_SIZE, len(payloads_list))}"
                         )
                         try:
@@ -4810,148 +4810,101 @@ class CanadianStockCouncilBrain:
                             logger.warning(f"Stage 1 batch {batch_num} failed: {batch_e}")
                         if i + BATCH_SIZE < len(payloads_list):
                             await asyncio.sleep(INTER_BATCH_DELAY)
-                    sorted_results = sorted(
-                        stage1_all, key=lambda x: x["score"]["total"], reverse=True
-                    )
-                    return sorted_results[:100], stage1_tokens
                 else:
                     s1_results, s1_tokens = await run_stage1_sonnet(
                         self.anthropic_key, payloads_list, macro,
                         learning_engine=self.learning_engine,
                     )
-                    return s1_results[:100], s1_tokens
+                    stage1_all.extend(s1_results)
+                    stage1_tokens.update(s1_tokens)
 
-            # Stage 2 wrapper coroutine — Gemini sees the FULL payloads_list, not Stage 1 output
-            async def _run_stage2_async() -> tuple[list[dict], dict]:
-                """Run Stage 2 (Gemini) batched against the FULL liquid universe."""
+            try:
+                await asyncio.wait_for(_run_stage1_batched(), timeout=STAGE1_TIMEOUT)
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"Stage 1 (Sonnet) wall-clock timeout ({STAGE1_TIMEOUT}s) — "
+                    f"recovering {len(stage1_all)} partial batch results"
+                )
+            except Exception as e:
+                logger.error(f"Stage 1 (Sonnet) FAILED: {e}")
+
+            stage1_results = sorted(stage1_all, key=lambda x: x["score"]["total"], reverse=True)[:100]
+
+            if stage1_results:
+                if tracker:
+                    tracker.complete_stage("stage1_sonnet", picks=len(stage1_results))
+                logger.info(f"Step 5: Stage 1 produced {len(stage1_results)} results")
+            else:
+                skipped_stages.append({"stage": 1, "model": "sonnet", "error": f"no results (timeout or failure)"})
+                if tracker:
+                    tracker.skip_stage("stage1_sonnet", reason="no results (timeout or failure)")
+                logger.warning("Step 5: Stage 1 produced 0 results")
+
+            # ── Step 6: Stage 2 — Gemini (sequential after Stage 1, scores full universe independently) ──
+            logger.info(f"Step 6: Stage 2 (Gemini) — {len(payloads_list)} tickers (full universe, independent)")
+            _stage2_batch_count = (len(payloads_list) + BATCH_SIZE - 1) // BATCH_SIZE
+            if tracker:
+                tracker.start_stage("stage2_gemini", batches_total=_stage2_batch_count)
+
+            stage2_all: list[dict] = []  # Function-scope — preserved on timeout
+            stage2_results: list[dict] = []
+            stage2_skipped = False
+
+            async def _run_stage2_batched() -> None:
+                """Run Stage 2 (Gemini) in batches against full universe. Mutates stage2_all + stage2_tokens."""
                 nonlocal stage2_tokens
-                GEMINI_BATCH_SIZE = 15
-                if len(payloads_list) > GEMINI_BATCH_SIZE:
-                    # Chunk payloads_list directly — Gemini sees the full universe
-                    payloads_batched = [
-                        payloads_list[i:i + GEMINI_BATCH_SIZE]
-                        for i in range(0, len(payloads_list), GEMINI_BATCH_SIZE)
-                    ]
-                    GEMINI_CONCURRENCY = 2
-                    gemini_sem = asyncio.Semaphore(GEMINI_CONCURRENCY)
-
-                    async def _run_gemini_batch(batch_idx: int, batch_payloads: list) -> tuple[list[dict], dict]:
-                        async with gemini_sem:
-                            logger.info(f"Stage 2 batch {batch_idx + 1}/{len(payloads_batched)}: {len(batch_payloads)} tickers")
-                            result, batch_tokens = await run_stage2_gemini(
-                                batch_payloads, macro,
+                if len(payloads_list) > BATCH_SIZE:
+                    for i in range(0, len(payloads_list), BATCH_SIZE):
+                        batch = payloads_list[i:i + BATCH_SIZE]
+                        batch_num = i // BATCH_SIZE + 1
+                        logger.info(
+                            f"Stage 2 batch {batch_num}/{_stage2_batch_count}: "
+                            f"tickers {i+1}-{min(i+BATCH_SIZE, len(payloads_list))}"
+                        )
+                        try:
+                            batch_results, batch_tokens = await run_stage2_gemini(
+                                batch, macro,
                                 learning_engine=self.learning_engine,
                             )
+                            stage2_tokens["model"] = batch_tokens["model"]
+                            stage2_tokens["input_tokens"] += batch_tokens["input_tokens"]
+                            stage2_tokens["output_tokens"] += batch_tokens["output_tokens"]
+                            stage2_all.extend(batch_results)
                             if tracker:
-                                tracker.update_batch("stage2_gemini", batch_idx + 1)
-                            return result, batch_tokens
-
-                    batch_tasks = [
-                        _run_gemini_batch(idx, batch)
-                        for idx, batch in enumerate(payloads_batched)
-                    ]
-                    batch_results_list = await asyncio.gather(*batch_tasks, return_exceptions=True)
-
-                    all_results = []
-                    for idx, br in enumerate(batch_results_list):
-                        if isinstance(br, Exception):
-                            logger.warning(f"Stage 2 batch {idx + 1} failed: {br}")
-                        else:
-                            results, batch_tok = br
-                            all_results.extend(results)
-                            stage2_tokens["model"] = batch_tok["model"]
-                            stage2_tokens["input_tokens"] += batch_tok["input_tokens"]
-                            stage2_tokens["output_tokens"] += batch_tok["output_tokens"]
-                    return sorted(all_results, key=lambda x: x["score"]["total"], reverse=True)[:60], stage2_tokens
+                                tracker.update_batch("stage2_gemini", batch_num)
+                        except Exception as batch_e:
+                            logger.warning(f"Stage 2 batch {batch_num} failed: {batch_e}")
+                        if i + BATCH_SIZE < len(payloads_list):
+                            await asyncio.sleep(INTER_BATCH_DELAY)
                 else:
                     r, s2_tokens = await run_stage2_gemini(
                         payloads_list, macro,
                         learning_engine=self.learning_engine,
                     )
-                    return r[:60], s2_tokens
+                    stage2_all.extend(r)
+                    stage2_tokens.update(s2_tokens)
 
-            # Tracker setup BEFORE the gather (both stages start at the same time)
-            _stage1_batch_count = (len(payloads_list) + 15 - 1) // 15
-            _stage2_batch_count = (len(payloads_list) + 15 - 1) // 15
-            if tracker:
-                tracker.start_stage("stage1_sonnet", batches_total=_stage1_batch_count)
-                tracker.start_stage("stage2_gemini", batches_total=_stage2_batch_count)
-
-            # Run both stages in parallel under a shared 600s wall-clock cap
-            PARALLEL_WALL_CLOCK = 600.0
-            stage1_results = []
-            stage2_results = []
-            stage2_skipped = False
-            skipped_stages: list[dict] = []
-
-            stage1_task = asyncio.create_task(_run_stage1_async())
-            stage2_task = asyncio.create_task(_run_stage2_async())
             try:
-                done, pending = await asyncio.wait(
-                    {stage1_task, stage2_task},
-                    timeout=PARALLEL_WALL_CLOCK,
-                    return_when=asyncio.ALL_COMPLETED,
+                await asyncio.wait_for(_run_stage2_batched(), timeout=STAGE2_TIMEOUT)
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"Stage 2 (Gemini) wall-clock timeout ({STAGE2_TIMEOUT}s) — "
+                    f"recovering {len(stage2_all)} partial batch results"
                 )
-                if pending:
-                    # Timeout fired with at least one stage still running — cancel pending and log
-                    for t in pending:
-                        t.cancel()
-                    logger.warning(
-                        f"Stages 1+2 wall-clock timeout ({PARALLEL_WALL_CLOCK}s) — "
-                        f"cancelled {len(pending)} pending stage(s), proceeding with whatever completed"
-                    )
-                # Collect results from whichever tasks completed (or raised)
-                if stage1_task in done:
-                    try:
-                        stage1_results, stage1_tokens = stage1_task.result()
-                    except Exception as e:
-                        logger.error(f"Stage 1 (Sonnet) FAILED: {e}")
-                        stage1_results = []
-                        skipped_stages.append({"stage": 1, "model": "sonnet", "error": str(e)})
-                        if tracker:
-                            tracker.skip_stage("stage1_sonnet", reason=str(e))
-                else:
-                    logger.warning("Stage 1 (Sonnet) cancelled by wall-clock timeout — no results")
-                    stage1_results = []
-                    skipped_stages.append({"stage": 1, "model": "sonnet", "error": f"wall-clock timeout ({PARALLEL_WALL_CLOCK}s)"})
-                    if tracker:
-                        tracker.skip_stage("stage1_sonnet", reason=f"wall-clock timeout ({PARALLEL_WALL_CLOCK}s)")
-
-                if stage2_task in done:
-                    try:
-                        stage2_results, stage2_tokens = stage2_task.result()
-                    except Exception as e:
-                        logger.error(f"Stage 2 (Gemini) FAILED: {e}")
-                        stage2_results = []
-                        stage2_skipped = True
-                        skipped_stages.append({"stage": 2, "model": "gemini", "error": str(e)})
-                        if tracker:
-                            tracker.skip_stage("stage2_gemini", reason=str(e))
-                else:
-                    logger.warning("Stage 2 (Gemini) cancelled by wall-clock timeout — no results")
-                    stage2_results = []
-                    stage2_skipped = True
-                    skipped_stages.append({"stage": 2, "model": "gemini", "error": f"wall-clock timeout ({PARALLEL_WALL_CLOCK}s)"})
-                    if tracker:
-                        tracker.skip_stage("stage2_gemini", reason=f"wall-clock timeout ({PARALLEL_WALL_CLOCK}s)")
             except Exception as e:
-                logger.error(f"Stages 1+2 parallel dispatch FAILED: {e}")
-                stage1_results = []
-                stage2_results = []
+                logger.error(f"Stage 2 (Gemini) FAILED: {e}")
+                stage2_skipped = True
+                skipped_stages.append({"stage": 2, "model": "gemini", "error": str(e)})
+                if tracker:
+                    tracker.skip_stage("stage2_gemini", reason=str(e))
 
-            # Relax the old Stage 1 hard guard: only raise if BOTH stages produced nothing
+            stage2_results = sorted(stage2_all, key=lambda x: x["score"]["total"], reverse=True)[:60]
+
+            # Hard guard: both stages must produce SOMETHING between them
             if not stage1_results and not stage2_results:
                 raise RuntimeError("Both Stage 1 and Stage 2 produced no results — no scoring data available")
 
-            if tracker:
-                if stage1_results:
-                    tracker.complete_stage("stage1_sonnet", picks=len(stage1_results))
-                if stage2_results and not stage2_skipped:
-                    tracker.complete_stage("stage2_gemini", picks=len(stage2_results))
-            logger.info(f"Step 5: Stage 1 produced {len(stage1_results)} results")
-            logger.info(f"Step 6: Stage 2 produced {len(stage2_results)} results (skipped={stage2_skipped})")
-
-            # Stage 2 fallback: if Stage 2 returned empty BUT Stage 1 succeeded, fall through Stage 1 results
+            # Stage 2 empty-fallback: pass Stage 1 results through if Gemini failed but Sonnet succeeded
             if stage2_skipped or not stage2_results:
                 if not stage2_skipped:
                     logger.warning("Stage 2 (Gemini) returned 0 results — passing Stage 1 results through")
@@ -4960,6 +4913,10 @@ class CanadianStockCouncilBrain:
                         tracker.skip_stage("stage2_gemini", reason="empty results")
                 stage2_results = stage1_results[:60]
                 logger.info(f"Step 6: Stage 2 SKIPPED — passing through {len(stage2_results)} Stage 1 results")
+            else:
+                if tracker:
+                    tracker.complete_stage("stage2_gemini", picks=len(stage2_results))
+                logger.info(f"Step 6: Stage 2 produced {len(stage2_results)} results")
 
             # ── Step 7: Stage 3 — Opus (skippable) ──
             logger.info(f"Step 7: Stage 3 (Opus) — {len(stage2_results)} tickers")
@@ -4980,8 +4937,8 @@ class CanadianStockCouncilBrain:
                     stage3_all = []
                     for batch_idx, s2_batch in enumerate(s2_tickers_batched):
                         elapsed_stage = asyncio.get_event_loop().time() - stage3_start
-                        if elapsed_stage > STAGE_WALL_CLOCK_TIMEOUT:
-                            logger.warning(f"Stage 3 wall-clock timeout ({STAGE_WALL_CLOCK_TIMEOUT}s) — aborting remaining batches ({len(stage3_all)} results so far)")
+                        if elapsed_stage > STAGE3_TIMEOUT:
+                            logger.warning(f"Stage 3 wall-clock timeout ({STAGE3_TIMEOUT}s) — aborting remaining batches ({len(stage3_all)} results so far)")
                             break
                         batch_tickers = {r["ticker"] for r in s2_batch}
                         batch_payloads = [p for p in payloads_list if p.ticker in batch_tickers]
@@ -5047,15 +5004,15 @@ class CanadianStockCouncilBrain:
                         stage1_results, stage2_results, stage3_results,
                         learning_engine=self.learning_engine,
                     ),
-                    timeout=STAGE_WALL_CLOCK_TIMEOUT,
+                    timeout=STAGE4_TIMEOUT,
                 )
                 stage4_results = stage4_raw[:20]
             except asyncio.TimeoutError:
-                logger.error(f"Stage 4 (Grok) wall-clock timeout ({STAGE_WALL_CLOCK_TIMEOUT}s) — skipping")
+                logger.error(f"Stage 4 (Grok) wall-clock timeout ({STAGE4_TIMEOUT}s) — skipping")
                 stage4_skipped = True
-                skipped_stages.append({"stage": 4, "model": "grok", "error": f"wall-clock timeout ({STAGE_WALL_CLOCK_TIMEOUT}s)"})
+                skipped_stages.append({"stage": 4, "model": "grok", "error": f"wall-clock timeout ({STAGE4_TIMEOUT}s)"})
                 if tracker:
-                    tracker.skip_stage("stage4_grok", reason=f"wall-clock timeout ({STAGE_WALL_CLOCK_TIMEOUT}s)")
+                    tracker.skip_stage("stage4_grok", reason=f"wall-clock timeout ({STAGE4_TIMEOUT}s)")
             except Exception as e:
                 logger.error(f"Stage 4 (Grok) FAILED — skipping: {e}")
                 stage4_skipped = True
