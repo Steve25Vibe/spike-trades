@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from typing import Optional, Any
+from typing import Optional
 
 import aiohttp
 

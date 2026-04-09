@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Optional, Any
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -47,9 +47,11 @@ def cross_compare(
     """
     flags = DataQualityFlags(ticker=ticker)
 
-    # Ghost stock detection
-    fmp_has_data = fmp_data is not None and bool(fmp_data)
-    eodhd_has_data = eodhd_data is not None and bool(eodhd_data)
+    # Ghost stock detection — require dict type AND non-empty content.
+    # isinstance() guards against accidentally treating lists/strings as valid
+    # data dicts; bool() rejects empty dicts.
+    fmp_has_data = isinstance(fmp_data, dict) and bool(fmp_data)
+    eodhd_has_data = isinstance(eodhd_data, dict) and bool(eodhd_data)
 
     if not fmp_has_data and not eodhd_has_data:
         flags.ghost_stock = True

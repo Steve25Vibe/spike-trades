@@ -4,6 +4,13 @@ For Canadian TSX tickers that are also listed on NYSE/NASDAQ/NYSE American,
 these functions fetch US-market data that's richer than the Canadian equivalents.
 
 Used by Sibling B. Lookup happens via dual_listing_map.json.
+
+Note on `fetcher._get_session()`: the underscore prefix is a Python convention
+for "not part of the public API" but `LiveDataFetcher` has no public session
+accessor — the private method is the only way to obtain the shared session
+without duplicating connection setup. This is intentional in the existing
+codebase (fetch_insider_trades, fetch_analyst_consensus, fetch_institutional_ownership
+all use the same pattern) and should not be "fixed" by adding a wrapper.
 """
 
 from __future__ import annotations
@@ -11,7 +18,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Optional, Any
+from typing import Optional
 
 import aiohttp
 
@@ -108,7 +115,7 @@ async def fetch_us_analyst_consensus(
     """
     try:
         session = await fetcher._get_session()
-        url = f"https://financialmodelingprep.com/stable/grades"
+        url = "https://financialmodelingprep.com/stable/grades"
         params = {"symbol": us_ticker, "apikey": fetcher.fmp_key}
         async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as resp:
             if resp.status != 200:
