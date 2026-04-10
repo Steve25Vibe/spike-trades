@@ -4,6 +4,7 @@
 // Calls Python Council Brain via FastAPI, then saves results to Prisma
 // ============================================
 
+import { Prisma } from '@prisma/client';
 import prisma from '@/lib/db/prisma';
 import { sendDailySummary, sendCouncilEmail } from '@/lib/email/resend';
 
@@ -193,8 +194,10 @@ export async function runDailyAnalysis(useCached = false, trigger = 'scheduled')
     const reportDate = new Date(year, month - 1, day);
 
     // Check if a report already exists for this date
+    // v6.1.0: the unique constraint widened to (date, scanType). The legacy
+    // morning path implicitly uses scanType='MORNING'.
     const existingReport = await prisma.dailyReport.findUnique({
-      where: { date: reportDate },
+      where: { date_scanType: { date: reportDate, scanType: 'MORNING' } },
       select: { id: true },
     });
 
@@ -266,10 +269,12 @@ export async function runDailyAnalysis(useCached = false, trigger = 'scheduled')
       learningAdjustments: spike.learningAdjustments,
     }));
 
+    // v6.1.0: include scanType='MORNING' for the legacy morning path
     const report = await prisma.dailyReport.upsert({
-      where: { date: reportDate },
+      where: { date_scanType: { date: reportDate, scanType: 'MORNING' } },
       create: {
         date: reportDate,
+        scanType: 'MORNING',
         ...reportFields,
         spikes: { create: spikeData },
       },
@@ -458,5 +463,288 @@ export async function runDailyAnalysis(useCached = false, trigger = 'scheduled')
   } catch (error) {
     console.error('[Analyzer] Fatal error:', error);
     return { success: false, spikesGenerated: 0, error: String(error) };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// v6.1.0 Phase 1 — Evening Scan
+// Runs the full 4-stage council on clean end-of-day data and writes the
+// results into the EveningScanArchive (immutable snapshot) + DailyReport +
+// Spike tables tagged with scanType='EVENING'.
+//
+// Does NOT send email in Phase 1. Email path ships in Phase 2.
+// ═══════════════════════════════════════════════════════════════════════════
+
+export async function runEveningScan(): Promise<{
+  success: boolean;
+  picksGenerated: number;
+  archiveId?: string;
+  deliveredReportId?: string;
+  scanDate?: string;
+  error?: string;
+}> {
+  const startTime = Date.now();
+
+  // The evening scan generates picks FOR tomorrow's trading day. Compute
+  // tomorrow's date in America/Halifax timezone (matching the morning cron's
+  // existing convention).
+  const todayHalifax = new Date().toLocaleDateString('en-CA', {
+    timeZone: 'America/Halifax',
+  });
+  const [year, month, day] = todayHalifax.split('-').map(Number);
+  const tomorrow = new Date(year, month - 1, day + 1); // local-time arithmetic OK for date math
+  const tomorrowStr = tomorrow.toLocaleDateString('en-CA');
+
+  console.log(
+    `[EveningScan] ====== Starting evening scan for trading day ${tomorrowStr} ======`
+  );
+
+  try {
+    // ── Step 1: Call the Python Council Brain via FastAPI ──
+    // Uses the same /run-council-mapped endpoint that runDailyAnalysis uses.
+    // Same 4-stage council pipeline. Same output shape.
+    console.log('[EveningScan] Calling Python Council Brain...');
+    const http = await import('http');
+    const councilResponse: Response = await new Promise<Response>((resolve, reject) => {
+      const url = new URL(`${COUNCIL_API_URL}/run-council-mapped?trigger=evening`);
+      const req = http.request(
+        {
+          hostname: url.hostname,
+          port: url.port,
+          path: url.pathname + url.search,
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 3_600_000, // 1 hour socket timeout
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (chunk: Buffer) => chunks.push(chunk));
+          res.on('end', () => {
+            const body = Buffer.concat(chunks).toString();
+            resolve(
+              new Response(body, {
+                status: res.statusCode || 500,
+                headers: res.headers as Record<string, string>,
+              })
+            );
+          });
+          res.on('error', reject);
+        }
+      );
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('Council request timed out after 1 hour'));
+      });
+      req.on('error', reject);
+      req.write(JSON.stringify({}));
+      req.end();
+    });
+
+    if (!councilResponse.ok) {
+      const errText = await councilResponse.text();
+      throw new Error(`Council API returned ${councilResponse.status}: ${errText}`);
+    }
+
+    const mapped: CouncilMappedResponse = await councilResponse.json();
+    const { dailyReport: reportData, spikes, councilLog } = mapped;
+
+    console.log(
+      `[EveningScan] Council returned ${spikes.length} picks. Regime: ${reportData.marketRegime}`
+    );
+
+    // ── Step 2: Write the EveningScanArchive row FIRST ──
+    // Critical invariant: archive write happens BEFORE operational writes.
+    // If operational writes fail later, we still have the immutable record.
+    // If the archive write fails, the whole scan aborts (no operational state
+    // exists without a corresponding archive entry).
+    console.log('[EveningScan] Writing EveningScanArchive row...');
+    const archiveScanDate = new Date(tomorrow);
+    const scanGeneratedAt = new Date();
+
+    // The council output's "regime" is in the rawCouncilOutput; the mapped
+    // marketRegime field is the prisma-friendly translation. Use the original
+    // RAW regime for the archive so it's auditable.
+    const rawCouncil = mapped.rawCouncilOutput as Record<string, unknown>;
+    const rawRegime =
+      (rawCouncil?.regime as string | undefined) ||
+      reportData.marketRegime ||
+      'NEUTRAL';
+
+    const archiveRow = await prisma.eveningScanArchive.create({
+      data: {
+        scanDate: archiveScanDate,
+        scanGeneratedAt,
+        runId: ((rawCouncil?.run_id as string) || 'unknown'),
+        regime: rawRegime,
+        macroContextJson: ((rawCouncil?.macro_context as object) || {}),
+        universeSize: ((rawCouncil?.universe_size as number) || 0),
+        tickersScreened: ((rawCouncil?.tickers_screened as number) || 0),
+        skippedStagesJson: ((rawCouncil?.skipped_stages as object) || []),
+        topPicksJson: spikes as unknown as object,
+        councilLogJson: councilLog as object,
+        riskSummaryJson: (mapped.riskSummary || {}) as object,
+        dailyRoadmapJson: (mapped.dailyRoadmap || {}) as object,
+        rawCouncilOutputJson: mapped.rawCouncilOutput
+          ? (mapped.rawCouncilOutput as object)
+          : Prisma.JsonNull,
+      },
+    });
+    console.log(`[EveningScan] Archive row created: ${archiveRow.id}`);
+
+    // ── Step 3: Write the operational DailyReport + Spike rows ──
+    // These are what the user-facing /api/spikes?scanType=EVENING will return.
+    // Use upsert to handle re-runs cleanly (delete existing PortfolioEntry refs,
+    // then existing Spike rows, then upsert the report with fresh spikes).
+    console.log('[EveningScan] Writing operational DailyReport + Spike rows...');
+
+    const existingReport = await prisma.dailyReport.findUnique({
+      where: { date_scanType: { date: archiveScanDate, scanType: 'EVENING' } },
+      select: { id: true },
+    });
+
+    if (existingReport) {
+      console.log(
+        `[EveningScan] Existing EVENING report for ${tomorrowStr} found, replacing spikes...`
+      );
+      await prisma.portfolioEntry.deleteMany({
+        where: { spike: { reportId: existingReport.id } },
+      });
+      await prisma.spike.deleteMany({
+        where: { reportId: existingReport.id },
+      });
+    }
+
+    const reportFields = {
+      scanType: 'EVENING' as const,
+      marketRegime: reportData.marketRegime,
+      tsxLevel: reportData.tsxLevel,
+      tsxChange: reportData.tsxChange,
+      oilPrice: reportData.oilPrice,
+      goldPrice: reportData.goldPrice,
+      btcPrice: reportData.btcPrice,
+      cadUsd: reportData.cadUsd,
+      councilLog: reportData.councilLog as any,
+    };
+
+    const spikeData = spikes.map((spike) => ({
+      rank: spike.rank,
+      ticker: spike.ticker,
+      name: spike.name,
+      sector: spike.sector || 'Unknown',
+      exchange: spike.exchange,
+      price: spike.price,
+      volume: spike.volume,
+      avgVolume: spike.avgVolume,
+      marketCap: spike.marketCap,
+      spikeScore: spike.spikeScore,
+      momentumScore: spike.momentumScore,
+      volumeScore: spike.volumeScore,
+      technicalScore: spike.technicalScore,
+      macroScore: spike.macroScore,
+      sentimentScore: spike.sentimentScore,
+      shortInterest: spike.shortInterest,
+      volatilityAdj: spike.volatilityAdj,
+      sectorRotation: spike.sectorRotation,
+      patternMatch: spike.patternMatch,
+      liquidityDepth: spike.liquidityDepth,
+      insiderSignal: spike.insiderSignal,
+      gapPotential: spike.gapPotential,
+      convictionScore: spike.convictionScore,
+      predicted3Day: spike.predicted3Day,
+      predicted5Day: spike.predicted5Day,
+      predicted8Day: spike.predicted8Day,
+      confidence: spike.confidence,
+      narrative: spike.narrative || '',
+      rsi: spike.rsi,
+      macd: spike.macd,
+      macdSignal: spike.macdSignal,
+      adx: spike.adx,
+      bollingerUpper: spike.bollingerUpper,
+      bollingerLower: spike.bollingerLower,
+      ema3: spike.ema3,
+      ema8: spike.ema8,
+      atr: spike.atr,
+      institutionalConvictionScore: spike.institutionalConvictionScore,
+      historicalConfidence: spike.historicalConfidence,
+      calibrationSamples: spike.calibrationSamples,
+      overconfidenceFlag: spike.overconfidenceFlag,
+      learningAdjustments: spike.learningAdjustments,
+      // v6.1.0 Phase 1 audit fields
+      scanType: 'EVENING' as const,
+      scanGeneratedAt,
+      scanReferencePrice: spike.price,
+    }));
+
+    const report = await prisma.dailyReport.upsert({
+      where: { date_scanType: { date: archiveScanDate, scanType: 'EVENING' } },
+      create: {
+        date: archiveScanDate,
+        ...reportFields,
+        spikes: { create: spikeData },
+      },
+      update: {
+        ...reportFields,
+        spikes: { create: spikeData },
+      },
+    });
+
+    // ── Step 4: Save CouncilLog (existing pattern, evening tag implicit via
+    // the report relation) ──
+    console.log('[EveningScan] Saving council log...');
+    await prisma.councilLog.upsert({
+      where: { date: new Date(reportData.date) },
+      create: {
+        date: new Date(reportData.date),
+        claudeAnalysis: (councilLog as any).claudeAnalysis || null,
+        grokAnalysis: (councilLog as any).grokAnalysis || null,
+        finalVerdict: (councilLog as any).finalVerdict || null,
+        consensusScore: (councilLog as any).consensusScore || null,
+        processingTime: (councilLog as any).processingTime || null,
+      },
+      update: {
+        claudeAnalysis: (councilLog as any).claudeAnalysis || null,
+        grokAnalysis: (councilLog as any).grokAnalysis || null,
+        finalVerdict: (councilLog as any).finalVerdict || null,
+        consensusScore: (councilLog as any).consensusScore || null,
+        processingTime: (councilLog as any).processingTime || null,
+      },
+    });
+
+    // ── Step 5: Link the archive row to the delivered operational report ──
+    console.log('[EveningScan] Linking archive to delivered report...');
+    await prisma.eveningScanArchive.update({
+      where: { id: archiveRow.id },
+      data: {
+        deliveredReportId: report.id,
+        deliveredAt: new Date(),
+      },
+    });
+
+    // ── Step 6: NO email in Phase 1 ──
+    // Phase 2 adds the optional sendEveningPreviewEmail() path here for
+    // users with emailEveningPreview=true. For now we explicitly skip.
+    console.log(
+      '[EveningScan] Phase 1: skipping email send (Phase 2 will add evening email path)'
+    );
+
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(
+      `[EveningScan] ====== Evening scan complete in ${elapsed}s. ${spikes.length} picks generated for ${tomorrowStr}. ======\n`
+    );
+
+    return {
+      success: true,
+      picksGenerated: spikes.length,
+      archiveId: archiveRow.id,
+      deliveredReportId: report.id,
+      scanDate: tomorrowStr,
+    };
+  } catch (error) {
+    console.error('[EveningScan] Fatal error:', error);
+    return {
+      success: false,
+      picksGenerated: 0,
+      error: String(error),
+    };
   }
 }
