@@ -3172,14 +3172,17 @@ class HistoricalCalibrationEngine:
                     macd_direction TEXT NOT NULL,
                     adx_bucket TEXT NOT NULL,
                     rel_volume_bucket TEXT NOT NULL,
+                    market_regime TEXT NOT NULL DEFAULT 'NEUTRAL',
                     horizon_days INTEGER NOT NULL,
                     sample_count INTEGER NOT NULL,
                     up_probability REAL NOT NULL,
                     avg_move_pct REAL NOT NULL,
                     median_move_pct REAL,
                     stddev_move_pct REAL,
+                    median_move_on_hits REAL,
+                    median_move_on_misses REAL,
                     updated_at TEXT NOT NULL,
-                    UNIQUE(rsi_bucket, macd_direction, adx_bucket, rel_volume_bucket, horizon_days)
+                    UNIQUE(rsi_bucket, macd_direction, adx_bucket, rel_volume_bucket, market_regime, horizon_days)
                 );
 
                 CREATE TABLE IF NOT EXISTS calibration_council (
@@ -3194,6 +3197,26 @@ class HistoricalCalibrationEngine:
                     updated_at TEXT NOT NULL,
                     UNIQUE(confidence_bucket, horizon_days)
                 );
+            """)
+            # Migration: add new columns if table exists from pre-v6.1
+            try:
+                conn.execute("ALTER TABLE calibration_base_rates ADD COLUMN market_regime TEXT NOT NULL DEFAULT 'NEUTRAL'")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+            try:
+                conn.execute("ALTER TABLE calibration_base_rates ADD COLUMN median_move_on_hits REAL")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE calibration_base_rates ADD COLUMN median_move_on_misses REAL")
+            except sqlite3.OperationalError:
+                pass
+            # Recreate unique index to include market_regime
+            conn.execute("DROP INDEX IF EXISTS sqlite_autoindex_calibration_base_rates_1")
+            conn.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_calibration_base_rates_unique
+                ON calibration_base_rates
+                (rsi_bucket, macd_direction, adx_bucket, rel_volume_bucket, market_regime, horizon_days)
             """)
             conn.commit()
         finally:
