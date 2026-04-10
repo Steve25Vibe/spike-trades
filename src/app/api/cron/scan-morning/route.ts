@@ -22,9 +22,10 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // Skip on TSX holidays — there's no point running a morning scan on a
-    // day that isn't a trading day, because today's bars won't exist.
-    if (!isTradingDay(new Date())) {
+    const useCached = request.nextUrl.searchParams.get('cached') === 'true';
+
+    // Skip on TSX holidays (cached runs bypass this — data already exists)
+    if (!useCached && !isTradingDay(new Date())) {
       console.log('[Cron/Morning] Skipping morning scan — TSX closed (holiday)');
       return NextResponse.json({
         success: true,
@@ -33,8 +34,12 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    console.log('[Cron/Morning] Triggering morning scan...');
-    const result = await runMorningScan();
+    if (useCached) {
+      console.log('[Cron/Morning] Using cached council output (no new LLM calls)...');
+    } else {
+      console.log('[Cron/Morning] Triggering morning scan...');
+    }
+    const result = await runMorningScan(useCached);
     console.log('[Cron/Morning] Morning scan completed:', JSON.stringify(result));
 
     return NextResponse.json(result);

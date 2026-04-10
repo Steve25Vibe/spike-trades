@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { runDailyAnalysis } from '@/lib/scheduling/analyzer';
+import { runMorningScan } from '@/lib/scheduling/analyzer';
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
@@ -132,13 +132,13 @@ export async function POST() {
   _lastTriggerResult = { success: false, startedAt: new Date().toISOString() };
 
   // Fire and forget — run in background
-  runDailyAnalysis(false, 'manual')
+  runMorningScan()
     .then((result) => {
       _lastTriggerResult = {
         success: true,
         startedAt: _lastTriggerResult?.startedAt,
         completedAt: new Date().toISOString(),
-        spikeCount: result.spikesGenerated ?? 0,
+        spikeCount: result.picksGenerated ?? 0,
       };
     })
     .catch((error) => {

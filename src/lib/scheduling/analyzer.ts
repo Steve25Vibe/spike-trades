@@ -813,7 +813,7 @@ export async function runEveningScan(): Promise<{
 // Degraded-run gate suppresses user emails (admin-only notification).
 // ═══════════════════════════════════════════════════════════════════════════
 
-export async function runMorningScan(): Promise<{
+export async function runMorningScan(useCached = false): Promise<{
   success: boolean;
   picksGenerated: number;
   archiveId?: string;
@@ -836,44 +836,80 @@ export async function runMorningScan(): Promise<{
 
   try {
     // ── Step 1: Call the Python Council Brain via FastAPI ──
-    // Uses the same /run-council-mapped endpoint that runDailyAnalysis uses.
+    // Uses /run-council-mapped for live runs, /latest-output-mapped for cached.
     // Same 4-stage council pipeline. Same output shape.
-    console.log('[MorningScan] Calling Python Council Brain...');
     const http = await import('http');
-    const councilResponse: Response = await new Promise<Response>((resolve, reject) => {
-      const url = new URL(`${COUNCIL_API_URL}/run-council-mapped?trigger=morning`);
-      const req = http.request(
-        {
-          hostname: url.hostname,
-          port: url.port,
-          path: url.pathname + url.search,
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          timeout: 3_600_000, // 1 hour socket timeout
-        },
-        (res) => {
-          const chunks: Buffer[] = [];
-          res.on('data', (chunk: Buffer) => chunks.push(chunk));
-          res.on('end', () => {
-            const body = Buffer.concat(chunks).toString();
-            resolve(
-              new Response(body, {
+    let councilResponse: Response;
+
+    if (useCached) {
+      console.log('[MorningScan] Using cached council output...');
+      councilResponse = await new Promise<Response>((resolve, reject) => {
+        const url = new URL(`${COUNCIL_API_URL}/latest-output-mapped`);
+        const req = http.request(
+          {
+            hostname: url.hostname,
+            port: url.port,
+            path: url.pathname,
+            method: 'GET',
+            timeout: 60_000, // 1 minute timeout for cached data
+          },
+          (res) => {
+            const chunks: Buffer[] = [];
+            res.on('data', (chunk: Buffer) => chunks.push(chunk));
+            res.on('end', () => {
+              const body = Buffer.concat(chunks).toString();
+              resolve(new Response(body, {
                 status: res.statusCode || 500,
                 headers: res.headers as Record<string, string>,
-              })
-            );
-          });
-          res.on('error', reject);
-        }
-      );
-      req.on('timeout', () => {
-        req.destroy();
-        reject(new Error('Council request timed out after 1 hour'));
+              }));
+            });
+            res.on('error', reject);
+          },
+        );
+        req.on('timeout', () => {
+          req.destroy();
+          reject(new Error('Cached council fetch timed out after 1 minute'));
+        });
+        req.on('error', reject);
+        req.end();
       });
-      req.on('error', reject);
-      req.write(JSON.stringify({}));
-      req.end();
-    });
+    } else {
+      console.log('[MorningScan] Calling Python Council Brain...');
+      councilResponse = await new Promise<Response>((resolve, reject) => {
+        const url = new URL(`${COUNCIL_API_URL}/run-council-mapped?trigger=morning`);
+        const req = http.request(
+          {
+            hostname: url.hostname,
+            port: url.port,
+            path: url.pathname + url.search,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 3_600_000, // 1 hour socket timeout
+          },
+          (res) => {
+            const chunks: Buffer[] = [];
+            res.on('data', (chunk: Buffer) => chunks.push(chunk));
+            res.on('end', () => {
+              const body = Buffer.concat(chunks).toString();
+              resolve(
+                new Response(body, {
+                  status: res.statusCode || 500,
+                  headers: res.headers as Record<string, string>,
+                })
+              );
+            });
+            res.on('error', reject);
+          }
+        );
+        req.on('timeout', () => {
+          req.destroy();
+          reject(new Error('Council request timed out after 1 hour'));
+        });
+        req.on('error', reject);
+        req.write(JSON.stringify({}));
+        req.end();
+      });
+    }
 
     if (!councilResponse.ok) {
       const errText = await councilResponse.text();

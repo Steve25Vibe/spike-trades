@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { runDailyAnalysis } from '@/lib/scheduling/analyzer';
+import { runMorningScan } from '@/lib/scheduling/analyzer';
 import { isTradingDay } from '@/lib/utils';
 
 // Allow up to 1 hour for the council pipeline
 export const maxDuration = 3600;
 
-// POST /api/cron — Trigger daily analysis
-// Called by node-cron scheduler or manually
-// Query params: ?cached=true to use last council output (no new LLM calls)
+// POST /api/cron — DEPRECATED: Use /api/cron/scan-morning instead.
+// Kept for backward compatibility with existing cron container config.
+// Delegates to runMorningScan() (same as /api/cron/scan-morning).
 export async function POST(request: NextRequest) {
-  // Verify cron secret
   const authHeader = request.headers.get('authorization');
   const cronSecret = process.env.SESSION_SECRET;
 
@@ -18,14 +17,15 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // Skip on TSX holidays (cron runs weekdays but doesn't know about holidays)
     const useCached = request.nextUrl.searchParams.get('cached') === 'true';
+
     if (!useCached && !isTradingDay(new Date())) {
-      console.log('[Cron] Skipping daily analysis — TSX closed (holiday)');
+      console.log('[Cron] Skipping — TSX closed (holiday)');
       return NextResponse.json({ success: true, skipped: true, reason: 'TSX closed (holiday)' });
     }
 
-    const result = await runDailyAnalysis(useCached);
+    console.warn('[Cron] DEPRECATED: /api/cron called — use /api/cron/scan-morning instead');
+    const result = await runMorningScan(useCached);
     return NextResponse.json(result);
   } catch (error) {
     console.error('[Cron] Analysis failed:', error);
@@ -40,6 +40,8 @@ export async function POST(request: NextRequest) {
 export async function GET() {
   return NextResponse.json({
     status: 'ok',
+    deprecated: true,
+    message: 'Use /api/cron/scan-morning instead',
     nextRun: '11:15 ADT daily',
     timezone: 'America/Halifax',
   });
