@@ -292,6 +292,7 @@ class FinalHotPick(BaseModel):
     analyst_upside_pct: Optional[float] = None
     sector_relative_strength: Optional[float] = None
     learning_adjustments: Optional[dict] = Field(default=None, description="Per-pick learning engine adjustments")
+    calibration_reconciliation: Optional[str] = Field(None, description="Tier F: Grok's explanation of how it reconciled with historical signals")
     as_of: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -1876,6 +1877,7 @@ OUTPUT FORMAT (strict JSON):
       }},
       "reasoning": "<2-3 sentence final synthesis>",
       "verification_notes": "<CoV self-check>",
+      "calibration_reconciliation": "<1-2 sentence explanation>",
       "forecasts": [
         {{
           "horizon_days": 3,
@@ -1912,6 +1914,39 @@ OUTPUT FORMAT (strict JSON):
 Sort by total score descending. Return EXACTLY the top 10 (or all if fewer).
 Only include picks where you have genuine directional conviction — drop uncertain setups.
 This is the FINAL verdict — be decisive and quantitative.
+
+HISTORICAL CALIBRATION SIGNALS (v6.1):
+For each candidate ticker, you are provided with three additional signals
+beyond the raw data. You MUST explicitly acknowledge these before outputting
+your final direction_probability.
+
+1. SETUP RATE: The historical hit rate for stocks in this same technical
+   setup pattern (RSI / MACD / ADX / volume bucket) across the top 250
+   TSX liquid tickers over the last year, segmented by market regime.
+   Format: "Setup Rate: 56% (n=66, 95% CI 44-67, regime=RISK_OFF)"
+
+2. TICKER RATE: This specific stock's own hit rate when it has been in
+   this exact setup over its last 130 trading days. Answers "does THIS
+   stock respect its own signals." Format: "HBM.TO Rate: 71% (n=14,
+   95% CI 45-88)" or "HBM.TO Rate: Insufficient history" if n<5.
+
+3. SMART COMPOSITE: A 0-100 blend of insider activity, institutional
+   ownership percentage, analyst consensus, and sector relative
+   strength. Format: "Smart: 64/100"
+
+RECONCILIATION MANDATE: Your direction_probability MUST be consistent
+with these signals. If your initial confidence diverges from the Setup
+Rate or Ticker Rate by more than 15 percentage points, you MUST either:
+  (a) lower your confidence toward the historical rate, OR
+  (b) explicitly justify the divergence in your reasoning by citing
+      specific data that makes THIS pick different from similar setups.
+
+If both Setup Rate and Ticker Rate are below 50%, you MUST NOT output
+a direction_probability above 65% unless you can cite a clear catalyst.
+
+For each pick, include a "calibration_reconciliation" field in your
+output (string, 1-2 sentences) explaining how you reconciled your
+confidence with the historical signals.
 """
 
 
@@ -1924,6 +1959,9 @@ async def run_stage4_grok(
     stage2_results: list[dict],
     stage3_results: list[dict],
     learning_engine: Optional["LearningEngine"] = None,
+    calibration_map: Optional[dict] = None,
+    ticker_rate_map: Optional[dict] = None,
+    smart_scores: Optional[dict] = None,
 ) -> list[dict]:
     """Stage 4: SuperGrok Heavy Multi-Agent (or Opus fallback) produces final Top 10 with probabilistic forecasts."""
     logger.info(f"Stage 4 (SuperGrok Heavy): Processing {len(stage3_results)} tickers from Stage 3")
@@ -1937,6 +1975,40 @@ async def run_stage4_grok(
     prompt_context = ""
     system_prompt = GROK_SYSTEM_PROMPT + prompt_context
 
+    # Build per-ticker calibration context for prompt enrichment (Tier F)
+    calibration_lines = []
+    if calibration_map or ticker_rate_map or smart_scores:
+        for payload in payloads:
+            ticker = payload.ticker
+            parts = [f"\n{ticker} CALIBRATION SIGNALS:"]
+
+            cal = (calibration_map or {}).get(ticker, {})
+            if cal:
+                sr = cal.get("calibrated_confidence", 0) * 100
+                n = cal.get("sample_count", 0)
+                ci_l = cal.get("ci_low", 0) * 100
+                ci_h = cal.get("ci_high", 0) * 100
+                regime = cal.get("regime", "NEUTRAL")
+                parts.append(f"  Setup Rate: {sr:.0f}% (n={n}, 95% CI {ci_l:.0f}-{ci_h:.0f}, regime={regime})")
+            else:
+                parts.append("  Setup Rate: Insufficient data")
+
+            tr = (ticker_rate_map or {}).get(ticker)
+            if tr:
+                parts.append(f"  {ticker} Rate: {tr['rate']:.0f}% (n={tr['samples']}, 95% CI {tr['ci_low']:.0f}-{tr['ci_high']:.0f})")
+            else:
+                parts.append(f"  {ticker} Rate: Insufficient history")
+
+            smart = (smart_scores or {}).get(ticker)
+            if smart is not None:
+                parts.append(f"  Smart: {smart}/100")
+            else:
+                parts.append("  Smart: No Scoring")
+
+            calibration_lines.append("\n".join(parts))
+
+    calibration_block = "\n".join(calibration_lines) if calibration_lines else ""
+
     user_prompt = (
         f"MACRO CONTEXT:\n{json.dumps(macro.model_dump(mode='json'), **_COMPACT)}\n\n"
         f"STAGE 1 (SONNET) SCORES:\n{json.dumps(stage1_results[:40], **_COMPACT)}\n\n"
@@ -1945,6 +2017,9 @@ async def run_stage4_grok(
         f"RAW DATA ({len(payload_dicts)} tickers):\n"
         f"{json.dumps(payload_dicts, **_COMPACT)}"
     )
+
+    if calibration_block:
+        user_prompt += f"\n\nCALIBRATION SIGNALS:\n{calibration_block}"
 
     # Try SuperGrok Heavy Multi-Agent first, fall back to Opus if xAI key is missing or call fails
     use_grok = bool(xai_api_key)
@@ -2461,6 +2536,12 @@ def _build_consensus(
         )
         data["institutional_conviction_score"] = iic_score
 
+        # Tier F: Grok's calibration reconciliation
+        if stage4_results:
+            stage4_result = next((r for r in stage4_results if r.get("ticker") == ticker), None)
+            if stage4_result and stage4_result.get("calibration_reconciliation"):
+                data["calibration_reconciliation"] = stage4_result["calibration_reconciliation"]
+
         data["learning_adjustments"] = adjustments
         scored_tickers.append((ticker, consensus_score, len(stages), data))
 
@@ -2560,6 +2641,7 @@ def _build_consensus(
             ),
             institutional_conviction_score=data.get("institutional_conviction_score"),
             learning_adjustments=data.get("learning_adjustments"),
+            calibration_reconciliation=data.get("calibration_reconciliation"),
         )
         picks.append(pick)
 
@@ -5220,6 +5302,53 @@ class CanadianStockCouncilBrain:
                     tracker.complete_stage("stage3_opus", picks=len(stage3_results))
                 logger.info(f"Step 7: Stage 3 produced {len(stage3_results)} results")
 
+            # ── Step 7b: Pre-compute calibration data for Tier F prompt enrichment ──
+            logger.info("Step 7b: Pre-computing calibration for Stage 4 prompt enrichment")
+            calibration_for_prompt: dict[str, dict] = {}
+            try:
+                conn = sqlite3.connect(self.calibration_engine.db_path)
+                current_regime = payloads_map.get("__current_regime__", "NEUTRAL")
+                for p in payloads_list:
+                    techs = p.technicals
+                    if not techs:
+                        continue
+                    rsi = techs.rsi_14 if hasattr(techs, 'rsi_14') else 50
+                    macd = techs.macd_line if hasattr(techs, 'macd_line') else 0
+                    adx = techs.adx_14 if hasattr(techs, 'adx_14') else 15
+                    rel_vol = techs.relative_volume if hasattr(techs, 'relative_volume') else 1.0
+                    rsi_b = HistoricalCalibrationEngine._bucket_rsi(rsi)
+                    macd_dir = "positive" if macd > 0 else "negative"
+                    adx_b = HistoricalCalibrationEngine._bucket_adx(adx)
+                    vol_b = HistoricalCalibrationEngine._bucket_volume(rel_vol or 1.0)
+
+                    row = conn.execute("""
+                        SELECT up_probability, sample_count
+                        FROM calibration_base_rates
+                        WHERE rsi_bucket = ? AND macd_direction = ? AND adx_bucket = ?
+                          AND rel_volume_bucket = ? AND market_regime = ? AND horizon_days = 3
+                    """, (rsi_b, macd_dir, adx_b, vol_b, current_regime)).fetchone()
+                    if not row:
+                        row = conn.execute("""
+                            SELECT up_probability, sample_count
+                            FROM calibration_base_rates
+                            WHERE rsi_bucket = ? AND macd_direction = ? AND adx_bucket = ?
+                              AND rel_volume_bucket = ? AND horizon_days = 3 LIMIT 1
+                        """, (rsi_b, macd_dir, adx_b, vol_b)).fetchone()
+                    if row:
+                        hits = int(round(row[0] * row[1]))
+                        ci_low, ci_high = _wilson_ci(hits, row[1])
+                        calibration_for_prompt[p.ticker] = {
+                            "calibrated_confidence": row[0],
+                            "sample_count": row[1],
+                            "ci_low": ci_low,
+                            "ci_high": ci_high,
+                            "regime": current_regime,
+                        }
+                conn.close()
+                logger.info(f"Step 7b: Calibration pre-computed for {len(calibration_for_prompt)}/{len(payloads_list)} tickers")
+            except Exception as e:
+                logger.warning(f"Step 7b: Calibration pre-compute failed (non-fatal): {e}")
+
             # ── Step 8: Stage 4 — Grok (skippable) ──
             logger.info(f"Step 8: Stage 4 (Grok) — {len(stage3_results)} tickers")
             if tracker:
@@ -5233,6 +5362,15 @@ class CanadianStockCouncilBrain:
                         payloads_list, macro,
                         stage1_results, stage2_results, stage3_results,
                         learning_engine=self.learning_engine,
+                        calibration_map=calibration_for_prompt if calibration_for_prompt else None,
+                        ticker_rate_map=payloads_map.get("__ticker_rates__"),
+                        smart_scores={
+                            p.ticker: compute_iic(
+                                p.insider_activity, p.institutional_ownership_pct,
+                                p.analyst_consensus, p.sector_relative_strength
+                            )
+                            for p in payloads_list
+                        },
                     ),
                     timeout=STAGE4_TIMEOUT,
                 )
