@@ -260,12 +260,23 @@ export default function SpikeCard({ spike, selected, onSelect, onLockIn, selecti
           {/* Lock In button (only when NOT in bulk selection mode) */}
           {!selectionMode && (
             <button
-              onClick={handleLockIn}
-              disabled={locking}
-              className="btn-lock-in disabled:opacity-50"
-              title="Add this stock to your portfolio"
+              onClick={spike.scanType === 'EVENING' ? undefined : handleLockIn}
+              disabled={locking || spike.scanType === 'EVENING'}
+              className={cn(
+                'btn-lock-in disabled:opacity-50',
+                spike.scanType === 'EVENING' && 'cursor-not-allowed'
+              )}
+              title={
+                spike.scanType === 'EVENING'
+                  ? 'Lock In available during market hours. Tomorrow\'s Spikes are pre-market planning only.'
+                  : 'Add this stock to your portfolio'
+              }
             >
-              {locking ? 'Locking...' : '⚡ Lock In'}
+              {spike.scanType === 'EVENING'
+                ? '\u{1F319} Pre-Market'
+                : locking
+                ? 'Locking...'
+                : '⚡ Lock In'}
             </button>
           )}
         </div>
