@@ -27,6 +27,7 @@ model User {
   emailDeviationAlerts Boolean @default(true)
   emailOpeningBell     Boolean @default(true)
   emailRadar           Boolean @default(true)
+  emailEveningPreview  Boolean @default(false) // v6.1.0: opt-in evening preview email
 
   lastLoginAt DateTime?
   lastSeenAt  DateTime?
@@ -475,6 +476,34 @@ model EveningScanArchive {
   // Link to delivered operational state — populated after operational rows are written
   deliveredReportId String? // links to DailyReport.id with scanType='EVENING'
   deliveredAt       DateTime? // timestamp of delivery (when operational rows were written)
+
+  createdAt DateTime @default(now())
+
+  @@unique([scanDate])
+  @@index([scanGeneratedAt])
+}
+
+model MorningScanArchive {
+  id              String   @id @default(cuid())
+  scanDate        DateTime @db.Date // the trading day the picks are FOR (= today)
+  scanGeneratedAt DateTime // exact timestamp of the morning scan
+  runId           String // council run_id from pick_history SQLite
+  regime          String // e.g. "RISK_OFF" / "RISK_ON" / "NEUTRAL"
+
+  // Immutable JSON blob snapshot of the full council output
+  macroContextJson     Json
+  universeSize         Int
+  tickersScreened      Int
+  skippedStagesJson    Json // [] if clean, [{stage, model, error}] if degraded
+  topPicksJson         Json // full top 10 picks
+  councilLogJson       Json // stage metadata, consensus, processing time
+  riskSummaryJson      Json // allocation table, heat metrics
+  dailyRoadmapJson     Json // day-by-day action plan
+  rawCouncilOutputJson Json? // full raw council output (debugging / audit)
+
+  // Link to delivered operational state
+  deliveredReportId String? // links to DailyReport.id with scanType='MORNING'
+  deliveredAt       DateTime? // timestamp of delivery
 
   createdAt DateTime @default(now())
 
