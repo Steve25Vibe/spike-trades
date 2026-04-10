@@ -293,6 +293,7 @@ class FinalHotPick(BaseModel):
     sector_relative_strength: Optional[float] = None
     learning_adjustments: Optional[dict] = Field(default=None, description="Per-pick learning engine adjustments")
     calibration_reconciliation: Optional[str] = Field(None, description="Tier F: Grok's explanation of how it reconciled with historical signals")
+    ticker_rate: Optional[dict] = Field(default=None, description="Per-stock historical hit rate {rate, samples, ci_low, ci_high}")
     as_of: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
