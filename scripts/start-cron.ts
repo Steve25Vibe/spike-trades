@@ -45,13 +45,13 @@ console.log(`[Cron] Spike Trades scheduler starting...`);
 console.log(`[Cron] Scheduled: ${CRON_MINUTE} ${CRON_HOUR} * * 1-5 (${TIMEZONE})`);
 console.log(`[Cron] App URL: ${APP_URL}`);
 
-// Main daily analysis — weekdays at 10:45am AST
+// Morning scan — weekdays at 11:15am ADT (via scan-morning endpoint)
 cron.schedule(
   `${CRON_MINUTE} ${CRON_HOUR} * * 1-5`,
   async () => {
-    console.log(`[Cron] Triggering daily analysis at ${new Date().toISOString()}`);
+    console.log(`[Cron] Triggering morning scan at ${new Date().toISOString()}`);
     try {
-      const result = await httpRequest(`${APP_URL}/api/cron`, {
+      const result = await httpRequest(`${APP_URL}/api/cron/scan-morning`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${CRON_SECRET}`,
@@ -59,13 +59,36 @@ cron.schedule(
         },
         timeout: 3_600_000, // 1 hour timeout for full pipeline
       });
-      console.log(`[Cron] Analysis result (status ${result.status}):`, result.body);
+      console.log(`[Cron] Morning scan result (status ${result.status}):`, result.body);
     } catch (error) {
-      console.error(`[Cron] Failed to trigger analysis:`, error);
+      console.error(`[Cron] Failed to trigger morning scan:`, error);
     }
   },
   { timezone: TIMEZONE }
 );
+
+// Evening scan — weekdays at 8:00pm ADT
+cron.schedule(
+  '0 20 * * 1-5',
+  async () => {
+    console.log(`[Cron] Triggering evening scan at ${new Date().toISOString()}`);
+    try {
+      const result = await httpRequest(`${APP_URL}/api/cron/scan-evening`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${CRON_SECRET}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 3_600_000, // 1 hour timeout for full pipeline
+      });
+      console.log(`[Cron] Evening scan result (status ${result.status}):`, result.body);
+    } catch (error) {
+      console.error(`[Cron] Failed to trigger evening scan:`, error);
+    }
+  },
+  { timezone: TIMEZONE }
+);
+console.log('[Cron] Evening scan: 8:00 PM ADT weekdays');
 
 // Accuracy check — weekdays at 4:30pm AST (after market close)
 cron.schedule(
