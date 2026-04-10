@@ -3,7 +3,6 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import ResponsiveLayout from '@/components/layout/ResponsiveLayout';
-import MarketHeader from '@/components/layout/MarketHeader';
 import SpikeCard from '@/components/spikes/SpikeCard';
 
 interface SpikeData {
@@ -212,22 +211,6 @@ function TomorrowSpikesContent() {
       {/* Picks list */}
       {!loading && data && (
         <>
-          <MarketHeader
-            date={new Date(new Date(data.report.date).toISOString().split('T')[0] + 'T12:00:00').toLocaleDateString('en-CA', {
-              weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-            })}
-            regime={data.report.marketRegime || 'neutral'}
-            tsxLevel={data.report.tsxLevel || 0}
-            tsxChange={data.report.tsxChange || 0}
-            oilPrice={data.report.oilPrice || 0}
-            goldPrice={data.report.goldPrice || 0}
-            btcPrice={data.report.btcPrice || 0}
-            cadUsd={data.report.cadUsd || 0}
-            prevOilPrice={data.report.prevOilPrice}
-            prevGoldPrice={data.report.prevGoldPrice}
-            prevBtcPrice={data.report.prevBtcPrice}
-            prevCadUsd={data.report.prevCadUsd}
-          />
           <div className="mb-4 text-sm text-spike-text-dim">
             Preview for{' '}
             <strong className="text-spike-text">{data.report.date}</strong> &middot;{' '}
