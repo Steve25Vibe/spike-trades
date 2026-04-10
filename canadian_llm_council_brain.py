@@ -3155,8 +3155,8 @@ class HistoricalCalibrationEngine:
     """
 
     MIN_COUNCIL_SAMPLES = 5  # Need at least N council picks before using council calibration
-    BACKTEST_TICKERS_LIMIT = 100  # Top N liquid tickers for backtest
-    BACKTEST_DAYS = 126  # ~6 months of trading days
+    BACKTEST_TICKERS_LIMIT = 250   # v6.1: expanded from 100
+    BACKTEST_DAYS = 252            # v6.1: 1 trading year (was 126 ~6mo)
 
     def __init__(self, db_path: str = DB_PATH):
         self.db_path = db_path
@@ -3276,9 +3276,9 @@ class HistoricalCalibrationEngine:
                 return "NEUTRAL"
 
     async def run_historical_backtest(self, fetcher: "LiveDataFetcher") -> dict:
-        """Run 6-month backtest on liquid TSX tickers. Offline job (~10-20 min).
+        """Run 1-year backtest on liquid TSX tickers. Offline job (~10-20 min).
         Returns summary stats."""
-        logger.info("Calibration: Starting 6-month historical backtest")
+        logger.info("Calibration: Starting 1-year historical backtest")
         start_time = time.time()
 
         # Get liquid TSX tickers
@@ -3290,6 +3290,15 @@ class HistoricalCalibrationEngine:
             key=lambda x: (x[1].get("price") or 0) * (x[1].get("volume") or 0),
             reverse=True,
         )[:self.BACKTEST_TICKERS_LIMIT]
+
+        # Fetch TSX proxy (XIU.TO) for regime classification
+        tsx_bars = await fetcher.fetch_historical("XIU.TO", self.BACKTEST_DAYS + 90)
+        tsx_closes = [b["close"] for b in tsx_bars] if tsx_bars and len(tsx_bars) > 50 else []
+        has_tsx_data = len(tsx_closes) > 50
+        if has_tsx_data:
+            logger.info(f"Calibration: XIU.TO loaded — {len(tsx_closes)} bars for regime classification")
+        else:
+            logger.warning("Calibration: XIU.TO unavailable — all days classified as NEUTRAL")
 
         logger.info(f"Calibration: Backtesting {len(liquid)} liquid tickers")
 
@@ -3326,6 +3335,22 @@ class HistoricalCalibrationEngine:
                     adx_b = self._bucket_adx(techs.adx_14)
                     vol_b = self._bucket_volume(rel_vol)
 
+                    # Regime classification using TSX proxy
+                    if has_tsx_data and day_idx < len(tsx_closes) and day_idx >= 30:
+                        tsx_30d_ago = tsx_closes[max(0, day_idx - 30)]
+                        tsx_now = tsx_closes[day_idx]
+                        tsx_trailing_return = (tsx_now - tsx_30d_ago) / tsx_30d_ago if tsx_30d_ago > 0 else 0
+                        tsx_recent = tsx_closes[max(0, day_idx - 19):day_idx + 1]
+                        if len(tsx_recent) >= 2:
+                            tsx_changes = [(tsx_recent[i] - tsx_recent[i-1]) / tsx_recent[i-1]
+                                           for i in range(1, len(tsx_recent)) if tsx_recent[i-1] > 0]
+                            tsx_vol = statistics.stdev(tsx_changes) if len(tsx_changes) >= 2 else 0
+                        else:
+                            tsx_vol = 0
+                        regime = self._classify_historical_regime(tsx_trailing_return, tsx_vol)
+                    else:
+                        regime = "NEUTRAL"
+
                     # Look ahead 3, 5, 8 trading days
                     for horizon in [3, 5, 8]:
                         future_idx = day_idx
@@ -3342,7 +3367,7 @@ class HistoricalCalibrationEngine:
                         move_pct = ((future_close - current_close) / current_close) * 100
                         went_up = 1 if future_close > current_close else 0
 
-                        data_points.append((rsi_b, macd_dir, adx_b, vol_b, horizon, move_pct, went_up))
+                        data_points.append((rsi_b, macd_dir, adx_b, vol_b, regime, horizon, move_pct, went_up))
 
                 tickers_processed += 1
                 if tickers_processed % 10 == 0:
@@ -3362,15 +3387,18 @@ class HistoricalCalibrationEngine:
 
         # Aggregate into base rates
         buckets: dict[tuple, list[tuple[float, int]]] = defaultdict(list)
-        for rsi_b, macd_dir, adx_b, vol_b, horizon, move_pct, went_up in data_points:
-            key = (rsi_b, macd_dir, adx_b, vol_b, horizon)
+        for rsi_b, macd_dir, adx_b, vol_b, regime, horizon, move_pct, went_up in data_points:
+            key = (rsi_b, macd_dir, adx_b, vol_b, regime, horizon)
             buckets[key].append((move_pct, went_up))
 
         conn = sqlite3.connect(self.db_path)
         now = datetime.now(timezone.utc).isoformat()
         inserted = 0
         try:
-            for (rsi_b, macd_dir, adx_b, vol_b, horizon), samples in buckets.items():
+            # Full refresh — clear old data before repopulating
+            conn.execute("DELETE FROM calibration_base_rates")
+
+            for (rsi_b, macd_dir, adx_b, vol_b, regime, horizon), samples in buckets.items():
                 if len(samples) < 3:
                     continue
                 moves = [s[0] for s in samples]
@@ -3379,15 +3407,22 @@ class HistoricalCalibrationEngine:
                 median = sorted_moves[len(sorted_moves) // 2]
                 stddev = statistics.stdev(moves) if len(moves) >= 2 else 0
 
+                # Split medians for Tier D
+                hit_moves = [s[0] for s in samples if s[1] == 1]
+                miss_moves = [s[0] for s in samples if s[1] == 0]
+                median_hits = round(statistics.median(hit_moves), 4) if hit_moves else None
+                median_misses = round(statistics.median(miss_moves), 4) if miss_moves else None
+
                 conn.execute("""
                     INSERT OR REPLACE INTO calibration_base_rates
-                    (rsi_bucket, macd_direction, adx_bucket, rel_volume_bucket, horizon_days,
-                     sample_count, up_probability, avg_move_pct, median_move_pct, stddev_move_pct, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (rsi_bucket, macd_direction, adx_bucket, rel_volume_bucket, market_regime,
+                     horizon_days, sample_count, up_probability, avg_move_pct,
+                     median_move_pct, stddev_move_pct, median_move_on_hits, median_move_on_misses, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
-                    rsi_b, macd_dir, adx_b, vol_b, horizon,
-                    len(samples), sum(ups) / len(ups), sum(moves) / len(moves),
-                    median, round(stddev, 4), now,
+                    rsi_b, macd_dir, adx_b, vol_b, regime,
+                    horizon, len(samples), sum(ups) / len(ups), sum(moves) / len(moves),
+                    median, round(stddev, 4), median_hits, median_misses, now,
                 ))
                 inserted += 1
 
