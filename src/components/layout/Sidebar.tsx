@@ -8,8 +8,18 @@ import { useAuth } from '@/components/providers/AuthProvider';
 
 const navItems = [
   {
+    href: '/dashboard/tomorrow',
+    label: "Tomorrow's Spikes",
+    tooltip: 'Pre-market preview generated from last night\'s closing data',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+      </svg>
+    ),
+  },
+  {
     href: '/dashboard',
-    label: 'Today\'s Spikes',
+    label: "Today's Spikes",
     tooltip: 'View today\'s AI-selected stock picks',
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -205,7 +215,9 @@ export default function Sidebar({ open = true, onClose }: SidebarProps) {
           <span>{marketOpen ? 'Live — TSX Open' : 'Closed — TSX Closed'}</span>
         </div>
         <p className="text-[10px] text-spike-text-muted">
-          Next analysis: 10:45 AST
+          Evening scan: 8 PM ADT
+          <br />
+          Morning scan: 10:45 AM ADT
         </p>
       </div>
     </aside>

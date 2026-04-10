@@ -98,6 +98,7 @@ export interface SpikeCard {
   historicalConfidence?: number;   // 0-100, from calibration engine
   calibrationSamples?: number;     // sample count
   overconfidenceFlag?: boolean;    // council >> history
+  scanType?: string;               // 'MORNING' | 'EVENING'
 }
 
 export interface MarketRegime {
