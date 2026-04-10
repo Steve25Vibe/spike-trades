@@ -169,7 +169,7 @@ function TomorrowSpikesContent() {
               <strong className="text-spike-text">
                 Lock In is disabled until the market opens at 9:30 AM ET.
               </strong>{' '}
-              The morning council scan runs at 10:15 AM ET and produces a separate
+              The morning council scan runs at 11:15 AM ADT and produces a separate
               live-intraday slate visible on the{' '}
               <a href="/dashboard" className="text-spike-cyan hover:underline">
                 Today&apos;s Spikes

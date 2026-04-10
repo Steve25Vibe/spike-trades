@@ -1,6 +1,6 @@
 // ============================================
 // MAIN ANALYSIS ORCHESTRATOR
-// Runs daily at 10:45am AST
+// Runs daily at 11:15am ADT
 // Calls Python Council Brain via FastAPI, then saves results to Prisma
 // ============================================
 

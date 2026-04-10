@@ -120,7 +120,7 @@ function ReportsContent() {
 
         {spikeReports.length === 0 && !loading && (
           <div className="glass-card p-12 text-center text-spike-text-dim">
-            No reports yet. The first analysis runs at 10:45 AM AST.
+            No reports yet. The first analysis runs at 11:15 AM ADT.
           </div>
         )}
       </div>

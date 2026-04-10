@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
 export async function GET() {
   return NextResponse.json({
     status: 'ok',
-    nextRun: '10:45 AST daily',
+    nextRun: '11:15 ADT daily',
     timezone: 'America/Halifax',
   });
 }

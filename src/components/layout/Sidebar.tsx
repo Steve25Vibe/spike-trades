@@ -217,7 +217,7 @@ export default function Sidebar({ open = true, onClose }: SidebarProps) {
         <p className="text-[10px] text-spike-text-muted">
           Evening scan: 8 PM ADT
           <br />
-          Morning scan: 10:45 AM ADT
+          Morning scan: 11:15 AM ADT
         </p>
       </div>
     </aside>

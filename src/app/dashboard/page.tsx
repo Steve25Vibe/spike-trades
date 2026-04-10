@@ -275,7 +275,7 @@ function DashboardContent() {
               <h3 className="text-lg font-bold text-spike-text mb-2">No Analysis Available</h3>
               <p className="text-spike-text-dim text-sm">{error}</p>
               <p className="text-spike-text-muted text-xs mt-4">
-                The daily analysis runs at 10:45 AM AST on trading days.
+                The daily analysis runs at 11:15 AM ADT on trading days.
               </p>
             </div>
           </div>
