@@ -423,3 +423,38 @@ model CouncilConfig {
   updatedByUserId String?
   updatedByEmail  String?
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// v6.1.0 Phase 1 — Evening Scan Archive
+// Immutable snapshot of every evening scan, written before operational rows.
+// JSON blob fields preserve the full council output for audit + future analysis.
+// One row per evening scan (~252/year, ~5 MB/year storage).
+// ═══════════════════════════════════════════════════════════════════════════
+
+model EveningScanArchive {
+  id              String   @id @default(cuid())
+  scanDate        DateTime @db.Date // the trading day the picks are FOR (= tomorrow)
+  scanGeneratedAt DateTime // exact timestamp of the evening scan
+  runId           String // council run_id from pick_history SQLite
+  regime          String // e.g. "RISK_OFF" / "RISK_ON" / "NEUTRAL"
+
+  // Immutable JSON blob snapshot of the full council output
+  macroContextJson     Json
+  universeSize         Int
+  tickersScreened      Int
+  skippedStagesJson    Json // [] if clean, [{stage, model, error}] if degraded
+  topPicksJson         Json // full top 10 picks (extends to top 20 in Phase 2.5+)
+  councilLogJson       Json // stage metadata, consensus, processing time
+  riskSummaryJson      Json // allocation table, heat metrics
+  dailyRoadmapJson     Json // day-by-day action plan
+  rawCouncilOutputJson Json? // full raw council output (debugging / audit)
+
+  // Link to delivered operational state — populated after operational rows are written
+  deliveredReportId String? // links to DailyReport.id with scanType='EVENING'
+  deliveredAt       DateTime? // timestamp of delivery (when operational rows were written)
+
+  createdAt DateTime @default(now())
+
+  @@unique([scanDate])
+  @@index([scanGeneratedAt])
+}
