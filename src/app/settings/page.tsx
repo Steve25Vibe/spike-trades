@@ -7,6 +7,7 @@ interface Preferences {
   emailDailySpikes: boolean;
   emailSellReminders: boolean;
   emailDeviationAlerts: boolean;
+  emailEveningPreview: boolean;
 }
 
 export default function SettingsPage() {
@@ -54,6 +55,7 @@ export default function SettingsPage() {
                 { key: 'emailDailySpikes' as const, label: 'Daily Spikes Summary', desc: 'Receive the Top 10 picks every trading day' },
                 { key: 'emailSellReminders' as const, label: 'Sell Reminders', desc: 'Get notified when your positions hit their target windows' },
                 { key: 'emailDeviationAlerts' as const, label: 'Deviation Alerts', desc: 'Alert when positions move significantly against predictions' },
+                { key: 'emailEveningPreview' as const, label: 'Tomorrow\'s Spikes Preview', desc: 'Receive the evening pre-market preview email after market close' },
               ].map(({ key, label, desc }) => (
                 <div key={key} className="flex items-center justify-between py-3 border-b border-spike-border/50">
                   <div>

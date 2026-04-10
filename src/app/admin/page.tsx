@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import ResponsiveLayout from '@/components/layout/ResponsiveLayout';
 import { cn } from '@/lib/utils';
 
-type Tab = 'users' | 'invitations' | 'activity' | 'council' | 'analytics' | 'learning';
+type Tab = 'users' | 'invitations' | 'activity' | 'council' | 'scans' | 'analytics' | 'learning';
 
 interface UserInfo {
   id: string;
@@ -124,6 +124,10 @@ export default function AdminPage() {
   const [configLocalValue, setConfigLocalValue] = useState<number>(5_000_000);
   const [configSaving, setConfigSaving] = useState(false);
   const [configMessage, setConfigMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [scanStatus, setScanStatus] = useState<{
+    evening: { lastRun: string | null; pickCount: number | null; status: string };
+    morning: { lastRun: string | null; pickCount: number | null; status: string };
+  } | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [analytics, setAnalytics] = useState<Record<string, any> | null>(null);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -170,6 +174,10 @@ export default function AdminPage() {
         await fetchCouncilStatus();
         await fetchCouncilConfig();
         startPolling();
+      } else if (tab === 'scans') {
+        const res = await fetch('/api/admin/scans');
+        const json = await res.json();
+        if (json.success) setScanStatus(json.data);
       } else if (tab === 'analytics') {
         const res = await fetch('/api/admin/analytics');
         const json = await res.json();
@@ -383,7 +391,7 @@ export default function AdminPage() {
 
         {/* Tabs */}
         <div className="flex gap-1 bg-spike-bg/50 rounded-lg border border-spike-border p-0.5 mb-6 w-fit">
-          {(['users', 'invitations', 'activity', 'council', 'analytics', 'learning'] as const).map((t) => (
+          {(['users', 'invitations', 'activity', 'council', 'scans', 'analytics', 'learning'] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -1315,6 +1323,131 @@ export default function AdminPage() {
                       ))}
                     </tbody>
                   </table>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Scans Tab — Evening & Morning scan status + manual triggers */}
+        {tab === 'scans' && (
+          <div className="space-y-6">
+            {loading ? (
+              <p className="text-spike-text-muted">Loading scan status...</p>
+            ) : (
+              <>
+                {/* Evening Scan */}
+                <div className="glass-card p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider">Evening Scan</h3>
+                    <button
+                      onClick={async () => {
+                        setActionLoading('evening-scan');
+                        try {
+                          const res = await fetch('/api/cron/scan-evening', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'x-cron-secret': 'manual-admin' },
+                          });
+                          const json = await res.json();
+                          if (json.success) {
+                            alert(`Evening scan complete — ${json.pickCount ?? 0} picks`);
+                            fetchData();
+                          } else {
+                            alert(json.error || 'Evening scan failed');
+                          }
+                        } catch { alert('Failed to trigger evening scan'); }
+                        finally { setActionLoading(null); }
+                      }}
+                      disabled={actionLoading === 'evening-scan' || actionLoading === 'morning-scan'}
+                      className="px-3 py-1.5 rounded-lg bg-spike-cyan/10 text-spike-cyan text-xs font-bold hover:bg-spike-cyan/20 transition-all border border-spike-cyan/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {actionLoading === 'evening-scan' ? 'Running...' : 'Run Evening Scan'}
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <p className="text-[9px] text-spike-text-muted uppercase tracking-wider mb-1">Status</p>
+                      <p className={cn('text-sm font-bold mono', {
+                        'text-spike-green': scanStatus?.evening.status === 'ok',
+                        'text-spike-amber': scanStatus?.evening.status === 'running',
+                        'text-spike-red': scanStatus?.evening.status === 'error',
+                        'text-spike-text-dim': !scanStatus?.evening.status || scanStatus?.evening.status === 'never',
+                      })}>
+                        {scanStatus?.evening.status === 'ok' ? 'Complete' : scanStatus?.evening.status === 'running' ? 'Running' : scanStatus?.evening.status === 'error' ? 'Error' : 'Never run'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] text-spike-text-muted uppercase tracking-wider mb-1">Last Run</p>
+                      <p className="text-sm text-spike-text-dim mono">
+                        {scanStatus?.evening.lastRun
+                          ? new Date(scanStatus.evening.lastRun).toLocaleString('en-CA', { timeZone: 'America/Halifax' })
+                          : '—'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] text-spike-text-muted uppercase tracking-wider mb-1">Pick Count</p>
+                      <p className="text-sm font-bold text-spike-cyan mono">
+                        {scanStatus?.evening.pickCount ?? '—'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Morning Scan */}
+                <div className="glass-card p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-bold text-spike-text-dim uppercase tracking-wider">Morning Scan</h3>
+                    <button
+                      onClick={async () => {
+                        setActionLoading('morning-scan');
+                        try {
+                          const res = await fetch('/api/cron/scan-morning', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'x-cron-secret': 'manual-admin' },
+                          });
+                          const json = await res.json();
+                          if (json.success) {
+                            alert(`Morning scan complete — ${json.pickCount ?? 0} picks`);
+                            fetchData();
+                          } else {
+                            alert(json.error || 'Morning scan failed');
+                          }
+                        } catch { alert('Failed to trigger morning scan'); }
+                        finally { setActionLoading(null); }
+                      }}
+                      disabled={actionLoading === 'morning-scan' || actionLoading === 'evening-scan'}
+                      className="px-3 py-1.5 rounded-lg bg-spike-cyan/10 text-spike-cyan text-xs font-bold hover:bg-spike-cyan/20 transition-all border border-spike-cyan/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {actionLoading === 'morning-scan' ? 'Running...' : 'Run Morning Scan'}
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <p className="text-[9px] text-spike-text-muted uppercase tracking-wider mb-1">Status</p>
+                      <p className={cn('text-sm font-bold mono', {
+                        'text-spike-green': scanStatus?.morning.status === 'ok',
+                        'text-spike-amber': scanStatus?.morning.status === 'running',
+                        'text-spike-red': scanStatus?.morning.status === 'error',
+                        'text-spike-text-dim': !scanStatus?.morning.status || scanStatus?.morning.status === 'never',
+                      })}>
+                        {scanStatus?.morning.status === 'ok' ? 'Complete' : scanStatus?.morning.status === 'running' ? 'Running' : scanStatus?.morning.status === 'error' ? 'Error' : 'Never run'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] text-spike-text-muted uppercase tracking-wider mb-1">Last Run</p>
+                      <p className="text-sm text-spike-text-dim mono">
+                        {scanStatus?.morning.lastRun
+                          ? new Date(scanStatus.morning.lastRun).toLocaleString('en-CA', { timeZone: 'America/Halifax' })
+                          : '—'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] text-spike-text-muted uppercase tracking-wider mb-1">Pick Count</p>
+                      <p className="text-sm font-bold text-spike-cyan mono">
+                        {scanStatus?.morning.pickCount ?? '—'}
+                      </p>
+                    </div>
                   </div>
                 </div>
               </>
