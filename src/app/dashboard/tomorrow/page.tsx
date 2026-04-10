@@ -35,6 +35,18 @@ interface SpikeData {
   historicalConfidence?: number;
   calibrationSamples?: number;
   overconfidenceFlag?: boolean;
+  setupRateCILow?: number;
+  setupRateCIHigh?: number;
+  setupRateRegime?: string;
+  setupMedianMoveOnHits?: number;
+  setupMedianMoveOnMisses?: number;
+  tickerRate?: number;
+  tickerRateSamples?: number;
+  tickerRateCILow?: number;
+  tickerRateCIHigh?: number;
+  tickerMedianMoveOnHits?: number;
+  tickerMedianMoveOnMisses?: number;
+  calibrationReconciliation?: string;
   scanType?: string;
 }
 

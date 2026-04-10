@@ -119,63 +119,65 @@ export default function SpikeCard({ spike, selected, onSelect, onLockIn, selecti
         ))}
       </div>
 
-      {/* Dual confidence meter */}
+      {/* Confidence bars — v6.1 Hit Rate 2.0 */}
       <div className="mt-3">
         <div className="flex justify-between items-center mb-1.5">
           <span className="text-xs text-spike-text-muted uppercase tracking-wider font-medium">Confidence</span>
-          {spike.overconfidenceFlag && (
-            <span className={cn(
-              'text-xs font-medium',
-              spike.spikeScore >= 80 ? 'text-spike-green' : spike.spikeScore >= 60 ? 'text-spike-amber' : 'text-spike-red'
-            )} title="Council confidence exceeds historical hit rate by &gt;10 points">Council Optimistic</span>
-          )}
         </div>
+
         {/* Council bar */}
-        <div className="flex items-center gap-2 mb-1.5">
-          <span className="text-xs text-spike-text-muted w-14 font-medium">Council</span>
-          <div className="flex-1 h-2 bg-spike-bg rounded-full overflow-hidden">
-            <div
-              className="h-full rounded-full transition-all duration-1000"
-              style={{
-                width: `${spike.confidence}%`,
-                background: spike.confidence >= 80
-                  ? 'linear-gradient(90deg, rgba(0,255,136,0.3), #00FF88)'
-                  : spike.confidence >= 60
-                  ? 'linear-gradient(90deg, rgba(255,184,0,0.3), #FFB800)'
-                  : 'linear-gradient(90deg, rgba(255,51,102,0.3), #FF3366)',
-              }}
-            />
+        <div className="mb-1.5">
+          <div className="flex items-center gap-2"
+               title="The 4-model AI council's probability that this stock closes higher in 3 trading days. Higher = more confident, not more accurate. Compare against Setup Rate and the ticker's own rate to see whether history supports the confidence.">
+            <span className="text-xs text-spike-text-muted w-[72px] font-medium truncate">Council</span>
+            <div className="flex-1 h-2 bg-spike-bg rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-1000"
+                style={{
+                  width: `${spike.confidence}%`,
+                  background: spike.confidence >= 80
+                    ? 'linear-gradient(90deg, rgba(0,255,136,0.3), #00FF88)'
+                    : spike.confidence >= 60
+                    ? 'linear-gradient(90deg, rgba(255,184,0,0.3), #FFB800)'
+                    : 'linear-gradient(90deg, rgba(255,51,102,0.3), #FF3366)',
+                }}
+              />
+            </div>
+            <span className="text-xs mono text-spike-text-dim w-9 text-right">{spike.confidence.toFixed(0)}%</span>
           </div>
-          <span className="text-xs mono text-spike-text-dim w-9 text-right">{spike.confidence.toFixed(0)}%</span>
         </div>
-        {/* Smart bar — Institutional Conviction Score (inline "No Scoring" placeholder when insufficient data) */}
-        <div className="flex items-center gap-2 mb-1.5"
-             title={spike.institutionalConvictionScore != null
-               ? "Insider activity, institutional ownership, analyst consensus, and sector strength combined (0-100)"
-               : "No insider trades, institutional ownership, analyst data, or sector relative strength available"}>
-          <span className="text-xs text-spike-text-muted w-14 font-medium">Smart</span>
-          {spike.institutionalConvictionScore != null ? (
-            <>
-              <div className="flex-1 h-2 bg-spike-bg rounded-full overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-all duration-1000 opacity-80"
-                  style={{
-                    width: `${spike.institutionalConvictionScore}%`,
-                    background: spike.institutionalConvictionScore >= 80
-                      ? 'linear-gradient(90deg, rgba(0,255,136,0.3), #00FF88)'
-                      : spike.institutionalConvictionScore >= 60
-                      ? 'linear-gradient(90deg, rgba(255,184,0,0.3), #FFB800)'
-                      : 'linear-gradient(90deg, rgba(255,51,102,0.3), #FF3366)',
-                  }}
-                />
-              </div>
-              <span className="text-xs mono text-spike-text-dim w-9 text-right">{spike.institutionalConvictionScore}%</span>
-            </>
-          ) : (
-            <span className="flex-1 text-xs text-spike-text-muted italic">No Scoring — Insufficient Data</span>
-          )}
+
+        {/* Smart bar */}
+        <div className="mb-1.5">
+          <div className="flex items-center gap-2"
+               title={spike.institutionalConvictionScore != null
+                 ? "Smart-money composite: blends insider trading activity, institutional ownership %, analyst consensus, and sector-relative strength into a 0-100 score."
+                 : "No insider trades, institutional ownership, analyst data, or sector relative strength available"}>
+            <span className="text-xs text-spike-text-muted w-[72px] font-medium truncate">Smart</span>
+            {spike.institutionalConvictionScore != null ? (
+              <>
+                <div className="flex-1 h-2 bg-spike-bg rounded-full overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-1000 opacity-80"
+                    style={{
+                      width: `${spike.institutionalConvictionScore}%`,
+                      background: spike.institutionalConvictionScore >= 80
+                        ? 'linear-gradient(90deg, rgba(0,255,136,0.3), #00FF88)'
+                        : spike.institutionalConvictionScore >= 60
+                        ? 'linear-gradient(90deg, rgba(255,184,0,0.3), #FFB800)'
+                        : 'linear-gradient(90deg, rgba(255,51,102,0.3), #FF3366)',
+                    }}
+                  />
+                </div>
+                <span className="text-xs mono text-spike-text-dim w-9 text-right">{spike.institutionalConvictionScore}%</span>
+              </>
+            ) : (
+              <span className="flex-1 text-xs text-spike-text-muted italic">No Scoring</span>
+            )}
+          </div>
         </div>
-        {/* Hit Rate bar — renamed from History, with low-confidence cue when n<100 and inline placeholder when missing */}
+
+        {/* Setup Rate bar (was "Hit Rate") */}
         {(() => {
           const rate = spike.historicalConfidence;
           const n = spike.calibrationSamples;
@@ -183,38 +185,134 @@ export default function SpikeCard({ spike, selected, onSelect, onLockIn, selecti
 
           if (!hasData) {
             return (
-              <div className="flex items-center gap-2 mb-1.5"
-                   title="No similar historical setups available for calibration">
-                <span className="text-xs text-spike-text-muted w-14 font-medium">Hit Rate</span>
-                <span className="flex-1 text-xs text-spike-text-muted italic">No History — Insufficient Data</span>
+              <div className="mb-1.5">
+                <div className="flex items-center gap-2"
+                     title="No similar historical setups available for calibration">
+                  <span className="text-xs text-spike-text-muted w-[72px] font-medium truncate">Setup Rate</span>
+                  <span className="flex-1 text-xs text-spike-text-muted italic">Insufficient data</span>
+                </div>
               </div>
             );
           }
 
-          const lowSample = n < 100;
-          const opacityClass = lowSample ? 'opacity-30' : 'opacity-60';
-          const labelSuffix = lowSample ? ' ⚠' : '';
-          const tooltipText = lowSample
-            ? `Based on N=${n.toLocaleString()} similar historical setups (low sample — treat as directional only)`
-            : `Based on N=${n.toLocaleString()} similar historical setups`;
+          const suppressed = n < 30;
+          const ciLow = spike.setupRateCILow;
+          const ciHigh = spike.setupRateCIHigh;
+          const regime = spike.setupRateRegime;
+          const hasCi = ciLow != null && ciHigh != null;
+          const tooltipText = `Across the TSX liquid universe, how often ANY stock in this same technical setup historically closed higher 3 days later. Based on 1 year of backtesting across top 250 tickers, segmented by current market regime. n=${n.toLocaleString()}${hasCi ? `, CI ${ciLow!.toFixed(0)}-${ciHigh!.toFixed(0)}%` : ''}${regime ? `, ${regime.replace(/_/g, ' ')}` : ''}`;
 
           return (
-            <div className="flex items-center gap-2" title={tooltipText}>
-              <span className="text-xs text-spike-text-muted w-14 font-medium">Hit Rate{labelSuffix}</span>
-              <div className="flex-1 h-2 bg-spike-bg rounded-full overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all duration-1000 ${opacityClass}`}
-                  style={{
-                    width: `${rate}%`,
-                    background: rate >= 80
-                      ? 'linear-gradient(90deg, rgba(0,255,136,0.3), #00FF88)'
-                      : rate >= 60
-                      ? 'linear-gradient(90deg, rgba(255,184,0,0.3), #FFB800)'
-                      : 'linear-gradient(90deg, rgba(255,51,102,0.3), #FF3366)',
-                  }}
-                />
+            <div className="mb-1.5">
+              <div className="flex items-center gap-2" title={tooltipText}>
+                <span className="text-xs text-spike-text-muted w-[72px] font-medium truncate">Setup Rate</span>
+                {suppressed ? (
+                  <span className="flex-1 text-xs text-spike-text-muted italic">Insufficient data (n={n})</span>
+                ) : (
+                  <>
+                    <div className="flex-1 h-2 bg-spike-bg rounded-full overflow-hidden">
+                      <div
+                        className={cn(
+                          'h-full rounded-full transition-all duration-1000',
+                          n < 100 ? 'opacity-40' : 'opacity-70'
+                        )}
+                        style={{
+                          width: `${rate}%`,
+                          background: rate >= 60
+                            ? 'linear-gradient(90deg, rgba(0,255,136,0.3), #00FF88)'
+                            : rate >= 50
+                            ? 'linear-gradient(90deg, rgba(255,184,0,0.3), #FFB800)'
+                            : 'linear-gradient(90deg, rgba(255,51,102,0.3), #FF3366)',
+                        }}
+                      />
+                    </div>
+                    <span className="text-xs mono text-spike-text-dim w-9 text-right">{rate.toFixed(0)}%</span>
+                  </>
+                )}
               </div>
-              <span className="text-xs mono text-spike-text-dim w-9 text-right">{rate.toFixed(0)}%</span>
+              {!suppressed && (
+                <div className="ml-[80px] text-[10px] text-spike-text-muted leading-tight">
+                  <span>n={n.toLocaleString()}{hasCi ? `, CI ${ciLow!.toFixed(0)}\u2013${ciHigh!.toFixed(0)}%` : ''}{regime ? `, ${regime.replace(/_/g, ' ')}` : ''}</span>
+                </div>
+              )}
+              {!suppressed && (spike.setupMedianMoveOnHits != null || spike.setupMedianMoveOnMisses != null) && (
+                <div className="ml-[80px] text-[10px] leading-tight">
+                  {spike.setupMedianMoveOnHits != null && (
+                    <span className="text-spike-green">Median +{spike.setupMedianMoveOnHits.toFixed(1)}% on hits</span>
+                  )}
+                  {spike.setupMedianMoveOnHits != null && spike.setupMedianMoveOnMisses != null && (
+                    <span className="text-spike-text-muted">, </span>
+                  )}
+                  {spike.setupMedianMoveOnMisses != null && (
+                    <span className="text-spike-red">{spike.setupMedianMoveOnMisses.toFixed(1)}% on misses</span>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* Ticker Rate bar (Tier B — per-stock) */}
+        {(() => {
+          const rate = spike.tickerRate;
+          const n = spike.tickerRateSamples;
+          const hasData = rate != null && n != null && n > 0;
+
+          if (!hasData) {
+            return (
+              <div className="mb-1.5">
+                <div className="flex items-center gap-2"
+                     title={`How often ${spike.ticker} specifically went up in 3 days after showing its current technical setup. Insufficient history means fewer than 5 matching days in the last 130 trading days.`}>
+                  <span className="text-xs text-spike-text-muted w-[72px] font-medium truncate">{spike.ticker.replace('.TO', '')}</span>
+                  <span className="flex-1 text-xs text-spike-text-muted italic">Insufficient history</span>
+                </div>
+              </div>
+            );
+          }
+
+          const ciLow = spike.tickerRateCILow;
+          const ciHigh = spike.tickerRateCIHigh;
+          const hasCi = ciLow != null && ciHigh != null;
+          const tooltipText = `How often ${spike.ticker} specifically went up in 3 days after showing its current technical setup, based on ${spike.ticker}'s own last 130 trading days. n=${n}${hasCi ? `, CI ${ciLow!.toFixed(0)}-${ciHigh!.toFixed(0)}%` : ''}. When above the Setup Rate, it's a tailwind; when below, it's a red flag.`;
+
+          return (
+            <div className="mb-1.5">
+              <div className="flex items-center gap-2" title={tooltipText}>
+                <span className="text-xs text-spike-text-muted w-[72px] font-medium truncate">{spike.ticker.replace('.TO', '')}</span>
+                <div className="flex-1 h-2 bg-spike-bg rounded-full overflow-hidden">
+                  <div
+                    className={cn(
+                      'h-full rounded-full transition-all duration-1000',
+                      n < 20 ? 'opacity-40' : 'opacity-70'
+                    )}
+                    style={{
+                      width: `${rate}%`,
+                      background: rate >= 60
+                        ? 'linear-gradient(90deg, rgba(0,255,136,0.3), #00FF88)'
+                        : rate >= 50
+                        ? 'linear-gradient(90deg, rgba(255,184,0,0.3), #FFB800)'
+                        : 'linear-gradient(90deg, rgba(255,51,102,0.3), #FF3366)',
+                    }}
+                  />
+                </div>
+                <span className="text-xs mono text-spike-text-dim w-9 text-right">{rate.toFixed(0)}%</span>
+              </div>
+              <div className="ml-[80px] text-[10px] text-spike-text-muted leading-tight">
+                <span>n={n}{hasCi ? `, CI ${ciLow!.toFixed(0)}\u2013${ciHigh!.toFixed(0)}%` : ''}</span>
+              </div>
+              {(spike.tickerMedianMoveOnHits != null || spike.tickerMedianMoveOnMisses != null) && (
+                <div className="ml-[80px] text-[10px] leading-tight">
+                  {spike.tickerMedianMoveOnHits != null && (
+                    <span className="text-spike-green">Median +{spike.tickerMedianMoveOnHits.toFixed(1)}% on hits</span>
+                  )}
+                  {spike.tickerMedianMoveOnHits != null && spike.tickerMedianMoveOnMisses != null && (
+                    <span className="text-spike-text-muted">, </span>
+                  )}
+                  {spike.tickerMedianMoveOnMisses != null && (
+                    <span className="text-spike-red">{spike.tickerMedianMoveOnMisses.toFixed(1)}% on misses</span>
+                  )}
+                </div>
+              )}
             </div>
           );
         })()}
@@ -232,6 +330,11 @@ export default function SpikeCard({ spike, selected, onSelect, onLockIn, selecti
             <span className="text-[10px] text-spike-cyan uppercase tracking-wider font-semibold">Why This Stock?</span>
           </div>
           <p className="text-sm text-spike-text-dim leading-relaxed">{spike.narrative}</p>
+          {spike.calibrationReconciliation && (
+            <p className="text-xs text-spike-text-muted mt-2 pt-2 border-t border-spike-border/20 leading-relaxed italic">
+              {spike.calibrationReconciliation}
+            </p>
+          )}
         </div>
       )}
 
