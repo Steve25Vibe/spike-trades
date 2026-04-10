@@ -131,6 +131,9 @@ export default function AdminPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [calibrationStatus, setCalibrationStatus] = useState<any>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -1357,6 +1360,39 @@ export default function AdminPage() {
             </div>
           </div>
         )}
+
+        {/* Calibration Status */}
+        <div className="glass-card p-6">
+          <h2 className="text-lg font-bold text-spike-text mb-4">Calibration Engine</h2>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={async () => {
+                setRefreshing(true);
+                try {
+                  const res = await fetch('/api/admin/calibration/refresh', { method: 'POST' });
+                  const data = await res.json();
+                  setCalibrationStatus(data);
+                } catch (e) {
+                  setCalibrationStatus({ error: String(e) });
+                } finally {
+                  setRefreshing(false);
+                }
+              }}
+              disabled={refreshing}
+              className="px-4 py-2 rounded-lg text-sm font-medium bg-spike-cyan/10 text-spike-cyan border border-spike-cyan/20 hover:bg-spike-cyan/20 disabled:opacity-50"
+            >
+              {refreshing ? 'Running backtest...' : 'Refresh Calibration'}
+            </button>
+            <span className="text-xs text-spike-text-muted">
+              Sunday 04:00 ADT auto-refresh · ~70 min runtime
+            </span>
+          </div>
+          {calibrationStatus && (
+            <pre className="mt-4 text-xs text-spike-text-dim bg-spike-bg/50 rounded p-3 overflow-auto">
+              {JSON.stringify(calibrationStatus, null, 2)}
+            </pre>
+          )}
+        </div>
 
         <div className="legal-footer">
           <p className="mt-2">&copy; {new Date().getFullYear()} Spike Trades — spiketrades.ca &middot; Ver 6.0</p>
