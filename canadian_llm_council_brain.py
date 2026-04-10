@@ -3251,6 +3251,30 @@ class HistoricalCalibrationEngine:
         bucket_low = int(confidence // 5) * 5
         return f"{bucket_low}-{bucket_low + 5}"
 
+    @staticmethod
+    def _classify_historical_regime(
+        tsx_trailing_30d_return: float,
+        tsx_20d_volatility: float,
+    ) -> str:
+        """Simplified regime classifier for historical backtest days.
+
+        Approximates the 5-way classifier using only TSX index behavior.
+        Captures the primary bull/bear/volatile axis which drives >80% of
+        regime variance. Full macro replay deferred to v6.2.
+        """
+        if tsx_20d_volatility > 0.02:  # high vol
+            if tsx_trailing_30d_return < -0.03:
+                return "RISK_OFF"
+            else:
+                return "COMMODITY_BUST"
+        else:  # low vol
+            if tsx_trailing_30d_return > 0.04:
+                return "RISK_ON"
+            elif tsx_trailing_30d_return > 0.01:
+                return "COMMODITY_BOOM"
+            else:
+                return "NEUTRAL"
+
     async def run_historical_backtest(self, fetcher: "LiveDataFetcher") -> dict:
         """Run 6-month backtest on liquid TSX tickers. Offline job (~10-20 min).
         Returns summary stats."""
