@@ -125,6 +125,27 @@ cron.schedule(
   { timezone: TIMEZONE }
 );
 
+// ── Weekly calibration backtest refresh (Sunday 04:00 ADT / 07:00 UTC) ──
+cron.schedule(
+  '0 4 * * 0',
+  async () => {
+    const label = 'calibration-refresh';
+    console.log(`[${label}] Triggering weekly calibration backtest refresh`);
+    try {
+      const result = await httpRequest(`${councilUrl}/calibration-refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 5_400_000, // 90 min timeout
+      });
+      console.log(`[${label}] Status: ${result.status}, Body: ${result.body}`);
+    } catch (err) {
+      console.error(`[${label}] Failed:`, err);
+    }
+  },
+  { timezone: TIMEZONE }
+);
+console.log('[cron] Calibration refresh: Sunday 04:00 ADT');
+
 console.log(`[Cron] All schedules registered. Waiting for triggers...`);
 
 // Keep process alive

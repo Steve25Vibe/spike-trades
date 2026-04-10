@@ -198,6 +198,29 @@ model Spike {
   overconfidenceFlag           Boolean? // true if council >> history
   institutionalConvictionScore Int? // IIC 0-100; null for legacy rows
 
+  // ── v6.1 Hit Rate 2.0 ──
+  // Tier A — Setup Rate confidence interval
+  setupRateCILow               Float?
+  setupRateCIHigh               Float?
+
+  // Tier B — Per-stock ticker rate
+  tickerRate                    Float?
+  tickerRateSamples             Int?
+  tickerRateCILow               Float?
+  tickerRateCIHigh              Float?
+  tickerMedianMoveOnHits        Float?
+  tickerMedianMoveOnMisses      Float?
+
+  // Tier C — Regime label for display
+  setupRateRegime               String?
+
+  // Tier D — Setup Rate median moves
+  setupMedianMoveOnHits         Float?
+  setupMedianMoveOnMisses       Float?
+
+  // Tier F — Grok calibration reconciliation narrative
+  calibrationReconciliation     String?  @db.Text
+
   // Learning engine adjustments
   learningAdjustments String? // JSON blob of per-pick learning adjustments
 

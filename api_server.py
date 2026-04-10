@@ -502,6 +502,18 @@ async def run_backtest():
         raise HTTPException(500, f"Backtest failed: {e}")
 
 
+@app.post("/calibration-refresh")
+async def calibration_refresh():
+    """Run the historical calibration backtest (Tier E weekly refresh)."""
+    try:
+        brain = _get_brain()
+        result = await brain.calibration_engine.run_historical_backtest(brain.fetcher)
+        return {"success": True, "result": result}
+    except Exception as e:
+        logger.error(f"Calibration refresh failed: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
 @app.get("/calibration-status")
 async def calibration_status():
     """Return calibration engine status."""

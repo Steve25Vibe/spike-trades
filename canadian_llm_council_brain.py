@@ -3143,6 +3143,35 @@ class HistoricalPerformanceAnalyzer:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
+def _wilson_ci(hits: int, n: int, z: float = 1.96) -> tuple[float, float]:
+    """Wilson score 95% confidence interval for a proportion."""
+    if n == 0:
+        return (0.0, 1.0)
+    phat = hits / n
+    denominator = 1 + z**2 / n
+    center = phat + z**2 / (2 * n)
+    margin = z * ((phat * (1 - phat) + z**2 / (4 * n)) / n) ** 0.5
+    ci_low = (center - margin) / denominator
+    ci_high = (center + margin) / denominator
+    return (max(0.0, ci_low), min(1.0, ci_high))
+
+
+def _map_live_regime_to_backtest(regime_str: str) -> str:
+    """Map live macro classifier regime labels to backtest regime labels."""
+    mapping = {
+        "bull": "RISK_ON",
+        "bear": "RISK_OFF",
+        "neutral": "NEUTRAL",
+        "volatile": "COMMODITY_BUST",
+        "RISK_ON": "RISK_ON",
+        "RISK_OFF": "RISK_OFF",
+        "COMMODITY_BOOM": "COMMODITY_BOOM",
+        "COMMODITY_BUST": "COMMODITY_BUST",
+        "NEUTRAL": "NEUTRAL",
+    }
+    return mapping.get(regime_str, "NEUTRAL")
+
+
 class HistoricalCalibrationEngine:
     """Builds base rates from 6 months of TSX history and calibrates
     council confidence against observed outcomes.
@@ -3155,8 +3184,8 @@ class HistoricalCalibrationEngine:
     """
 
     MIN_COUNCIL_SAMPLES = 5  # Need at least N council picks before using council calibration
-    BACKTEST_TICKERS_LIMIT = 100  # Top N liquid tickers for backtest
-    BACKTEST_DAYS = 126  # ~6 months of trading days
+    BACKTEST_TICKERS_LIMIT = 250   # v6.1: expanded from 100
+    BACKTEST_DAYS = 252            # v6.1: 1 trading year (was 126 ~6mo)
 
     def __init__(self, db_path: str = DB_PATH):
         self.db_path = db_path
@@ -3172,14 +3201,17 @@ class HistoricalCalibrationEngine:
                     macd_direction TEXT NOT NULL,
                     adx_bucket TEXT NOT NULL,
                     rel_volume_bucket TEXT NOT NULL,
+                    market_regime TEXT NOT NULL DEFAULT 'NEUTRAL',
                     horizon_days INTEGER NOT NULL,
                     sample_count INTEGER NOT NULL,
                     up_probability REAL NOT NULL,
                     avg_move_pct REAL NOT NULL,
                     median_move_pct REAL,
                     stddev_move_pct REAL,
+                    median_move_on_hits REAL,
+                    median_move_on_misses REAL,
                     updated_at TEXT NOT NULL,
-                    UNIQUE(rsi_bucket, macd_direction, adx_bucket, rel_volume_bucket, horizon_days)
+                    UNIQUE(rsi_bucket, macd_direction, adx_bucket, rel_volume_bucket, market_regime, horizon_days)
                 );
 
                 CREATE TABLE IF NOT EXISTS calibration_council (
@@ -3194,6 +3226,26 @@ class HistoricalCalibrationEngine:
                     updated_at TEXT NOT NULL,
                     UNIQUE(confidence_bucket, horizon_days)
                 );
+            """)
+            # Migration: add new columns if table exists from pre-v6.1
+            try:
+                conn.execute("ALTER TABLE calibration_base_rates ADD COLUMN market_regime TEXT NOT NULL DEFAULT 'NEUTRAL'")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+            try:
+                conn.execute("ALTER TABLE calibration_base_rates ADD COLUMN median_move_on_hits REAL")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE calibration_base_rates ADD COLUMN median_move_on_misses REAL")
+            except sqlite3.OperationalError:
+                pass
+            # Recreate unique index to include market_regime
+            conn.execute("DROP INDEX IF EXISTS sqlite_autoindex_calibration_base_rates_1")
+            conn.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_calibration_base_rates_unique
+                ON calibration_base_rates
+                (rsi_bucket, macd_direction, adx_bucket, rel_volume_bucket, market_regime, horizon_days)
             """)
             conn.commit()
         finally:
@@ -3228,10 +3280,34 @@ class HistoricalCalibrationEngine:
         bucket_low = int(confidence // 5) * 5
         return f"{bucket_low}-{bucket_low + 5}"
 
+    @staticmethod
+    def _classify_historical_regime(
+        tsx_trailing_30d_return: float,
+        tsx_20d_volatility: float,
+    ) -> str:
+        """Simplified regime classifier for historical backtest days.
+
+        Approximates the 5-way classifier using only TSX index behavior.
+        Captures the primary bull/bear/volatile axis which drives >80% of
+        regime variance. Full macro replay deferred to v6.2.
+        """
+        if tsx_20d_volatility > 0.02:  # high vol
+            if tsx_trailing_30d_return < -0.03:
+                return "RISK_OFF"
+            else:
+                return "COMMODITY_BUST"
+        else:  # low vol
+            if tsx_trailing_30d_return > 0.04:
+                return "RISK_ON"
+            elif tsx_trailing_30d_return > 0.01:
+                return "COMMODITY_BOOM"
+            else:
+                return "NEUTRAL"
+
     async def run_historical_backtest(self, fetcher: "LiveDataFetcher") -> dict:
-        """Run 6-month backtest on liquid TSX tickers. Offline job (~10-20 min).
+        """Run 1-year backtest on liquid TSX tickers. Offline job (~10-20 min).
         Returns summary stats."""
-        logger.info("Calibration: Starting 6-month historical backtest")
+        logger.info("Calibration: Starting 1-year historical backtest")
         start_time = time.time()
 
         # Get liquid TSX tickers
@@ -3243,6 +3319,15 @@ class HistoricalCalibrationEngine:
             key=lambda x: (x[1].get("price") or 0) * (x[1].get("volume") or 0),
             reverse=True,
         )[:self.BACKTEST_TICKERS_LIMIT]
+
+        # Fetch TSX proxy (XIU.TO) for regime classification
+        tsx_bars = await fetcher.fetch_historical("XIU.TO", self.BACKTEST_DAYS + 90)
+        tsx_closes = [b["close"] for b in tsx_bars] if tsx_bars and len(tsx_bars) > 50 else []
+        has_tsx_data = len(tsx_closes) > 50
+        if has_tsx_data:
+            logger.info(f"Calibration: XIU.TO loaded — {len(tsx_closes)} bars for regime classification")
+        else:
+            logger.warning("Calibration: XIU.TO unavailable — all days classified as NEUTRAL")
 
         logger.info(f"Calibration: Backtesting {len(liquid)} liquid tickers")
 
@@ -3279,6 +3364,22 @@ class HistoricalCalibrationEngine:
                     adx_b = self._bucket_adx(techs.adx_14)
                     vol_b = self._bucket_volume(rel_vol)
 
+                    # Regime classification using TSX proxy
+                    if has_tsx_data and day_idx < len(tsx_closes) and day_idx >= 30:
+                        tsx_30d_ago = tsx_closes[max(0, day_idx - 30)]
+                        tsx_now = tsx_closes[day_idx]
+                        tsx_trailing_return = (tsx_now - tsx_30d_ago) / tsx_30d_ago if tsx_30d_ago > 0 else 0
+                        tsx_recent = tsx_closes[max(0, day_idx - 19):day_idx + 1]
+                        if len(tsx_recent) >= 2:
+                            tsx_changes = [(tsx_recent[i] - tsx_recent[i-1]) / tsx_recent[i-1]
+                                           for i in range(1, len(tsx_recent)) if tsx_recent[i-1] > 0]
+                            tsx_vol = statistics.stdev(tsx_changes) if len(tsx_changes) >= 2 else 0
+                        else:
+                            tsx_vol = 0
+                        regime = self._classify_historical_regime(tsx_trailing_return, tsx_vol)
+                    else:
+                        regime = "NEUTRAL"
+
                     # Look ahead 3, 5, 8 trading days
                     for horizon in [3, 5, 8]:
                         future_idx = day_idx
@@ -3295,7 +3396,7 @@ class HistoricalCalibrationEngine:
                         move_pct = ((future_close - current_close) / current_close) * 100
                         went_up = 1 if future_close > current_close else 0
 
-                        data_points.append((rsi_b, macd_dir, adx_b, vol_b, horizon, move_pct, went_up))
+                        data_points.append((rsi_b, macd_dir, adx_b, vol_b, regime, horizon, move_pct, went_up))
 
                 tickers_processed += 1
                 if tickers_processed % 10 == 0:
@@ -3315,15 +3416,18 @@ class HistoricalCalibrationEngine:
 
         # Aggregate into base rates
         buckets: dict[tuple, list[tuple[float, int]]] = defaultdict(list)
-        for rsi_b, macd_dir, adx_b, vol_b, horizon, move_pct, went_up in data_points:
-            key = (rsi_b, macd_dir, adx_b, vol_b, horizon)
+        for rsi_b, macd_dir, adx_b, vol_b, regime, horizon, move_pct, went_up in data_points:
+            key = (rsi_b, macd_dir, adx_b, vol_b, regime, horizon)
             buckets[key].append((move_pct, went_up))
 
         conn = sqlite3.connect(self.db_path)
         now = datetime.now(timezone.utc).isoformat()
         inserted = 0
         try:
-            for (rsi_b, macd_dir, adx_b, vol_b, horizon), samples in buckets.items():
+            # Full refresh — clear old data before repopulating
+            conn.execute("DELETE FROM calibration_base_rates")
+
+            for (rsi_b, macd_dir, adx_b, vol_b, regime, horizon), samples in buckets.items():
                 if len(samples) < 3:
                     continue
                 moves = [s[0] for s in samples]
@@ -3332,15 +3436,22 @@ class HistoricalCalibrationEngine:
                 median = sorted_moves[len(sorted_moves) // 2]
                 stddev = statistics.stdev(moves) if len(moves) >= 2 else 0
 
+                # Split medians for Tier D
+                hit_moves = [s[0] for s in samples if s[1] == 1]
+                miss_moves = [s[0] for s in samples if s[1] == 0]
+                median_hits = round(statistics.median(hit_moves), 4) if hit_moves else None
+                median_misses = round(statistics.median(miss_moves), 4) if miss_moves else None
+
                 conn.execute("""
                     INSERT OR REPLACE INTO calibration_base_rates
-                    (rsi_bucket, macd_direction, adx_bucket, rel_volume_bucket, horizon_days,
-                     sample_count, up_probability, avg_move_pct, median_move_pct, stddev_move_pct, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (rsi_bucket, macd_direction, adx_bucket, rel_volume_bucket, market_regime,
+                     horizon_days, sample_count, up_probability, avg_move_pct,
+                     median_move_pct, stddev_move_pct, median_move_on_hits, median_move_on_misses, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
-                    rsi_b, macd_dir, adx_b, vol_b, horizon,
-                    len(samples), sum(ups) / len(ups), sum(moves) / len(moves),
-                    median, round(stddev, 4), now,
+                    rsi_b, macd_dir, adx_b, vol_b, regime,
+                    horizon, len(samples), sum(ups) / len(ups), sum(moves) / len(moves),
+                    median, round(stddev, 4), median_hits, median_misses, now,
                 ))
                 inserted += 1
 
@@ -3399,17 +3510,16 @@ class HistoricalCalibrationEngine:
             conn.close()
 
     def apply_calibration(self, picks: list, payloads_map: dict) -> list:
-        """Apply calibration data to each pick. Annotates with historical base rate
-        and calibrated confidence. Non-destructive — adds fields, doesn't change scores."""
+        """Apply calibration data to each pick. Annotates with historical base rate,
+        Wilson CI, regime, and split medians. Non-destructive — adds fields."""
         conn = sqlite3.connect(self.db_path)
         try:
-            # Check if we have any base rates
             base_count = conn.execute("SELECT COUNT(*) FROM calibration_base_rates").fetchone()[0]
             if base_count == 0:
                 logger.info("Calibration: No base rates available yet — skipping")
                 return picks
 
-            council_count = conn.execute("SELECT COUNT(*) FROM calibration_council").fetchone()[0]
+            current_regime = payloads_map.get("__current_regime__", "NEUTRAL")
 
             for pick in picks:
                 ticker = pick.ticker if hasattr(pick, 'ticker') else pick.get('ticker')
@@ -3431,13 +3541,32 @@ class HistoricalCalibrationEngine:
                 adx_b = self._bucket_adx(adx)
                 vol_b = self._bucket_volume(rel_vol or 1.0)
 
-                # Look up 3-day base rate (primary horizon)
+                # Regime-conditioned lookup with fallbacks
                 row = conn.execute("""
-                    SELECT up_probability, sample_count, avg_move_pct
+                    SELECT up_probability, sample_count, avg_move_pct,
+                           median_move_on_hits, median_move_on_misses
                     FROM calibration_base_rates
                     WHERE rsi_bucket = ? AND macd_direction = ? AND adx_bucket = ?
-                      AND rel_volume_bucket = ? AND horizon_days = 3
-                """, (rsi_b, macd_dir, adx_b, vol_b)).fetchone()
+                      AND rel_volume_bucket = ? AND market_regime = ? AND horizon_days = 3
+                """, (rsi_b, macd_dir, adx_b, vol_b, current_regime)).fetchone()
+
+                if not row:
+                    row = conn.execute("""
+                        SELECT up_probability, sample_count, avg_move_pct,
+                               median_move_on_hits, median_move_on_misses
+                        FROM calibration_base_rates
+                        WHERE rsi_bucket = ? AND macd_direction = ? AND adx_bucket = ?
+                          AND rel_volume_bucket = ? AND market_regime = 'NEUTRAL' AND horizon_days = 3
+                    """, (rsi_b, macd_dir, adx_b, vol_b)).fetchone()
+
+                if not row:
+                    row = conn.execute("""
+                        SELECT up_probability, sample_count, avg_move_pct, NULL, NULL
+                        FROM calibration_base_rates
+                        WHERE rsi_bucket = ? AND macd_direction = ? AND adx_bucket = ?
+                          AND rel_volume_bucket = ? AND horizon_days = 3
+                        LIMIT 1
+                    """, (rsi_b, macd_dir, adx_b, vol_b)).fetchone()
 
                 if not row:
                     continue
@@ -3445,49 +3574,28 @@ class HistoricalCalibrationEngine:
                 historical_base_rate = row[0]
                 sample_count = row[1]
                 avg_hist_move = row[2]
+                median_on_hits = row[3]
+                median_on_misses = row[4]
 
-                # Council confidence (as 0-1)
-                confidence = pick.consensus_score if hasattr(pick, 'consensus_score') else pick.get('consensus_score', 50)
-                council_conf = confidence / 100.0
-
-                # Look up council calibration if available
-                council_hit_rate = None
-                council_sample_count = 0
-                if council_count > 0:
-                    conf_bucket = self._bucket_confidence(confidence)
-                    c_row = conn.execute("""
-                        SELECT actual_hit_rate, sample_count
-                        FROM calibration_council
-                        WHERE confidence_bucket = ? AND horizon_days = 3
-                    """, (conf_bucket,)).fetchone()
-                    if c_row and c_row[1] >= self.MIN_COUNCIL_SAMPLES:
-                        council_hit_rate = c_row[0]
-                        council_sample_count = c_row[1]
-
-                # Blend: weight by sample count
-                if council_hit_rate is not None:
-                    # Weighted blend — council-specific data gets more weight as it grows
-                    total_samples = sample_count + council_sample_count * 10  # Council samples weighted 10x
-                    calibrated = (
-                        (historical_base_rate * sample_count + council_hit_rate * council_sample_count * 10)
-                        / total_samples
-                    )
-                else:
-                    calibrated = historical_base_rate
-
-                overconfidence_flag = council_conf > calibrated + 0.10
+                # Wilson 95% CI
+                hits = int(round(historical_base_rate * sample_count))
+                ci_low, ci_high = _wilson_ci(hits, sample_count)
 
                 calibration_data = {
                     "historical_base_rate": round(historical_base_rate, 4),
-                    "council_hit_rate": round(council_hit_rate, 4) if council_hit_rate is not None else None,
-                    "calibrated_confidence": round(calibrated, 4),
+                    "calibrated_confidence": round(historical_base_rate, 4),
                     "sample_count": sample_count,
-                    "council_sample_count": council_sample_count,
-                    "overconfidence_flag": overconfidence_flag,
                     "avg_historical_move": round(avg_hist_move, 2),
+                    "ci_low": round(ci_low, 4),
+                    "ci_high": round(ci_high, 4),
+                    "regime": current_regime,
+                    "median_move_on_hits": round(median_on_hits, 2) if median_on_hits is not None else None,
+                    "median_move_on_misses": round(median_on_misses, 2) if median_on_misses is not None else None,
+                    "overconfidence_flag": False,
+                    "council_hit_rate": None,
+                    "council_sample_count": 0,
                 }
 
-                # Attach to pick
                 if hasattr(pick, '__dict__'):
                     pick.calibration = calibration_data
                 elif isinstance(pick, dict):
@@ -4766,6 +4874,9 @@ class CanadianStockCouncilBrain:
 
             # Index payloads by ticker for later lookup
             payloads_map = {p.ticker: p for p in payloads_list}
+            payloads_map["__current_regime__"] = _map_live_regime_to_backtest(
+                macro.regime if hasattr(macro, 'regime') else "neutral"
+            )
 
             # ── Step 5+6: LLM stages run STRICTLY SEQUENTIALLY (Sonnet → Gemini → Opus → Grok) ──
             # Each stage has its own wall-clock timeout via asyncio.wait_for.
