@@ -3605,6 +3605,76 @@ class HistoricalCalibrationEngine:
         finally:
             conn.close()
 
+    async def compute_ticker_rate(
+        self,
+        fetcher: "LiveDataFetcher",
+        ticker: str,
+        current_bucket_key: tuple[str, str, str, str],
+    ) -> Optional[dict]:
+        """Compute THIS stock's personal hit rate at its current setup.
+
+        Fetches 130 trading days of history, computes per-day bucket keys,
+        counts matches to current bucket, returns direction + magnitude stats.
+
+        Returns None if insufficient history or <5 matching days (Tier B floor).
+        """
+        bars = await fetcher.fetch_historical(ticker, 130 + 8)
+        if not bars or len(bars) < 50:
+            return None
+
+        matches_up = 0
+        matches_total = 0
+        hit_moves: list[float] = []
+        miss_moves: list[float] = []
+
+        closes = [b["close"] for b in bars]
+        volumes = [b.get("volume") or 0 for b in bars]
+
+        for day_idx in range(50, len(bars) - 3):
+            sub_bars = bars[:day_idx + 1]
+            techs = LiveDataFetcher.compute_technicals(sub_bars)
+            if not techs:
+                continue
+
+            vol_sma_20 = sum(volumes[max(0, day_idx - 19):day_idx + 1]) / min(20, day_idx + 1)
+            rel_vol = volumes[day_idx] / vol_sma_20 if vol_sma_20 > 0 else 1.0
+
+            day_bucket = (
+                self._bucket_rsi(techs.rsi_14),
+                "positive" if techs.macd_line > 0 else "negative",
+                self._bucket_adx(techs.adx_14),
+                self._bucket_volume(rel_vol),
+            )
+
+            if day_bucket != current_bucket_key:
+                continue
+
+            future_close = closes[day_idx + 3]
+            current_close = closes[day_idx]
+            if current_close <= 0:
+                continue
+            move_pct = (future_close - current_close) / current_close * 100.0
+            matches_total += 1
+            if future_close > current_close:
+                matches_up += 1
+                hit_moves.append(move_pct)
+            else:
+                miss_moves.append(move_pct)
+
+        if matches_total < 5:
+            return None
+
+        ci_low, ci_high = _wilson_ci(matches_up, matches_total)
+
+        return {
+            "rate": round(matches_up / matches_total * 100, 1),
+            "samples": matches_total,
+            "ci_low": round(ci_low * 100, 1),
+            "ci_high": round(ci_high * 100, 1),
+            "median_move_on_hits": round(statistics.median(hit_moves), 2) if hit_moves else None,
+            "median_move_on_misses": round(statistics.median(miss_moves), 2) if miss_moves else None,
+        }
+
     def get_calibration_status(self) -> dict:
         """Return calibration engine status for admin display."""
         conn = sqlite3.connect(self.db_path)
@@ -4878,6 +4948,44 @@ class CanadianStockCouncilBrain:
                 macro.regime if hasattr(macro, 'regime') else "neutral"
             )
 
+            # ── Step 4g-bis: Per-stock ticker rate (Tier B) ──
+            logger.info(f"Step 4g-bis: Computing per-stock ticker rates for {len(payloads_list)} tickers")
+            ticker_rate_map: dict[str, dict] = {}
+            ticker_rate_sem = asyncio.Semaphore(5)
+
+            async def _compute_one_ticker_rate(p):
+                async with ticker_rate_sem:
+                    techs = p.technicals
+                    if not techs:
+                        return
+                    rsi = techs.rsi_14 if hasattr(techs, 'rsi_14') else techs.get('rsi_14', 50)
+                    macd = techs.macd_line if hasattr(techs, 'macd_line') else techs.get('macd_line', 0)
+                    adx = techs.adx_14 if hasattr(techs, 'adx_14') else techs.get('adx_14', 15)
+                    rel_vol = techs.relative_volume if hasattr(techs, 'relative_volume') else techs.get('relative_volume', 1.0)
+
+                    bucket_key = (
+                        HistoricalCalibrationEngine._bucket_rsi(rsi),
+                        "positive" if macd > 0 else "negative",
+                        HistoricalCalibrationEngine._bucket_adx(adx),
+                        HistoricalCalibrationEngine._bucket_volume(rel_vol or 1.0),
+                    )
+                    try:
+                        result = await self.calibration_engine.compute_ticker_rate(
+                            self.fetcher, p.ticker, bucket_key
+                        )
+                        if result is not None:
+                            ticker_rate_map[p.ticker] = result
+                    except Exception as e:
+                        logger.warning(f"Ticker rate failed for {p.ticker}: {e}")
+
+            await asyncio.gather(*[_compute_one_ticker_rate(p) for p in payloads_list])
+            logger.info(
+                f"Step 4g-bis: Ticker rate computed for {len(ticker_rate_map)}/{len(payloads_list)} tickers"
+            )
+
+            # Store in payloads_map for downstream access (Tier F prompt, Prisma mapping)
+            payloads_map["__ticker_rates__"] = ticker_rate_map
+
             # ── Step 5+6: LLM stages run STRICTLY SEQUENTIALLY (Sonnet → Gemini → Opus → Grok) ──
             # Each stage has its own wall-clock timeout via asyncio.wait_for.
             # Partial results are preserved in function-scope accumulators if a timeout fires.
@@ -5191,6 +5299,16 @@ class CanadianStockCouncilBrain:
                 self.calibration_engine.apply_calibration(top_picks, payloads_map)
             except Exception as e:
                 logger.warning(f"Calibration failed (non-fatal): {e}")
+
+            # Attach ticker rates to picks for Prisma mapping
+            ticker_rates = payloads_map.get("__ticker_rates__", {})
+            for pick in top_picks:
+                ticker = pick.ticker if hasattr(pick, 'ticker') else pick.get('ticker')
+                if ticker and ticker in ticker_rates:
+                    if hasattr(pick, '__dict__'):
+                        pick.ticker_rate = ticker_rates[ticker]
+                    elif isinstance(pick, dict):
+                        pick["ticker_rate"] = ticker_rates[ticker]
 
             # ── Step 11: Historical edge multipliers (now applied in _build_consensus before ranking) ──
             logger.info("Step 11: Applying historical edge multipliers")
