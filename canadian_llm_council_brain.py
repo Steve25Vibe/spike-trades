@@ -1019,9 +1019,9 @@ async def fetch_institutional_ownership(
     /symbol-ownership, /institutional-holders, /institutional-stock-ownership,
     /institutional-ownership, /institutional-ownership-extract) all returned HTTP 404.
 
-    Returns None unconditionally so the consensus path sees no institutional signal.
-    Tracked as a v6.1 follow-up: either find the current FMP endpoint on Ultimate
-    tier, or switch source to EODHD institutional data.
+    Returns None unconditionally. Institutional ownership is now sourced from
+    EODHD SharesStats.PercentInstitutions in Step 4f (zero new API calls).
+    This function is retained as a dead stub for the FMP path.
     """
     return None
 
@@ -4702,12 +4702,23 @@ class CanadianStockCouncilBrain:
                     p.analyst_consensus = analyst_map[p.ticker]
                 if p.ticker in institutional_map:
                     p.institutional_ownership_pct = institutional_map[p.ticker]
+                # EODHD institutional fallback — extract SharesStats.PercentInstitutions
+                # from the already-fetched fundamentals response. Zero new API calls.
+                if p.institutional_ownership_pct is None and p.ticker in eodhd_map:
+                    fundamentals = eodhd_map[p.ticker].get("fundamentals", {})
+                    shares_stats = fundamentals.get("SharesStats", {})
+                    pct = shares_stats.get("PercentInstitutions")
+                    if pct is not None and isinstance(pct, (int, float)) and pct > 0:
+                        p.institutional_ownership_pct = float(pct)
                 p.sector_relative_strength = rel_strength_map.get(p.ticker)
+            eodhd_inst_count = sum(
+                1 for p in payloads_list if p.institutional_ownership_pct is not None
+            )
             logger.info(
                 f"Step 4f: Signals attached — "
                 f"{len(earnings_map)} earnings, {len(insider_map)} insider, "
                 f"{len(analyst_map)} analyst, "
-                f"institutional disabled (FMP v4 deprecated 2025-08-31), "
+                f"{eodhd_inst_count} institutional (EODHD SharesStats), "
                 f"{len(rel_strength_map)} sector-rel"
             )
 
