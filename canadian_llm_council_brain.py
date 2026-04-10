@@ -2031,7 +2031,7 @@ async def run_stage4_grok(
                 model="grok-4.20-multi-agent-0309",
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
-                max_tokens=16384,
+                max_tokens=16000,
                 reasoning_effort="high",
             )
             stage_tokens["input_tokens"] += _usage.get("input_tokens", 0)
