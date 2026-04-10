@@ -10,15 +10,17 @@ export async function GET(request: NextRequest) {
 
   const searchParams = request.nextUrl.searchParams;
   const dateStr = searchParams.get('date');
+  const scanTypeParam = searchParams.get('scanType') || 'MORNING'; // backward compat: default MORNING
+  const scanType = scanTypeParam === 'EVENING' ? 'EVENING' : 'MORNING';
   const date = dateStr ? new Date(dateStr) : new Date();
 
   // Normalize to date only
   const targetDate = new Date(date.toISOString().split('T')[0]);
 
   try {
-    // Try exact date first
+    // Try exact date + scanType first
     let report = await prisma.dailyReport.findUnique({
-      where: { date: targetDate },
+      where: { date_scanType: { date: targetDate, scanType } },
       include: {
         spikes: {
           orderBy: { rank: 'asc' },
@@ -26,10 +28,10 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    // If no report for today and no specific date was requested, fall back to most recent
+    // If no report for today and no specific date was requested, fall back to most recent of the requested scanType
     if (!report && !dateStr) {
       report = await prisma.dailyReport.findFirst({
-        where: { date: { lte: targetDate } },
+        where: { date: { lte: targetDate }, scanType },
         orderBy: { date: 'desc' },
         include: {
           spikes: {
@@ -49,8 +51,9 @@ export async function GET(request: NextRequest) {
 
     // Fetch previous day's report for comparison arrows
     // Use report.date (not targetDate) so weekend/fallback views compare correctly
+    // Filter by scanType so the previous-day comparison stays within the same scan family
     const prevReport = await prisma.dailyReport.findFirst({
-      where: { date: { lt: report.date } },
+      where: { date: { lt: report.date }, scanType },
       orderBy: { date: 'desc' },
       select: { oilPrice: true, goldPrice: true, btcPrice: true, cadUsd: true },
     });
