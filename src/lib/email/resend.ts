@@ -333,3 +333,49 @@ export async function sendPasswordResetEmail(data: {
     throw error;
   }
 }
+
+/** Send evening pre-market preview email to a specific user */
+export async function sendEveningPreviewEmail(data: {
+  to: string;
+  date: string;
+  html: string;
+  topTicker: string;
+  topScore: number;
+}) {
+  try {
+    // Wrap council HTML with amber pre-market banner
+    const wrappedHtml = `
+      <div style="background:#0A1428;padding:20px;font-family:'Inter',sans-serif">
+        <div style="max-width:640px;margin:0 auto">
+          <div style="background:#78350F;border:2px solid #F59E0B;border-radius:12px;padding:20px;margin-bottom:20px;text-align:center">
+            <p style="color:#FDE68A;font-size:18px;font-weight:bold;margin:0 0 8px">
+              &#127769; Tomorrow's Spikes &mdash; Pre-Market Preview
+            </p>
+            <p style="color:#FCD34D;font-size:13px;margin:0">
+              Generated from post-close end-of-day data. For overnight research and pre-market planning only.
+              Lock In is disabled until market open at 9:30 AM ET.
+            </p>
+          </div>
+          ${data.html}
+          <div style="text-align:center;margin-top:24px">
+            <a href="${APP_URL}/dashboard/tomorrow" style="display:inline-block;background:linear-gradient(135deg,#F59E0B,#D97706);color:#0A1428;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:bold">
+              View Tomorrow's Spikes
+            </a>
+          </div>
+          ${UNSUBSCRIBE_FOOTER}
+        </div>
+      </div>
+    `;
+
+    await getResend().emails.send({
+      from: FROM_ALERTS,
+      to: data.to,
+      subject: `Tomorrow's Spikes \u2014 Preview for ${data.date} | #1: ${data.topTicker} (${data.topScore.toFixed(0)})`,
+      html: wrappedHtml,
+    });
+    console.log(`[Email] Evening preview sent to ${data.to} for ${data.date}`);
+  } catch (error) {
+    console.error(`[Email] Failed to send evening preview to ${data.to}:`, error);
+    throw error;
+  }
+}

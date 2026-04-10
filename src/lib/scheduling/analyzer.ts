@@ -6,7 +6,7 @@
 
 import { Prisma } from '@prisma/client';
 import prisma from '@/lib/db/prisma';
-import { sendDailySummary, sendCouncilEmail } from '@/lib/email/resend';
+import { sendDailySummary, sendCouncilEmail, sendEveningPreviewEmail } from '@/lib/email/resend';
 
 const COUNCIL_API_URL = process.env.COUNCIL_API_URL || 'http://localhost:8100';
 
@@ -720,12 +720,66 @@ export async function runEveningScan(): Promise<{
       },
     });
 
-    // ── Step 6: NO email in Phase 1 ──
-    // Phase 2 adds the optional sendEveningPreviewEmail() path here for
-    // users with emailEveningPreview=true. For now we explicitly skip.
-    console.log(
-      '[EveningScan] Phase 1: skipping email send (Phase 2 will add evening email path)'
-    );
+    // ── Step 6: Send evening preview email to opted-in users ──
+    try {
+      const eveningRecipients = await prisma.user.findMany({
+        where: { emailEveningPreview: true },
+        select: { email: true },
+      });
+
+      if (eveningRecipients.length > 0) {
+        // Render council HTML via Python endpoint
+        const httpMod = await import('http');
+        const emailResponse = await new Promise<Response>((resolve, reject) => {
+          const url = new URL(`${COUNCIL_API_URL}/render-email`);
+          const req = httpMod.request(
+            {
+              hostname: url.hostname,
+              port: url.port,
+              path: url.pathname,
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              timeout: 120_000,
+            },
+            (res) => {
+              const chunks: Buffer[] = [];
+              res.on('data', (chunk: Buffer) => chunks.push(chunk));
+              res.on('end', () => {
+                const body = Buffer.concat(chunks).toString();
+                resolve(new Response(body, {
+                  status: res.statusCode || 500,
+                  headers: res.headers as Record<string, string>,
+                }));
+              });
+              res.on('error', reject);
+            },
+          );
+          req.on('timeout', () => { req.destroy(); reject(new Error('Email render timed out')); });
+          req.on('error', reject);
+          req.end();
+        });
+
+        if (emailResponse.ok) {
+          const html = await emailResponse.text();
+          for (const recipient of eveningRecipients) {
+            await sendEveningPreviewEmail({
+              to: recipient.email,
+              date: tomorrowStr,
+              html,
+              topTicker: spikes[0]?.ticker || 'N/A',
+              topScore: spikes[0]?.spikeScore || 0,
+            });
+          }
+          console.log(`[EveningScan] Evening preview email sent to ${eveningRecipients.length} user(s)`);
+        } else {
+          console.warn('[EveningScan] Email render failed — skipping evening email');
+        }
+      } else {
+        console.log('[EveningScan] No users opted in to evening preview email');
+      }
+    } catch (emailErr) {
+      console.error('[EveningScan] Evening email failed (non-fatal):', emailErr);
+    }
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     console.log(
