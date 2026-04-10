@@ -310,9 +310,24 @@ def _map_to_prisma(council_output: dict) -> dict:
             # Institutional Conviction Score (from build_consensus_top10)
             "institutionalConvictionScore": pick.get("institutional_conviction_score"),
             # Calibration data (from HistoricalCalibrationEngine)
+            # Calibration — Setup Rate (Tiers A/C/D)
             "historicalConfidence": round(cal.get("calibrated_confidence", 0) * 100, 1) if (cal := pick.get("calibration")) else None,
             "calibrationSamples": cal.get("sample_count") if (cal := pick.get("calibration")) else None,
-            "overconfidenceFlag": cal.get("overconfidence_flag") if (cal := pick.get("calibration")) else None,
+            "overconfidenceFlag": False,  # Removed in v6.1 — always False
+            "setupRateCILow": round(cal.get("ci_low", 0) * 100, 1) if (cal := pick.get("calibration")) and cal.get("ci_low") is not None else None,
+            "setupRateCIHigh": round(cal.get("ci_high", 0) * 100, 1) if (cal := pick.get("calibration")) and cal.get("ci_high") is not None else None,
+            "setupRateRegime": cal.get("regime") if (cal := pick.get("calibration")) else None,
+            "setupMedianMoveOnHits": cal.get("median_move_on_hits") if (cal := pick.get("calibration")) else None,
+            "setupMedianMoveOnMisses": cal.get("median_move_on_misses") if (cal := pick.get("calibration")) else None,
+            # Calibration — Ticker Rate (Tier B)
+            "tickerRate": tr.get("rate") if (tr := pick.get("ticker_rate")) else None,
+            "tickerRateSamples": tr.get("samples") if (tr := pick.get("ticker_rate")) else None,
+            "tickerRateCILow": tr.get("ci_low") if (tr := pick.get("ticker_rate")) else None,
+            "tickerRateCIHigh": tr.get("ci_high") if (tr := pick.get("ticker_rate")) else None,
+            "tickerMedianMoveOnHits": tr.get("median_move_on_hits") if (tr := pick.get("ticker_rate")) else None,
+            "tickerMedianMoveOnMisses": tr.get("median_move_on_misses") if (tr := pick.get("ticker_rate")) else None,
+            # Tier F reconciliation (populated by PR 4)
+            "calibrationReconciliation": pick.get("calibration_reconciliation"),
             # Learning engine adjustments
             "learningAdjustments": json.dumps(pick.get("learning_adjustments", {})) if pick.get("learning_adjustments") else None,
         })

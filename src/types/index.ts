@@ -99,6 +99,19 @@ export interface SpikeCard {
   calibrationSamples?: number;     // sample count
   overconfidenceFlag?: boolean;    // council >> history
   scanType?: string;               // 'MORNING' | 'EVENING'
+  // v6.1 Hit Rate 2.0
+  setupRateCILow?: number;
+  setupRateCIHigh?: number;
+  setupRateRegime?: string;
+  setupMedianMoveOnHits?: number;
+  setupMedianMoveOnMisses?: number;
+  tickerRate?: number;
+  tickerRateSamples?: number;
+  tickerRateCILow?: number;
+  tickerRateCIHigh?: number;
+  tickerMedianMoveOnHits?: number;
+  tickerMedianMoveOnMisses?: number;
+  calibrationReconciliation?: string;
 }
 
 export interface MarketRegime {

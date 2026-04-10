@@ -135,6 +135,23 @@ export async function GET(
             ema8: spike.ema8,
             atr: spike.atr,
           },
+
+          // v6.1 Hit Rate 2.0
+          historicalConfidence: spike.historicalConfidence,
+          calibrationSamples: spike.calibrationSamples,
+          overconfidenceFlag: spike.overconfidenceFlag,
+          setupRateCILow: spike.setupRateCILow,
+          setupRateCIHigh: spike.setupRateCIHigh,
+          setupRateRegime: spike.setupRateRegime,
+          setupMedianMoveOnHits: spike.setupMedianMoveOnHits,
+          setupMedianMoveOnMisses: spike.setupMedianMoveOnMisses,
+          tickerRate: spike.tickerRate,
+          tickerRateSamples: spike.tickerRateSamples,
+          tickerRateCILow: spike.tickerRateCILow,
+          tickerRateCIHigh: spike.tickerRateCIHigh,
+          tickerMedianMoveOnHits: spike.tickerMedianMoveOnHits,
+          tickerMedianMoveOnMisses: spike.tickerMedianMoveOnMisses,
+          calibrationReconciliation: spike.calibrationReconciliation,
         },
 
         // Market context for this analysis date
