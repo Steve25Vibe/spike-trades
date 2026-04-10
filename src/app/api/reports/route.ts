@@ -10,10 +10,13 @@ export async function GET(request: NextRequest) {
   }
 
   const { page, pageSize, skip } = parsePagination(request.nextUrl.searchParams, { pageSize: 30 });
+  const scanType = request.nextUrl.searchParams.get('scanType') || 'MORNING';
 
   try {
+    const where = { scanType };
     const [reports, total] = await Promise.all([
       prisma.dailyReport.findMany({
+        where,
         orderBy: { date: 'desc' },
         skip,
         take: pageSize,
@@ -30,7 +33,7 @@ export async function GET(request: NextRequest) {
           },
         },
       }),
-      prisma.dailyReport.count(),
+      prisma.dailyReport.count({ where }),
     ]);
 
     return NextResponse.json({

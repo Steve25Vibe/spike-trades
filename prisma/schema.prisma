@@ -27,7 +27,7 @@ model User {
   emailDeviationAlerts Boolean @default(true)
   emailOpeningBell     Boolean @default(true)
   emailRadar           Boolean @default(true)
-  emailEveningPreview  Boolean @default(false) // v6.1.0: opt-in evening preview email
+  emailEveningPreview  Boolean @default(true) // v6.1.0: evening preview email (auto-enrolled)
 
   lastLoginAt DateTime?
   lastSeenAt  DateTime?

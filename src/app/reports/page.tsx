@@ -15,6 +15,8 @@ interface SpikeReport {
   topSpikes: { ticker: string; spikeScore: number; predicted3Day: number; actual3Day: number | null }[];
 }
 
+type ScanTab = 'MORNING' | 'EVENING';
+
 export default function ReportsPage() {
   return (
     <Suspense fallback={null}>
@@ -24,6 +26,7 @@ export default function ReportsPage() {
 }
 
 function ReportsContent() {
+  const [tab, setTab] = useState<ScanTab>('MORNING');
   const [spikeReports, setSpikeReports] = useState<SpikeReport[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -33,7 +36,7 @@ function ReportsContent() {
     const fetchReports = async () => {
       setLoading(true);
       try {
-        const res = await fetch(`/api/reports?page=${page}&pageSize=20`);
+        const res = await fetch(`/api/reports?page=${page}&pageSize=20&scanType=${tab}`);
         if (res.status === 401) { window.location.href = '/login'; return; }
         const json = await res.json();
         if (json.success) {
@@ -47,7 +50,12 @@ function ReportsContent() {
       }
     };
     fetchReports();
-  }, [page]);
+  }, [page, tab]);
+
+  const handleTabChange = (newTab: ScanTab) => {
+    setTab(newTab);
+    setPage(1);
+  };
 
   const regimeColors: Record<string, string> = {
     bull: 'text-spike-green bg-spike-green/10',
@@ -56,11 +64,44 @@ function ReportsContent() {
     volatile: 'text-spike-violet bg-spike-violet/10',
   };
 
+  const viewHref = (report: SpikeReport) => {
+    const dateStr = new Date(report.date).toISOString().split('T')[0];
+    return tab === 'EVENING'
+      ? `/dashboard/tomorrow?date=${dateStr}`
+      : `/dashboard?date=${dateStr}`;
+  };
+
   return (
     <ResponsiveLayout>
       <h2 className="text-2xl font-display font-bold text-spike-cyan tracking-wide mb-6">
         REPORT ARCHIVES
       </h2>
+
+      {/* Scan type tabs */}
+      <div className="flex gap-2 mb-6">
+        <button
+          onClick={() => handleTabChange('MORNING')}
+          className={cn(
+            'px-4 py-2 rounded-lg text-sm font-medium transition-all border',
+            tab === 'MORNING'
+              ? 'bg-spike-cyan/10 text-spike-cyan border-spike-cyan/30'
+              : 'text-spike-text-dim border-spike-border hover:border-spike-cyan/20 hover:text-spike-text'
+          )}
+        >
+          Morning Archives
+        </button>
+        <button
+          onClick={() => handleTabChange('EVENING')}
+          className={cn(
+            'px-4 py-2 rounded-lg text-sm font-medium transition-all border',
+            tab === 'EVENING'
+              ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+              : 'text-spike-text-dim border-spike-border hover:border-amber-500/20 hover:text-spike-text'
+          )}
+        >
+          Evening Archives
+        </button>
+      </div>
 
       <div className="space-y-3">
         {spikeReports.map((report) => (
@@ -100,9 +141,9 @@ function ReportsContent() {
 
             <div className="flex items-center gap-3">
               <Link
-                href={`/dashboard?date=${new Date(report.date).toISOString().split('T')[0]}`}
+                href={viewHref(report)}
                 className="px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide text-spike-cyan border border-spike-cyan/30 hover:bg-spike-cyan/10 transition-colors"
-                title="Open this day's report on the dashboard"
+                title={tab === 'EVENING' ? "View this evening's preview" : "Open this day's report on the dashboard"}
               >
                 View
               </Link>
@@ -120,7 +161,9 @@ function ReportsContent() {
 
         {spikeReports.length === 0 && !loading && (
           <div className="glass-card p-12 text-center text-spike-text-dim">
-            No reports yet. The first analysis runs at 11:15 AM ADT.
+            {tab === 'MORNING'
+              ? 'No morning reports yet. The morning scan runs at 11:15 AM ADT.'
+              : 'No evening reports yet. The evening scan runs at 8:00 PM ADT.'}
           </div>
         )}
       </div>
@@ -134,7 +177,7 @@ function ReportsContent() {
             className="px-4 py-2 rounded-lg text-sm text-spike-text-dim hover:text-spike-text disabled:opacity-30"
             title="Go to the previous page of reports"
           >
-            ← Previous
+            &larr; Previous
           </button>
           <span className="px-4 py-2 text-sm text-spike-text-dim">
             Page {page} of {Math.ceil(total / 20)}
@@ -145,14 +188,14 @@ function ReportsContent() {
             className="px-4 py-2 rounded-lg text-sm text-spike-text-dim hover:text-spike-text disabled:opacity-30"
             title="Go to the next page of reports"
           >
-            Next →
+            Next &rarr;
           </button>
         </div>
       )}
 
       <div className="legal-footer">
         <p>For educational and informational purposes only. Not financial advice. Past performance is no guarantee of future results.</p>
-        <p className="mt-2">&copy; {new Date().getFullYear()} Spike Trades — spiketrades.ca &middot; Ver 6.0</p>
+        <p className="mt-2">&copy; {new Date().getFullYear()} Spike Trades &mdash; spiketrades.ca &middot; Ver 6.1</p>
       </div>
     </ResponsiveLayout>
   );
