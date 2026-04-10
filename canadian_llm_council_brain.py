@@ -3322,8 +3322,7 @@ class HistoricalCalibrationEngine:
                 conn.execute("ALTER TABLE calibration_base_rates ADD COLUMN median_move_on_misses REAL")
             except sqlite3.OperationalError:
                 pass
-            # Recreate unique index to include market_regime
-            conn.execute("DROP INDEX IF EXISTS sqlite_autoindex_calibration_base_rates_1")
+            # Ensure unique index includes market_regime (autoindexes can't be dropped)
             conn.execute("""
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_calibration_base_rates_unique
                 ON calibration_base_rates
