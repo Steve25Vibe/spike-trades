@@ -56,6 +56,7 @@ export async function GET() {
         select: {
           id: true,
           date: true,
+          scanType: true,
           generatedAt: true,
           marketRegime: true,
           _count: { select: { spikes: true } },
@@ -64,7 +65,7 @@ export async function GET() {
       // Prisma: latest council log
       prisma.councilLog.findFirst({
         orderBy: { date: 'desc' },
-        select: { processingTime: true, consensusScore: true, date: true },
+        select: { processingTime: true, consensusScore: true, date: true, scanType: true },
       }),
     ]);
 
@@ -89,6 +90,7 @@ export async function GET() {
         recentReports: recentReports.map((r) => ({
           id: r.id,
           date: r.date,
+          scanType: r.scanType,
           generatedAt: r.generatedAt,
           regime: r.marketRegime,
           spikeCount: r._count.spikes,

@@ -65,7 +65,7 @@ interface CouncilStatus {
   runInProgress: boolean;
   lastTriggerResult: { success: boolean; error?: string; startedAt?: string; completedAt?: string; spikeCount?: number } | null;
   latestLog: { date: string; processingTimeMs: number | null; consensusScore: number | null } | null;
-  recentReports: { id: string; date: string; generatedAt: string; regime: string | null; spikeCount: number }[];
+  recentReports: { id: string; date: string; scanType: string; generatedAt: string; regime: string | null; spikeCount: number }[];
   fmpHealth?: { run_date?: string; endpoints?: Record<string, Record<string, number>> } | null;
   runStatus?: RunStatus | null;
   latestStageMetadata?: {
@@ -930,6 +930,13 @@ export default function AdminPage() {
                       <tr key={r.id} className="border-b border-spike-border/50">
                         <td className="py-3 px-2 text-spike-text mono">
                           {new Date(r.date).toLocaleDateString('en-CA')}
+                          <span className={`ml-2 text-xs px-1.5 py-0.5 rounded ${
+                            r.scanType === 'EVENING'
+                              ? 'bg-spike-amber/20 text-spike-amber'
+                              : 'bg-spike-cyan/20 text-spike-cyan'
+                          }`}>
+                            {r.scanType === 'EVENING' ? "Tomorrow's" : "Today's"}
+                          </span>
                         </td>
                         <td className="py-3 px-2">
                           <span className={cn('text-xs font-bold uppercase', regimeColor(r.regime))}>
