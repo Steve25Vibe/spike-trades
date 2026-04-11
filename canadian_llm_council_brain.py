@@ -2771,8 +2771,17 @@ class HistoricalPerformanceAnalyzer:
         logger.info(f"HistoricalPerformanceAnalyzer: DB initialized at {self.db_path}")
 
     def record_picks(self, council_result: dict, scan_type: str = "MORNING") -> int:
-        """Save council run picks to history. Returns number of picks recorded."""
+        """Save council run picks to history. Returns number of picks recorded.
+        For EVENING scans, run_date is set to the TARGET trading day (tomorrow)
+        to align with Postgres DailyReport.date and fix backfill timing."""
         run_date = council_result.get("run_date", date.today().isoformat())
+        if scan_type == "EVENING":
+            # Evening scans produce picks for the NEXT trading day.
+            # Align run_date with Postgres DailyReport.date (target day).
+            today_halifax = datetime.now(ZoneInfo("America/Halifax")).date()
+            target_day = today_halifax + timedelta(days=1)
+            run_date = target_day.isoformat()
+            logger.info(f"HistoricalPerformanceAnalyzer: EVENING scan — run_date adjusted to target day {run_date}")
         run_id = council_result.get("run_id", "unknown")
         picks = council_result.get("top_picks", [])
 
