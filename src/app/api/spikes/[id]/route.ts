@@ -41,9 +41,9 @@ export async function GET(
       );
     }
 
-    // Get the council log for this date
+    // Get the council log for this date + scanType
     const councilLog = await prisma.councilLog.findUnique({
-      where: { date: spike.report.date },
+      where: { date_scanType: { date: spike.report.date, scanType: spike.scanType } },
     });
 
     // Check if already locked in

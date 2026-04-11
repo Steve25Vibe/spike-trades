@@ -19,7 +19,8 @@ export async function POST(request: NextRequest) {
     const today = getTodayAST();
     let filled = 0;
 
-    // ---- 1. Sweep all unfilled actuals for each horizon ----
+    // ---- 1. Sweep all unfilled actuals for each scanType + horizon ----
+    for (const scanType of ['MORNING', 'EVENING'] as const) {
     for (const horizon of [3, 5, 8] as const) {
       // Cutoff: any report from this date or earlier has had enough trading days
       const cutoffDate = subtractTradingDays(today, horizon);
@@ -36,6 +37,7 @@ export async function POST(request: NextRequest) {
       const spikes = await prisma.spike.findMany({
         where: {
           report: { date: { lte: cutoffDateOnly } },
+          scanType,
           [actualField]: null,
         },
         select: {
@@ -91,6 +93,7 @@ export async function POST(request: NextRequest) {
         const completedSpikes = await prisma.spike.findMany({
           where: {
             report: { date: dateOnly },
+            scanType,
             [actualField]: { not: null },
           },
           select: {
@@ -162,12 +165,13 @@ export async function POST(request: NextRequest) {
         };
 
         await prisma.accuracyRecord.upsert({
-          where: { date_horizon: { date: dateOnly, horizon } },
-          create: { date: dateOnly, horizon, ...metrics },
+          where: { date_horizon_scanType: { date: dateOnly, horizon, scanType } },
+          create: { date: dateOnly, horizon, scanType, ...metrics },
           update: metrics,
         });
       }
     }
+    } // end scanType loop
 
     console.log(`[Accuracy] Back-filled ${filled} actual returns`);
     return NextResponse.json({ success: true, filled });

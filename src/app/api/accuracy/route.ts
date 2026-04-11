@@ -8,12 +8,13 @@ export async function GET(request: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const days = parseInt(request.nextUrl.searchParams.get('days') || '90');
+  const scanType = request.nextUrl.searchParams.get('scanType') || 'MORNING';
   const cutoff = new Date(Date.now() - days * 86400000);
 
   try {
     // 1. Get all daily reports with spikes
     const dailyReports = await prisma.dailyReport.findMany({
-      where: { date: { gte: cutoff } },
+      where: { date: { gte: cutoff }, scanType },
       orderBy: { date: 'asc' },
       select: {
         date: true,
