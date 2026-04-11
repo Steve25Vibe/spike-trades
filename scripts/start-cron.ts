@@ -67,9 +67,9 @@ cron.schedule(
   { timezone: TIMEZONE }
 );
 
-// Evening scan — weekdays at 8:00pm ADT
+// Evening scan — Sun-Thu at 8:00pm AST (produces next trading day's picks)
 cron.schedule(
-  '0 20 * * 1-5',
+  '0 20 * * 0-4',
   async () => {
     console.log(`[Cron] Triggering evening scan at ${new Date().toISOString()}`);
     try {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runEveningScan } from '@/lib/scheduling/analyzer';
-import { isTradingDay } from '@/lib/utils';
+import { isEveningScanDay } from '@/lib/utils';
 
 // Allow up to 1 hour for the council pipeline + archive write
 export const maxDuration = 3600;
@@ -25,12 +25,12 @@ export async function POST(request: NextRequest) {
   try {
     // Skip on TSX holidays — there's no point running an evening scan on a
     // day that wasn't a trading day, because today's bars wouldn't exist.
-    if (!isTradingDay(new Date())) {
-      console.log('[Cron/Evening] Skipping evening scan — TSX closed (holiday)');
+    if (!isEveningScanDay(new Date())) {
+      console.log('[Cron/Evening] Skipping evening scan — not an evening scan day (Fri/Sat)');
       return NextResponse.json({
         success: true,
         skipped: true,
-        reason: 'TSX closed (holiday)',
+        reason: 'Not an evening scan day (Fri/Sat)',
       });
     }
 
@@ -55,8 +55,8 @@ export async function POST(request: NextRequest) {
 export async function GET() {
   return NextResponse.json({
     status: 'ok',
-    purpose: 'evening scan trigger (v6.1.0 Phase 1)',
-    nextRun: 'manual only (Phase 1) — 20:00 ADT in Phase 2+',
+    purpose: 'evening scan trigger (v6.1.2)',
+    schedule: 'Sun-Thu 8:00 PM AST',
     timezone: 'America/Halifax',
   });
 }
