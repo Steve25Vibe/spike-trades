@@ -118,6 +118,47 @@ else
 fi
 
 # ----------------------------------------------------------------------------
+# Job 5: Sunday weekly push to vault repo (offsite backup)
+# Copies this week's pg_dump + SQLite to spiketrades-vault and pushes to GitHub.
+# Only runs on Sundays (day 7). Requires vault repo cloned at VAULT_DIR.
+# ----------------------------------------------------------------------------
+VAULT_DIR="/opt/spike-trades/spiketrades-vault"
+DAY_OF_WEEK=$(date +%u)  # 1=Mon, 7=Sun
+
+if [ "$DAY_OF_WEEK" = "7" ] && [ -d "$VAULT_DIR/.git" ]; then
+    echo
+    echo "[Job 5: Sunday weekly vault push]"
+    VAULT_FULL="$VAULT_DIR/full-backup"
+    mkdir -p "$VAULT_FULL"
+
+    # Copy latest backups to vault
+    if [ -f "$POSTGRES_BACKUP_FILE" ]; then
+        cp "$POSTGRES_BACKUP_FILE" "$VAULT_FULL/weekly-${TODAY}-postgres.sql.gz"
+        echo "  ✓ Postgres backup copied to vault"
+    fi
+    if [ -f "$SQLITE_BACKUP_FILE" ]; then
+        cp "$SQLITE_BACKUP_FILE" "$VAULT_FULL/weekly-${TODAY}-council.db"
+        echo "  ✓ SQLite backup copied to vault"
+    fi
+
+    # Push to GitHub
+    cd "$VAULT_DIR"
+    git add -A
+    if git diff --cached --quiet; then
+        echo "  — No changes to push"
+    else
+        if git commit -m "weekly: full backup ${TODAY}" && git push origin main; then
+            echo "  ✓ Weekly backup pushed to vault repo"
+        else
+            echo "  ✗ Vault push FAILED (local copies preserved)"
+        fi
+    fi
+elif [ "$DAY_OF_WEEK" = "7" ]; then
+    echo
+    echo "[Job 5: Sunday weekly vault push — SKIPPED (vault repo not found at $VAULT_DIR)]"
+fi
+
+# ----------------------------------------------------------------------------
 # Summary
 # ----------------------------------------------------------------------------
 echo

@@ -2696,6 +2696,7 @@ class HistoricalPerformanceAnalyzer:
                     forecast_5d_direction TEXT,
                     forecast_8d_direction TEXT,
                     sector TEXT,
+                    scan_type TEXT NOT NULL DEFAULT 'MORNING',
                     recorded_at TEXT NOT NULL DEFAULT (datetime('now'))
                 );
 
@@ -2711,7 +2712,8 @@ class HistoricalPerformanceAnalyzer:
                     accurate INTEGER DEFAULT NULL,
                     actual_price REAL,
                     checked_at TEXT,
-                    UNIQUE(pick_id, horizon_days)
+                    scan_type TEXT NOT NULL DEFAULT 'MORNING',
+                    UNIQUE(pick_id, horizon_days, scan_type)
                 );
 
                 CREATE TABLE IF NOT EXISTS stage_scores (
