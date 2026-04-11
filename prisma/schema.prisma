@@ -329,9 +329,10 @@ model PortfolioEntry {
 }
 
 model AccuracyRecord {
-  id      String   @id @default(cuid())
-  date    DateTime @db.Date
-  horizon Int // 3, 5, or 8 days
+  id       String   @id @default(cuid())
+  date     DateTime @db.Date
+  horizon  Int // 3, 5, or 8 days
+  scanType String   @default("MORNING")
 
   // Aggregate metrics
   totalPredictions Int
@@ -345,13 +346,14 @@ model AccuracyRecord {
 
   createdAt DateTime @default(now())
 
-  @@unique([date, horizon])
+  @@unique([date, horizon, scanType])
   @@index([date])
 }
 
 model MarketRegime {
   id           String   @id @default(cuid())
   date         DateTime @db.Date
+  scanType     String   @default("MORNING")
   regime       String // bull, bear, neutral, volatile
   vixLevel     Float?
   tsxTrend     String? // up, down, sideways
@@ -363,7 +365,7 @@ model MarketRegime {
 
   createdAt DateTime @default(now())
 
-  @@unique([date])
+  @@unique([date, scanType])
 }
 
 model ApiLog {
@@ -381,6 +383,7 @@ model ApiLog {
 model CouncilLog {
   id             String   @id @default(cuid())
   date           DateTime @db.Date
+  scanType       String   @default("MORNING")
   claudeAnalysis Json?
   grokAnalysis   Json?
   finalVerdict   Json?
@@ -389,7 +392,7 @@ model CouncilLog {
 
   createdAt DateTime @default(now())
 
-  @@unique([date])
+  @@unique([date, scanType])
 }
 
 // ---- Radar (Pre-Market Smart Money Flow) ----
