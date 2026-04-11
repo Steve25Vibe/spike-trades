@@ -53,6 +53,7 @@ import us_dual_listing_enrichment
 import cross_compare
 
 import fmp_bulk_cache
+from momentum_engine import MomentumPersistenceEngine
 
 # ═══════════════════════════════════════════════════════════════════════════
 # LOGGING
@@ -204,6 +205,7 @@ class StockDataPayload(BaseModel):
     earnings_transcript_summary: str | None = Field(default=None, description="Truncated most-recent earnings call transcript")
     as_of: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     data_quality: str = Field(default="OK", description="OK or STALE_DATA or MISSING_FIELD")
+    momentum_data_packet: str | None = None   # MPE: injected momentum context for LLM stages
 
     @field_validator("ticker")
     @classmethod
@@ -4725,6 +4727,7 @@ class CanadianStockCouncilBrain:
         self.learning_engine = LearningEngine(db_path=DB_PATH)
         self.risk_engine = RiskPortfolioEngine()
         self.roadmap_engine = CompoundingRoadmapEngine()
+        self.mpe = MomentumPersistenceEngine(db_path=DB_PATH)
 
     async def run_council(
         self,
@@ -4868,6 +4871,93 @@ class CanadianStockCouncilBrain:
 
             if not payloads_list:
                 raise RuntimeError("No valid payloads built")
+
+            # ── Step 4a: Momentum Persistence Engine — pre-council ──
+            logger.info("Step 4a: MPE — identifying momentum candidates")
+            _scan_type = trigger.upper() if trigger.upper() in ("MORNING", "EVENING") else "MORNING"
+            mpe_candidates_raw = self.mpe.identify_candidates(scan_type=_scan_type)
+            mpe_processed = []  # will hold full candidate data for post-council
+
+            if mpe_candidates_raw:
+                # Fetch historical bars for candidates (10-day window)
+                mpe_tickers = [c["ticker"] for c in mpe_candidates_raw]
+                mpe_bars = {}
+                for ticker in mpe_tickers:
+                    bars = await self.fetcher.fetch_historical(ticker, days=15)
+                    if bars:
+                        mpe_bars[ticker] = bars[-10:]  # last 10 bars
+
+                # Get current quotes for live price
+                mpe_quotes = await self.fetcher.fetch_quotes(mpe_tickers)
+
+                # Compute TSX daily change for fallback (best available from macro)
+                tsx_change_5d = None
+                if macro:
+                    tsx_change_5d = macro.tsx_change_pct  # daily change as fallback
+
+                universe_tickers = set(p.ticker for p in payloads_list)
+
+                for candidate in mpe_candidates_raw:
+                    ticker = candidate["ticker"]
+                    bars = mpe_bars.get(ticker, [])
+                    quote = mpe_quotes.get(ticker, {})
+                    current_price = quote.get("price", candidate.get("entry_price", 0))
+
+                    # Get ADX and ATR from existing payload if available
+                    existing_payload = next((p for p in payloads_list if p.ticker == ticker), None)
+                    current_adx = existing_payload.technicals.adx_14 if existing_payload and existing_payload.technicals else None
+                    current_atr = existing_payload.technicals.atr_14 if existing_payload and existing_payload.technicals else None
+
+                    # Compute sector avg return for relative strength
+                    sector_avg = self.mpe.get_sector_avg_return(candidate["sector"], _scan_type)
+
+                    # Compute signals
+                    signals = self.mpe.compute_signals(
+                        candidate, bars, current_adx, current_atr, sector_avg, tsx_change_5d
+                    )
+
+                    # Run gate + score
+                    score = self.mpe.compute_momentum_score(candidate, signals)
+
+                    # Build data packet for qualified/degraded candidates
+                    injected = False
+                    if score["gate_result"] in ("QUALIFIED", "DEGRADED"):
+                        packet = self.mpe.build_data_packet(candidate, signals, score, current_price)
+
+                        if ticker in universe_tickers and existing_payload:
+                            # Attach packet to existing payload
+                            existing_payload.momentum_data_packet = packet
+                        else:
+                            # Inject into universe — candidate needs payload built
+                            logger.info(f"MPE: Injecting {ticker} into universe (not in current screener)")
+                            injected = True
+                            if bars:
+                                new_payload = await self.fetcher.build_payload(
+                                    ticker, quote, bars, macro=macro, profile=None
+                                )
+                                if new_payload:
+                                    new_payload.momentum_data_packet = packet
+                                    payloads_list.append(new_payload)
+                                    universe_tickers.add(ticker)
+
+                    mpe_processed.append({
+                        "ticker": ticker,
+                        "candidate": candidate,
+                        "signals": signals,
+                        "score": score,
+                        "injected": injected,
+                        "current_price": current_price,
+                        "original_consensus": candidate.get("return_3d", 50),
+                        "momentum_score_final": score["momentum_score_final"],
+                        "gate_result": score["gate_result"],
+                    })
+
+                logger.info(
+                    f"MPE: {len(mpe_processed)} candidates processed. "
+                    f"Qualified: {sum(1 for m in mpe_processed if m['score']['gate_result'] == 'QUALIFIED')}, "
+                    f"Degraded: {sum(1 for m in mpe_processed if m['score']['gate_result'] == 'DEGRADED')}, "
+                    f"Disqualified: {sum(1 for m in mpe_processed if m['score']['gate_result'] == 'DISQUALIFIED')}"
+                )
 
             # ── Step 4b: Noise filter (historical accuracy) ──
             logger.info("Step 4b: Applying historical noise filter")
@@ -5601,6 +5691,55 @@ class CanadianStockCouncilBrain:
                     logger.info(f"Pre-filter adjustments (mechanism #7): {prefilter_adj}")
             except Exception as e:
                 logger.warning(f"Could not include learning state in output: {e}")
+
+            # ── Step 14b: MPE post-council re-rank ──
+            if mpe_processed:
+                logger.info("Step 14b: MPE — post-council re-ranking")
+                scan_date = result_dict.get("run_date", date.today().isoformat())
+
+                # Extract council picks as dicts for re-ranking
+                council_pick_dicts = []
+                for pick in result_dict.get("top_picks", []):
+                    council_pick_dicts.append({
+                        "ticker": pick.get("ticker"),
+                        "consensus_score": pick.get("consensus_score", 0),
+                        **pick,  # preserve all fields
+                    })
+
+                # Re-rank
+                reranked = MomentumPersistenceEngine.rerank_top10(
+                    council_pick_dicts, mpe_processed, _scan_type
+                )
+
+                # Update result_dict with re-ranked picks
+                for i, pick in enumerate(reranked):
+                    pick["rank"] = i + 1
+                    pick["momentum_score"] = pick.get("momentum_score", 0)
+                    pick["momentum_status"] = pick.get("momentum_status")
+
+                result_dict["top_picks"] = reranked
+                result_dict["mpe_applied"] = True
+                result_dict["mpe_candidates_count"] = len(mpe_processed)
+
+                # Log all candidates to audit table
+                for mc in mpe_processed:
+                    # Find this ticker's final rank (if it made Top 10)
+                    final_pick = next((p for p in reranked if p["ticker"] == mc["ticker"]), None)
+                    self.mpe.log_candidate(
+                        scan_date=scan_date,
+                        scan_type=_scan_type,
+                        candidate=mc["candidate"],
+                        signals=mc["signals"],
+                        score=mc["score"],
+                        injected=mc["injected"],
+                        final_composite=final_pick["final_composite_score"] if final_pick else None,
+                        final_rank=final_pick["rank"] if final_pick else None,
+                    )
+
+                logger.info(f"MPE: Post-council re-rank complete. {len(mpe_processed)} candidates logged to audit table.")
+            else:
+                result_dict["mpe_applied"] = False
+                result_dict["mpe_candidates_count"] = 0
 
             # ── Step 15: Record picks to history ──
             logger.info("Step 15: Recording picks to history")
