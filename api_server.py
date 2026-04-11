@@ -478,11 +478,11 @@ async def fmp_health():
 
 
 @app.get("/stage-analytics")
-async def stage_analytics():
-    """Return per-stage LLM performance analytics."""
+async def stage_analytics(scan_type: str | None = None):
+    """Return per-stage LLM performance analytics. Optional scan_type filter (MORNING/EVENING)."""
     try:
         brain = _get_brain()
-        return brain.historical_analyzer.get_stage_analytics()
+        return brain.historical_analyzer.get_stage_analytics(scan_type=scan_type)
     except Exception as e:
         logger.error(f"Stage analytics failed: {e}", exc_info=True)
         raise HTTPException(500, f"Stage analytics failed: {e}")

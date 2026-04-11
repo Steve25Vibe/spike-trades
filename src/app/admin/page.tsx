@@ -130,6 +130,7 @@ export default function AdminPage() {
   } | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [analytics, setAnalytics] = useState<Record<string, any> | null>(null);
+  const [analyticsScanType, setAnalyticsScanType] = useState<'MORNING' | 'EVENING'>('MORNING');
   const [inviteEmail, setInviteEmail] = useState('');
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -145,7 +146,7 @@ export default function AdminPage() {
     // Stop council polling when navigating away
     if (tab !== 'council') stopPolling();
     fetchData();
-  }, [tab]);
+  }, [tab, analyticsScanType]);
 
   // Cleanup polling on unmount
   useEffect(() => {
@@ -179,7 +180,7 @@ export default function AdminPage() {
         const json = await res.json();
         if (json.success) setScanStatus(json.data);
       } else if (tab === 'analytics') {
-        const res = await fetch('/api/admin/analytics');
+        const res = await fetch(`/api/admin/analytics?scanType=${analyticsScanType}`);
         const json = await res.json();
         if (json.success) setAnalytics(json.data);
       }
@@ -1036,6 +1037,22 @@ export default function AdminPage() {
         {/* Analytics Tab */}
         {tab === 'analytics' && (
           <div className="space-y-6">
+            {/* Morning/Evening toggle */}
+            <div className="flex gap-2">
+              {(['MORNING', 'EVENING'] as const).map((type) => (
+                <button
+                  key={type}
+                  onClick={() => setAnalyticsScanType(type)}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    analyticsScanType === type
+                      ? 'bg-spike-cyan/20 text-spike-cyan border border-spike-cyan/30'
+                      : 'text-gray-400 hover:text-gray-300'
+                  }`}
+                >
+                  {type === 'MORNING' ? "Today's Spikes" : "Tomorrow's Spikes"}
+                </button>
+              ))}
+            </div>
             {loading ? (
               <p className="text-spike-text-muted">Loading analytics...</p>
             ) : !analytics ? (

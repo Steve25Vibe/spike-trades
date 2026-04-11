@@ -3022,30 +3022,48 @@ class HistoricalPerformanceAnalyzer:
         finally:
             conn.close()
 
-    def get_stage_analytics(self) -> dict:
+    def get_stage_analytics(self, scan_type: str | None = None) -> dict:
         """Compute per-stage LLM performance analytics.
         Joins stage_scores with accuracy_records to provide hit rates, bias,
-        score distributions, and daily breakdowns."""
+        score distributions, and daily breakdowns.
+        If scan_type is provided, filters to picks from that scan type only."""
         conn = sqlite3.connect(self.db_path)
+        # Build optional scan_type filter clause for pick_history joins
+        st_filter = ""
+        st_params: tuple = ()
+        if scan_type:
+            st_filter = " AND ph.scan_type = ?"
+            st_params = (scan_type,)
         try:
             # ── Per-stage summary ──
             stages = []
             for stage_num, model_name in [(1, "sonnet"), (2, "gemini"), (3, "opus"), (4, "grok")]:
-                row = conn.execute("""
-                    SELECT COUNT(*) as total_scored,
-                           AVG(total_score) as avg_score,
-                           MIN(total_score) as min_score,
-                           MAX(total_score) as max_score
-                    FROM stage_scores WHERE stage = ?
-                """, (stage_num,)).fetchone()
+                if scan_type:
+                    row = conn.execute(f"""
+                        SELECT COUNT(*) as total_scored,
+                               AVG(ss.total_score) as avg_score,
+                               MIN(ss.total_score) as min_score,
+                               MAX(ss.total_score) as max_score
+                        FROM stage_scores ss
+                        INNER JOIN pick_history ph ON ss.pick_id = ph.id
+                        WHERE ss.stage = ?{st_filter}
+                    """, (stage_num, *st_params)).fetchone()
+                else:
+                    row = conn.execute("""
+                        SELECT COUNT(*) as total_scored,
+                               AVG(total_score) as avg_score,
+                               MIN(total_score) as min_score,
+                               MAX(total_score) as max_score
+                        FROM stage_scores WHERE stage = ?
+                    """, (stage_num,)).fetchone()
 
                 # How many of this stage's picks made the final Top 10
-                top20_row = conn.execute("""
+                top20_row = conn.execute(f"""
                     SELECT COUNT(DISTINCT ss.ticker)
                     FROM stage_scores ss
                     INNER JOIN pick_history ph ON ss.pick_id = ph.id
-                    WHERE ss.stage = ?
-                """, (stage_num,)).fetchone()
+                    WHERE ss.stage = ?{st_filter}
+                """, (stage_num, *st_params)).fetchone()
 
                 stage_info = {
                     "stage": stage_num,
@@ -3059,17 +3077,18 @@ class HistoricalPerformanceAnalyzer:
 
                 # Stage 4 direction accuracy (only stage with predictions)
                 if stage_num == 4:
-                    acc_row = conn.execute("""
+                    acc_row = conn.execute(f"""
                         SELECT COUNT(*) as total,
                                SUM(CASE WHEN ar.accurate = 1 THEN 1 ELSE 0 END) as correct,
                                AVG(ar.predicted_move_pct) as avg_pred,
                                AVG(ar.actual_move_pct) as avg_actual
                         FROM stage_scores ss
                         INNER JOIN accuracy_records ar ON ss.pick_id = ar.pick_id
+                        INNER JOIN pick_history ph ON ss.pick_id = ph.id
                         WHERE ss.stage = 4
                           AND ar.accurate IS NOT NULL
-                          AND ar.horizon_days = 3
-                    """).fetchone()
+                          AND ar.horizon_days = 3{st_filter}
+                    """, st_params).fetchone()
                     total_checked = acc_row[0] or 0
                     correct = acc_row[1] or 0
                     stage_info["hit_rate_3d"] = round(correct / total_checked, 4) if total_checked > 0 else None
@@ -3080,28 +3099,30 @@ class HistoricalPerformanceAnalyzer:
 
                     # 5d and 8d hit rates
                     for horizon in [5, 8]:
-                        h_row = conn.execute("""
+                        h_row = conn.execute(f"""
                             SELECT COUNT(*) as total,
                                    SUM(CASE WHEN ar.accurate = 1 THEN 1 ELSE 0 END) as correct
                             FROM stage_scores ss
                             INNER JOIN accuracy_records ar ON ss.pick_id = ar.pick_id
+                            INNER JOIN pick_history ph ON ss.pick_id = ph.id
                             WHERE ss.stage = 4 AND ar.accurate IS NOT NULL
-                              AND ar.horizon_days = ?
-                        """, (horizon,)).fetchone()
+                              AND ar.horizon_days = ?{st_filter}
+                        """, (horizon, *st_params)).fetchone()
                         h_total = h_row[0] or 0
                         h_correct = h_row[1] or 0
                         stage_info[f"hit_rate_{horizon}d"] = round(h_correct / h_total, 4) if h_total > 0 else None
 
                 # Per-stage sample counts for trust signals
                 for horizon, key in [(3, "sample_count_3d"), (5, "sample_count_5d"), (8, "sample_count_8d")]:
-                    sc_row = conn.execute("""
+                    sc_row = conn.execute(f"""
                         SELECT COUNT(DISTINCT ar.pick_id)
                         FROM stage_scores ss
                         INNER JOIN accuracy_records ar ON ss.pick_id = ar.pick_id
+                        INNER JOIN pick_history ph ON ss.pick_id = ph.id
                         WHERE ss.stage = ?
                           AND ar.horizon_days = ?
-                          AND ar.actual_move_pct IS NOT NULL
-                    """, (stage_num, horizon)).fetchone()
+                          AND ar.actual_move_pct IS NOT NULL{st_filter}
+                    """, (stage_num, horizon, *st_params)).fetchone()
                     stage_info[key] = sc_row[0] or 0
 
                 stages.append(stage_info)
@@ -3109,15 +3130,15 @@ class HistoricalPerformanceAnalyzer:
             # ── Score vs Outcome buckets ──
             score_buckets = []
             for low, high, label in [(80, 101, "80+"), (70, 80, "70-80"), (60, 70, "60-70"), (0, 60, "<60")]:
-                bucket_row = conn.execute("""
+                bucket_row = conn.execute(f"""
                     SELECT COUNT(*) as total,
                            AVG(ar.actual_move_pct) as avg_actual,
                            SUM(CASE WHEN ar.accurate = 1 THEN 1 ELSE 0 END) as correct
                     FROM pick_history ph
                     INNER JOIN accuracy_records ar ON ph.id = ar.pick_id
                     WHERE ph.consensus_score >= ? AND ph.consensus_score < ?
-                      AND ar.accurate IS NOT NULL AND ar.horizon_days = 3
-                """, (low, high)).fetchone()
+                      AND ar.accurate IS NOT NULL AND ar.horizon_days = 3{st_filter}
+                """, (low, high, *st_params)).fetchone()
                 b_total = bucket_row[0] or 0
                 b_correct = bucket_row[2] or 0
                 score_buckets.append({
@@ -3128,7 +3149,7 @@ class HistoricalPerformanceAnalyzer:
                 })
 
             # ── Daily breakdown ──
-            daily_rows = conn.execute("""
+            daily_rows = conn.execute(f"""
                 SELECT ph.run_date,
                        COUNT(DISTINCT ph.id) as picks,
                        SUM(CASE WHEN ar.horizon_days = 3 AND ar.accurate IS NOT NULL THEN 1 ELSE 0 END) as checked_3d,
@@ -3139,6 +3160,7 @@ class HistoricalPerformanceAnalyzer:
                        SUM(CASE WHEN ar.horizon_days = 8 AND ar.accurate = 1 THEN 1 ELSE 0 END) as correct_8d
                 FROM pick_history ph
                 LEFT JOIN accuracy_records ar ON ph.id = ar.pick_id
+                WHERE 1=1{st_filter}
                 GROUP BY ph.run_date
                 ORDER BY ph.run_date DESC
                 LIMIT 30
@@ -3157,7 +3179,7 @@ class HistoricalPerformanceAnalyzer:
                 })
 
             # ── Pick detail (for export) ──
-            pick_detail = conn.execute("""
+            pick_detail = conn.execute(f"""
                 SELECT ph.run_date, ph.ticker, ph.consensus_score, ph.conviction_tier,
                        ph.entry_price, ph.predicted_direction,
                        ph.forecast_3d_move_pct, ph.forecast_5d_move_pct, ph.forecast_8d_move_pct,
@@ -3174,8 +3196,9 @@ class HistoricalPerformanceAnalyzer:
                 LEFT JOIN accuracy_records a3 ON ph.id = a3.pick_id AND a3.horizon_days = 3
                 LEFT JOIN accuracy_records a5 ON ph.id = a5.pick_id AND a5.horizon_days = 5
                 LEFT JOIN accuracy_records a8 ON ph.id = a8.pick_id AND a8.horizon_days = 8
+                WHERE 1=1{st_filter}
                 ORDER BY ph.run_date DESC, ph.consensus_score DESC
-            """).fetchall()
+            """, st_params).fetchall()
             picks = []
             for r in pick_detail:
                 picks.append({
@@ -3189,7 +3212,7 @@ class HistoricalPerformanceAnalyzer:
                 })
 
             # ── Overall summary ──
-            overall = conn.execute("""
+            overall = conn.execute(f"""
                 SELECT COUNT(DISTINCT ph.id) as total_picks,
                        SUM(CASE WHEN ar.horizon_days = 3 AND ar.accurate = 1 THEN 1 ELSE 0 END) as correct_3d,
                        SUM(CASE WHEN ar.horizon_days = 3 AND ar.accurate IS NOT NULL THEN 1 ELSE 0 END) as checked_3d,
@@ -3199,21 +3222,39 @@ class HistoricalPerformanceAnalyzer:
                        SUM(CASE WHEN ar.horizon_days = 8 AND ar.accurate IS NOT NULL THEN 1 ELSE 0 END) as checked_8d
                 FROM pick_history ph
                 LEFT JOIN accuracy_records ar ON ph.id = ar.pick_id
-            """).fetchone()
+                WHERE 1=1{st_filter}
+            """, st_params).fetchone()
 
             # Count distinct picks that have non-null accuracy data per horizon
-            picks_with_3d = conn.execute("""
-                SELECT COUNT(DISTINCT pick_id) FROM accuracy_records
-                WHERE horizon_days = 3 AND actual_move_pct IS NOT NULL
-            """).fetchone()[0] or 0
-            picks_with_5d = conn.execute("""
-                SELECT COUNT(DISTINCT pick_id) FROM accuracy_records
-                WHERE horizon_days = 5 AND actual_move_pct IS NOT NULL
-            """).fetchone()[0] or 0
-            picks_with_8d = conn.execute("""
-                SELECT COUNT(DISTINCT pick_id) FROM accuracy_records
-                WHERE horizon_days = 8 AND actual_move_pct IS NOT NULL
-            """).fetchone()[0] or 0
+            if scan_type:
+                picks_with_3d = conn.execute("""
+                    SELECT COUNT(DISTINCT ar.pick_id) FROM accuracy_records ar
+                    INNER JOIN pick_history ph ON ar.pick_id = ph.id
+                    WHERE ar.horizon_days = 3 AND ar.actual_move_pct IS NOT NULL AND ph.scan_type = ?
+                """, (scan_type,)).fetchone()[0] or 0
+                picks_with_5d = conn.execute("""
+                    SELECT COUNT(DISTINCT ar.pick_id) FROM accuracy_records ar
+                    INNER JOIN pick_history ph ON ar.pick_id = ph.id
+                    WHERE ar.horizon_days = 5 AND ar.actual_move_pct IS NOT NULL AND ph.scan_type = ?
+                """, (scan_type,)).fetchone()[0] or 0
+                picks_with_8d = conn.execute("""
+                    SELECT COUNT(DISTINCT ar.pick_id) FROM accuracy_records ar
+                    INNER JOIN pick_history ph ON ar.pick_id = ph.id
+                    WHERE ar.horizon_days = 8 AND ar.actual_move_pct IS NOT NULL AND ph.scan_type = ?
+                """, (scan_type,)).fetchone()[0] or 0
+            else:
+                picks_with_3d = conn.execute("""
+                    SELECT COUNT(DISTINCT pick_id) FROM accuracy_records
+                    WHERE horizon_days = 3 AND actual_move_pct IS NOT NULL
+                """).fetchone()[0] or 0
+                picks_with_5d = conn.execute("""
+                    SELECT COUNT(DISTINCT pick_id) FROM accuracy_records
+                    WHERE horizon_days = 5 AND actual_move_pct IS NOT NULL
+                """).fetchone()[0] or 0
+                picks_with_8d = conn.execute("""
+                    SELECT COUNT(DISTINCT pick_id) FROM accuracy_records
+                    WHERE horizon_days = 8 AND actual_move_pct IS NOT NULL
+                """).fetchone()[0] or 0
 
             summary = {
                 "total_picks": overall[0] or 0,

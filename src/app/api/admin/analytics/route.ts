@@ -10,10 +10,14 @@ export async function GET(request: NextRequest) {
   if (!admin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const isExport = request.nextUrl.searchParams.get('export') === 'xlsx';
+  const scanType = request.nextUrl.searchParams.get('scanType');
 
   try {
     // Fetch stage analytics from Python FastAPI
-    const res = await fetch(`${COUNCIL_API_URL}/stage-analytics`, {
+    const analyticsUrl = scanType
+      ? `${COUNCIL_API_URL}/stage-analytics?scan_type=${scanType}`
+      : `${COUNCIL_API_URL}/stage-analytics`;
+    const res = await fetch(analyticsUrl, {
       signal: AbortSignal.timeout(10000),
     });
 
