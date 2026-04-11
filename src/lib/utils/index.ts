@@ -22,6 +22,16 @@ export function getTodayASTString(): string {
 }
 
 /**
+ * Returns true if today is a valid day for evening scans.
+ * Evening scans run Sun-Thu to produce picks for the NEXT trading day.
+ * Sunday's scan produces Monday's picks using Friday EOD + weekend news.
+ */
+export function isEveningScanDay(date: Date = new Date()): boolean {
+  const day = date.getDay(); // 0=Sun, 1=Mon, ..., 4=Thu
+  return day >= 0 && day <= 4;
+}
+
+/**
  * Parse pagination params from URL search params with clamping.
  */
 export function parsePagination(
