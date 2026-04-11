@@ -561,9 +561,9 @@ async def run_council(request: RunCouncilRequest | None = None, trigger: str = "
         tickers = request.tickers if request else None
 
         if tickers:
-            result = await brain.run_council(starting_universe=tickers, tracker=_run_progress)
+            result = await brain.run_council(starting_universe=tickers, tracker=_run_progress, trigger=trigger)
         else:
-            result = await brain.run_council(tracker=_run_progress)
+            result = await brain.run_council(tracker=_run_progress, trigger=trigger)
 
         # result is already a dict (run_council does model_dump internally)
         result_dict = result

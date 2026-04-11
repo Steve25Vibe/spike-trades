@@ -2756,11 +2756,19 @@ class HistoricalPerformanceAnalyzer:
                 conn.commit()
             except Exception:
                 pass  # Column already exists
+            # Migration v6.1.2: add scan_type column to pick_history and accuracy_records
+            for table in ['pick_history', 'accuracy_records']:
+                try:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN scan_type TEXT NOT NULL DEFAULT 'MORNING'")
+                    conn.commit()
+                    logger.info(f"Added scan_type column to {table}")
+                except Exception:
+                    pass  # Column already exists
         finally:
             conn.close()
         logger.info(f"HistoricalPerformanceAnalyzer: DB initialized at {self.db_path}")
 
-    def record_picks(self, council_result: dict) -> int:
+    def record_picks(self, council_result: dict, scan_type: str = "MORNING") -> int:
         """Save council run picks to history. Returns number of picks recorded."""
         run_date = council_result.get("run_date", date.today().isoformat())
         run_id = council_result.get("run_id", "unknown")
@@ -2784,8 +2792,8 @@ class HistoricalPerformanceAnalyzer:
                     (run_date, run_id, ticker, predicted_direction, consensus_score,
                      conviction_tier, entry_price, forecast_3d_move_pct, forecast_5d_move_pct,
                      forecast_8d_move_pct, forecast_3d_direction, forecast_5d_direction,
-                     forecast_8d_direction, sector, source)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     forecast_8d_direction, sector, source, scan_type)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     str(run_date), run_id, ticker,
                     f3.get("predicted_direction", "UP"),
@@ -2800,6 +2808,7 @@ class HistoricalPerformanceAnalyzer:
                     f8.get("predicted_direction"),
                     sector,
                     source,
+                    scan_type,
                 ))
                 recorded += 1
 
@@ -2809,12 +2818,13 @@ class HistoricalPerformanceAnalyzer:
                     if fcast:
                         conn.execute("""
                             INSERT OR IGNORE INTO accuracy_records
-                            (pick_id, ticker, horizon_days, predicted_direction, predicted_move_pct)
-                            VALUES (?, ?, ?, ?, ?)
+                            (pick_id, ticker, horizon_days, predicted_direction, predicted_move_pct, scan_type)
+                            VALUES (?, ?, ?, ?, ?, ?)
                         """, (
                             pick_id, ticker, horizon,
                             fcast.get("predicted_direction", "UP"),
                             fcast.get("most_likely_move_pct"),
+                            scan_type,
                         ))
 
                 # Save per-stage scores
@@ -2924,17 +2934,27 @@ class HistoricalPerformanceAnalyzer:
         logger.info(f"HistoricalPerformanceAnalyzer: Backfilled {updated} accuracy records")
         return updated
 
-    def get_ticker_accuracy(self, ticker: str) -> tuple[float, int]:
+    def get_ticker_accuracy(self, ticker: str, scan_type: str | None = None) -> tuple[float, int]:
         """Return (accuracy_rate, num_picks) for a ticker.
-        accuracy_rate is 0.0-1.0, num_picks is how many resolved records exist."""
+        accuracy_rate is 0.0-1.0, num_picks is how many resolved records exist.
+        If scan_type is provided, filters to that scan type only."""
         conn = sqlite3.connect(self.db_path)
         try:
-            row = conn.execute("""
-                SELECT COUNT(*) as total,
-                       SUM(CASE WHEN accurate = 1 THEN 1 ELSE 0 END) as correct
-                FROM accuracy_records
-                WHERE ticker = ? AND accurate IS NOT NULL
-            """, (ticker,)).fetchone()
+            if scan_type:
+                row = conn.execute("""
+                    SELECT COUNT(*) as total,
+                           SUM(CASE WHEN ar.accurate = 1 THEN 1 ELSE 0 END) as correct
+                    FROM accuracy_records ar
+                    JOIN pick_history ph ON ar.pick_id = ph.id
+                    WHERE ar.ticker = ? AND ar.accurate IS NOT NULL AND ph.scan_type = ?
+                """, (ticker, scan_type)).fetchone()
+            else:
+                row = conn.execute("""
+                    SELECT COUNT(*) as total,
+                           SUM(CASE WHEN accurate = 1 THEN 1 ELSE 0 END) as correct
+                    FROM accuracy_records
+                    WHERE ticker = ? AND accurate IS NOT NULL
+                """, (ticker,)).fetchone()
             total = row[0] or 0
             correct = row[1] or 0
             if total == 0:
@@ -2943,11 +2963,11 @@ class HistoricalPerformanceAnalyzer:
         finally:
             conn.close()
 
-    def get_historical_edge_multiplier(self, ticker: str) -> float:
+    def get_historical_edge_multiplier(self, ticker: str, scan_type: str | None = None) -> float:
         """Compute Historical Edge Multiplier based on past accuracy.
         >60% → 1.10, >55% → 1.05, >53% → 1.0, <53% → 0.0 (noise-filtered).
         Returns 1.0 if insufficient history."""
-        accuracy, n_picks = self.get_ticker_accuracy(ticker)
+        accuracy, n_picks = self.get_ticker_accuracy(ticker, scan_type=scan_type)
         if n_picks < self.MIN_PICKS_FOR_FILTER:
             return 1.0  # Not enough data to adjust
         if accuracy < self.NOISE_THRESHOLD:
@@ -4657,6 +4677,7 @@ class CanadianStockCouncilBrain:
         starting_universe: list[str] | None = None,
         max_workers: int = 8,
         tracker=None,
+        trigger: str = "morning",
     ) -> dict:
         """Run the full 4-stage council pipeline.
 
@@ -5501,6 +5522,7 @@ class CanadianStockCouncilBrain:
             )
 
             result_dict = result.model_dump(mode="json")
+            result_dict["trigger"] = trigger
 
             # Include FMP endpoint health in output
             result_dict["fmp_endpoint_health"] = dict(self.fetcher.endpoint_health)
@@ -5527,7 +5549,11 @@ class CanadianStockCouncilBrain:
 
             # ── Step 15: Record picks to history ──
             logger.info("Step 15: Recording picks to history")
-            self.historical_analyzer.record_picks(result_dict)
+            # Derive scan_type from trigger field (set by api_server.py) or default MORNING
+            scan_type = result_dict.get("trigger", "morning").upper()
+            if scan_type not in ("MORNING", "EVENING"):
+                scan_type = "MORNING"
+            self.historical_analyzer.record_picks(result_dict, scan_type=scan_type)
 
             # ── Step 16: Backfill actuals for past picks ──
             logger.info("Step 16: Backfilling accuracy for past picks")
