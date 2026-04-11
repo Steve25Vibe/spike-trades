@@ -83,9 +83,9 @@ export async function POST(request: NextRequest) {
       // Normalize ticker — add .TO suffix if missing (TSX convention)
       const ticker = rawSymbol.includes('.') ? rawSymbol.toUpperCase() : `${rawSymbol.toUpperCase()}.TO`;
 
-      // Look up matching spike (most recent)
+      // Look up matching spike (most recent MORNING pick — CSV imports track Today's Spikes)
       const spike = await prisma.spike.findFirst({
-        where: { ticker },
+        where: { ticker, scanType: 'MORNING' },
         orderBy: { createdAt: 'desc' },
       });
 

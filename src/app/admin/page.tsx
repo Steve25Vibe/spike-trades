@@ -1091,7 +1091,7 @@ export default function AdminPage() {
                   {/* Export button */}
                   <div>
                     <a
-                      href="/api/admin/analytics?export=xlsx"
+                      href={`/api/admin/analytics?export=xlsx&scanType=${analyticsScanType}`}
                       className="px-4 py-2 rounded-lg bg-gradient-to-r from-spike-cyan to-spike-violet text-spike-bg font-bold text-sm hover:opacity-90 transition-all"
                       title="Download full analytics as Excel spreadsheet"
                     >

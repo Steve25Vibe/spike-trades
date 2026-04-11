@@ -2866,7 +2866,7 @@ class HistoricalPerformanceAnalyzer:
         logger.info(f"HistoricalPerformanceAnalyzer: Recorded {recorded} picks for run {run_id}")
         return recorded
 
-    async def backfill_actuals(self, fetcher: "LiveDataFetcher") -> int:
+    async def backfill_actuals(self, fetcher: "LiveDataFetcher", scan_type: str | None = None) -> int:
         """Look up actual prices for past picks where accuracy is not yet filled.
         Returns number of records updated."""
         conn = sqlite3.connect(self.db_path)
@@ -2875,15 +2875,17 @@ class HistoricalPerformanceAnalyzer:
             # Find accuracy records missing actual data
             # Loose calendar filter: at least horizon_days have passed.
             # Exact trading-day check happens in Python below.
-            rows = conn.execute("""
+            st_clause = " AND ph.scan_type = ?" if scan_type else ""
+            st_args = (scan_type,) if scan_type else ()
+            rows = conn.execute(f"""
                 SELECT ar.id, ar.pick_id, ar.ticker, ar.horizon_days,
                        ar.predicted_direction, ar.predicted_move_pct,
                        ph.entry_price, ph.run_date
                 FROM accuracy_records ar
                 JOIN pick_history ph ON ar.pick_id = ph.id
                 WHERE ar.actual_direction IS NULL
-                  AND date(ph.run_date, '+' || ar.horizon_days || ' days') <= date('now')
-            """).fetchall()
+                  AND date(ph.run_date, '+' || ar.horizon_days || ' days') <= date('now'){st_clause}
+            """, st_args).fetchall()
 
             # Filter to only rows where enough trading days have passed
             def _trading_days_since(run_date_str: str) -> int:
@@ -2980,13 +2982,13 @@ class HistoricalPerformanceAnalyzer:
             return 1.05
         return 1.0
 
-    def noise_filter(self, tickers: list[str]) -> list[str]:
+    def noise_filter(self, tickers: list[str], scan_type: str | None = None) -> list[str]:
         """Remove tickers with <53% historical accuracy (if enough history exists).
         Returns filtered list of tickers."""
         filtered = []
         dropped = []
         for ticker in tickers:
-            multiplier = self.get_historical_edge_multiplier(ticker)
+            multiplier = self.get_historical_edge_multiplier(ticker, scan_type=scan_type)
             if multiplier > 0:
                 filtered.append(ticker)
             else:
@@ -3166,7 +3168,7 @@ class HistoricalPerformanceAnalyzer:
                 GROUP BY ph.run_date
                 ORDER BY ph.run_date DESC
                 LIMIT 30
-            """).fetchall()
+            """, st_params).fetchall()
             daily = []
             for r in daily_rows:
                 daily.append({
@@ -4860,8 +4862,9 @@ class CanadianStockCouncilBrain:
 
             # ── Step 4b: Noise filter (historical accuracy) ──
             logger.info("Step 4b: Applying historical noise filter")
+            _scan_type = trigger.upper() if trigger.upper() in ("MORNING", "EVENING") else "MORNING"
             clean_tickers = self.historical_analyzer.noise_filter(
-                [p.ticker for p in payloads_list]
+                [p.ticker for p in payloads_list], scan_type=_scan_type
             )
             if len(clean_tickers) < len(payloads_list):
                 payloads_list = [p for p in payloads_list if p.ticker in set(clean_tickers)]
@@ -5601,7 +5604,7 @@ class CanadianStockCouncilBrain:
             # ── Step 16: Backfill actuals for past picks ──
             logger.info("Step 16: Backfilling accuracy for past picks")
             try:
-                await self.historical_analyzer.backfill_actuals(self.fetcher)
+                await self.historical_analyzer.backfill_actuals(self.fetcher, scan_type=scan_type)
                 # Update council calibration curve after new accuracy data
                 self.calibration_engine.build_council_calibration()
             except Exception as e:

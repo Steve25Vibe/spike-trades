@@ -366,6 +366,7 @@ model MarketRegime {
   createdAt DateTime @default(now())
 
   @@unique([date, scanType])
+  @@index([scanType])
 }
 
 model ApiLog {
@@ -393,6 +394,7 @@ model CouncilLog {
   createdAt DateTime @default(now())
 
   @@unique([date, scanType])
+  @@index([scanType])
 }
 
 // ---- Radar (Pre-Market Smart Money Flow) ----
