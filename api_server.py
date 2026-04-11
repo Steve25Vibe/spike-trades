@@ -282,6 +282,8 @@ def _map_to_prisma(council_output: dict) -> dict:
             "insiderSignal": pick.get("insider_signal"),
             "gapPotential": pick.get("analyst_upside_pct"),
             "convictionScore": best_stage.get("conviction", 0),
+            # MPE fields
+            "momentumStatus": pick.get("momentum_status"),
             "predicted3Day": pred_3d,
             "predicted5Day": pred_5d,
             "predicted8Day": pred_8d,

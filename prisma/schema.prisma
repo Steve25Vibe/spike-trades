@@ -166,6 +166,7 @@ model Spike {
   // Spike Score breakdown
   spikeScore      Float // 0-100 composite
   momentumScore   Float?
+  momentumStatus  String?   // MPE: 'QUALIFIED', 'DEGRADED', or null (fresh pick)
   volumeScore     Float?
   technicalScore  Float?
   macroScore      Float?

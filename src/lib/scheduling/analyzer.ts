@@ -37,6 +37,7 @@ interface CouncilMappedResponse {
     marketCap: number | null;
     spikeScore: number;
     momentumScore: number | null;
+    momentumStatus: string | null;
     volumeScore: number | null;
     technicalScore: number | null;
     macroScore: number | null;
@@ -264,6 +265,7 @@ function buildSpikeData(
     marketCap: spike.marketCap,
     spikeScore: spike.spikeScore,
     momentumScore: spike.momentumScore,
+    momentumStatus: spike.momentumStatus ?? null,
     volumeScore: spike.volumeScore,
     technicalScore: spike.technicalScore,
     macroScore: spike.macroScore,
