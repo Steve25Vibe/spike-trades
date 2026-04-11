@@ -53,17 +53,18 @@ export default function AccuracyPage() {
   const [recentPicks, setRecentPicks] = useState<RecentPick[]>([]);
   const [indexValues, setIndexValues] = useState<IndexValues>({ day3: 100, day5: 100, day8: 100 });
   const [loading, setLoading] = useState(true);
+  const [scanTab, setScanTab] = useState<'MORNING' | 'EVENING'>('MORNING');
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 10;
 
   useEffect(() => {
     fetchAccuracy();
-  }, []);
+  }, [scanTab]);
 
   const fetchAccuracy = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/accuracy?days=90');
+      const res = await fetch(`/api/accuracy?days=90&scanType=${scanTab}`);
       if (res.status === 401) { window.location.href = '/login'; return; }
       const json = await res.json();
       if (json.success) {
@@ -97,6 +98,25 @@ export default function AccuracyPage() {
               );
             })}
           </div>
+        </div>
+
+        {/* ============================================================ */}
+        {/* Scan Type Tabs */}
+        {/* ============================================================ */}
+        <div className="flex gap-2 mb-4">
+          {(['MORNING', 'EVENING'] as const).map((type) => (
+            <button
+              key={type}
+              onClick={() => setScanTab(type)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                scanTab === type
+                  ? 'bg-spike-cyan/20 text-spike-cyan border border-spike-cyan/30'
+                  : 'text-gray-400 hover:text-gray-300'
+              }`}
+            >
+              {type === 'MORNING' ? "Today's Spikes" : "Tomorrow's Spikes"}
+            </button>
+          ))}
         </div>
 
         {/* ============================================================ */}
