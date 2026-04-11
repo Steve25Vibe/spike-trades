@@ -7,6 +7,7 @@
 import { Prisma } from '@prisma/client';
 import prisma from '@/lib/db/prisma';
 import { sendDailySummary, sendCouncilEmail, sendEveningPreviewEmail } from '@/lib/email/resend';
+import { writeVaultSnapshot } from './vault';
 
 const COUNCIL_API_URL = process.env.COUNCIL_API_URL || 'http://localhost:8100';
 
@@ -685,6 +686,15 @@ export async function runEveningScan(): Promise<{
       councilLog: mapped.councilLog,
     });
 
+    // 6. Vault snapshot (fire-and-forget)
+    writeVaultSnapshot('EVENING', {
+      scanDate: tomorrowStr,
+      archiveRow: { id: archiveId, scanDate: tomorrowStr, regime: mapped.dailyReport?.marketRegime },
+      report: { id: reportId, date: tomorrowStr, scanType: 'EVENING', marketRegime: mapped.dailyReport?.marketRegime },
+      spikes: mapped.spikes || [],
+      councilLog: mapped.councilLog || null,
+    }).catch((err) => console.warn('[Vault] Snapshot error (non-fatal):', err.message));
+
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     console.log(`[EveningScan] ====== Evening scan complete in ${elapsed}s. ${spikeCount} picks generated for ${tomorrowStr}. ======\n`);
 
@@ -761,6 +771,15 @@ export async function runMorningScan(useCached = false): Promise<{
       reportData: mapped.dailyReport,
       councilLog: mapped.councilLog,
     });
+
+    // 6. Vault snapshot (fire-and-forget)
+    writeVaultSnapshot('MORNING', {
+      scanDate: todayStr,
+      archiveRow: { id: archiveId, scanDate: todayStr, regime: mapped.dailyReport?.marketRegime },
+      report: { id: reportId, date: todayStr, scanType: 'MORNING', marketRegime: mapped.dailyReport?.marketRegime },
+      spikes: mapped.spikes || [],
+      councilLog: mapped.councilLog || null,
+    }).catch((err) => console.warn('[Vault] Snapshot error (non-fatal):', err.message));
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     console.log(`[MorningScan] ====== Morning scan complete in ${elapsed}s. ${spikeCount} picks generated for ${todayStr}. ======\n`);
